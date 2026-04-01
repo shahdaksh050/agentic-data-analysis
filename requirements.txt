@@ -1,0 +1,44 @@
+# ============================================================
+# Agentic Data Analysis System — Requirements
+# Python 3.11+
+# ============================================================
+
+# --- Core Data Processing ---
+pandas>=2.2.0
+numpy>=1.26.0
+polars>=0.20.0          # High-performance DataFrame library
+
+# --- Statistical Analysis ---
+scipy>=1.12.0
+statsmodels>=0.14.0
+
+# --- Machine Learning ---
+scikit-learn>=1.4.0
+xgboost>=2.0.0
+
+# --- Visualization ---
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.20.0           # Interactive, premium charts
+
+# --- LLM Integration ---
+openai>=1.30.0
+anthropic>=0.25.0
+
+# --- UI & CLI ---
+streamlit>=1.35.0        # Web dashboard
+rich>=13.7.0             # Premium terminal output
+
+# --- Environment & Config ---
+python-dotenv>=1.0.0
+pydantic>=2.6.0          # Structured data validation / settings
+pydantic-settings>=2.2.0
+
+# --- Observability & Tracing ---
+arize-phoenix>=3.0.0     # Reasoning trace visualizer (optional)
+
+# --- Dev & Quality Assurance ---
+pytest>=8.1.0
+pytest-asyncio>=0.23.0
+ruff>=0.4.0
+mypy>=1.10.0
