@@ -2,10 +2,13 @@
 Abstract Base Tool for the Agentic Data Analysis System.
 
 Every tool in src/tools/ must subclass BaseTool.
-Tools must:
-  - Be deterministic (same inputs → same outputs).
-  - Return a structured dict (JSON-serializable).
-  - Raise ToolExecutionError on failure (never crash silently).
+
+Contract:
+  - Deterministic: same inputs → same outputs (no randomness unless seeded).
+  - Structured output: every execute() must return a dict with a "summary" key.
+  - Typed: full PEP 484 type hints required.
+  - Safe failure: raise ToolExecutionError on expected failures; never swallow
+    exceptions silently.
 """
 from __future__ import annotations
 
@@ -17,19 +20,14 @@ from src.core.memory import ToolResult
 
 
 class ToolExecutionError(Exception):
-    """Raised when a tool encounters an unrecoverable error."""
+    """Raised when a tool encounters an unrecoverable, expected error."""
     pass
 
 
 class BaseTool(ABC):
-    """
-    Abstract base class for all analysis tools.
+    """Abstract base class for all deterministic analysis tools."""
 
-    Each subclass represents one deterministic, type-safe capability
-    of the agent's execution layer.
-    """
-
-    #: Unique name used by the LLM to call this tool (e.g. "clean_data").
+    #: Unique snake_case name referenced by the LLM in its JSON plans.
     name: str
     #: Human-readable description injected into LLM system prompts.
     description: str
@@ -37,40 +35,38 @@ class BaseTool(ABC):
     @abstractmethod
     def execute(self, **kwargs: Any) -> dict[str, Any]:
         """
-        Execute the tool with the provided parameters.
-
-        Args:
-            **kwargs: Tool-specific parameters as returned by the LLM JSON plan.
+        Execute the tool with the given parameters.
 
         Returns:
-            A JSON-serializable dict of results. Must always include a "summary"
-            key with a one-sentence human-readable description of the outcome.
-
+            JSON-serialisable dict.  Must always include:
+              - "summary": one-sentence human-readable outcome description.
         Raises:
-            ToolExecutionError: If the tool cannot complete successfully.
+            ToolExecutionError: On expected, recoverable failures.
         """
         ...
 
     @abstractmethod
     def get_schema(self) -> dict[str, Any]:
         """
-        Return the tool's parameter schema for LLM prompt injection.
+        Return the parameter schema for LLM prompt injection.
 
         Returns:
-            A dict describing parameters: {name: {type, description, required}}.
+            {param_name: {"type": str, "description": str, "required": bool}}
         """
         ...
 
     def run(self, **kwargs: Any) -> ToolResult:
         """
-        Wraps execute() with timing, error handling, and ToolResult packaging.
+        Public wrapper — timing, error handling, ToolResult packaging.
 
         Always call this method rather than execute() directly.
+        Wraps ToolExecutionError and any unexpected exception into a
+        structured ToolResult so the agent loop never crashes.
         """
-        start_ms = time.monotonic() * 1000
+        start = time.monotonic()
         try:
             output = self.execute(**kwargs)
-            elapsed = time.monotonic() * 1000 - start_ms
+            elapsed = (time.monotonic() - start) * 1000
             return ToolResult(
                 tool_name=self.name,
                 status="success",
@@ -78,7 +74,7 @@ class BaseTool(ABC):
                 execution_time_ms=elapsed,
             )
         except ToolExecutionError as exc:
-            elapsed = time.monotonic() * 1000 - start_ms
+            elapsed = (time.monotonic() - start) * 1000
             return ToolResult(
                 tool_name=self.name,
                 status="error",
@@ -87,8 +83,7 @@ class BaseTool(ABC):
                 execution_time_ms=elapsed,
             )
         except Exception as exc:  # noqa: BLE001
-            # Catch-all: surface unexpected errors as structured results
-            elapsed = time.monotonic() * 1000 - start_ms
+            elapsed = (time.monotonic() - start) * 1000
             return ToolResult(
                 tool_name=self.name,
                 status="error",
@@ -101,8 +96,13 @@ class BaseTool(ABC):
         """Format tool info for LLM system prompt injection."""
         schema = self.get_schema()
         params = "\n".join(
-            f"  - {k}: ({v.get('type', 'any')}) {v.get('description', '')} "
-            f"{'[required]' if v.get('required') else '[optional]'}"
+            f"  - {k} ({v.get('type', 'any')}) "
+            f"{'[required]' if v.get('required') else '[optional]'}: "
+            f"{v.get('description', '')}"
             for k, v in schema.items()
         )
-        return f"Tool: {self.name}\nDescription: {self.description}\nParameters:\n{params}"
+        return (
+            f"tool_name: {self.name}\n"
+            f"description: {self.description}\n"
+            f"parameters:\n{params}"
+        )

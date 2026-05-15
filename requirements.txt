@@ -6,7 +6,9 @@
 # --- Core Data Processing ---
 pandas>=2.2.0
 numpy>=1.26.0
-polars>=0.20.0          # High-performance DataFrame library
+polars>=0.20.0
+openpyxl>=3.1.0      # Excel .xlsx read/write
+xlrd>=2.0.1          # Excel .xls (legacy) read
 
 # --- Statistical Analysis ---
 scipy>=1.12.0
@@ -19,23 +21,27 @@ xgboost>=2.0.0
 # --- Visualization ---
 matplotlib>=3.8.0
 seaborn>=0.13.0
-plotly>=5.20.0           # Interactive, premium charts
+plotly>=5.20.0
+
+# --- Reporting ---
+reportlab>=4.1.0
+markdown>=3.6
 
 # --- LLM Integration ---
 openai>=1.30.0
 anthropic>=0.25.0
 
 # --- UI & CLI ---
-streamlit>=1.35.0        # Web dashboard
-rich>=13.7.0             # Premium terminal output
+streamlit>=1.35.0
+rich>=13.7.0
 
 # --- Environment & Config ---
 python-dotenv>=1.0.0
-pydantic>=2.6.0          # Structured data validation / settings
+pydantic>=2.6.0
 pydantic-settings>=2.2.0
 
-# --- Observability & Tracing ---
-arize-phoenix>=3.0.0     # Reasoning trace visualizer (optional)
+# --- Observability ---
+arize-phoenix>=3.0.0
 
 # --- Dev & Quality Assurance ---
 pytest>=8.1.0
