@@ -1,22 +1,27 @@
 """
 Agent Controller — Orchestration and Reasoning Layer.
 
-This is the 'brain' of the system. It:
-  1. Accepts user datasets and routes them to the MemorySystem.
-  2. Calls the LLM (via RLMEngine) for reasoning and planning.
-  3. Dispatches tool calls to the Execution Layer.
-  4. Manages the iterative reasoning-execution cycle.
-  5. Produces the final structured report.
+Implements the full 7-stage agent workflow:
+
+  Stage 1 — Dataset Ingestion          load_dataset()
+  Stage 2 — Initial Reasoning Phase    analyze() → first RLM invoke
+  Stage 3 — Tool Selection & Execution analyze() → execution loop
+  Stage 4 — Result Interpretation      analyze() → iteration prompt
+  Stage 5 — Iterative Refinement       analyze() → loop until complete
+  Stage 6 — RLM Workflow Management    _run_rlm_decomposition()
+  Stage 7 — Report Generation          _generate_final_report()
 
 ARCHITECTURAL BOUNDARY:
   - This file handles PLANNING and ORCHESTRATION only.
-  - Never call tools directly from here; always go through the ToolRegistry.
-  - Never put raw data in LLM prompts; always go through PromptManager.
+  - Raw data never enters LLM prompts — only summaries via PromptManager.
+  - Tools are always called through ToolRegistry, never directly.
+  - The LLM is always called through RLMEngine, never directly.
 """
 from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console
@@ -25,17 +30,28 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem
 from src.core.prompt_manager import PromptManager
-from src.rlm.engine import RLMEngine
+from src.rlm.engine import RLMEngine, RLMSubTask
 
 console = Console()
 
+# Max retries before abandoning a failed step
+MAX_STEP_RETRIES = 2
+
+# Target auto-detection confidence thresholds
+_AUTODETECT_HIGH = 0.75   # proceed autonomously above this
+_AUTODETECT_LOW  = 0.40   # prompt user (CLI) or best-guess (UI) above this
+
+
+# ---------------------------------------------------------------------------
+# LLM Client — thin, provider-agnostic wrapper
+# ---------------------------------------------------------------------------
 
 class LLMClient:
     """
     Thin wrapper around LLM provider APIs.
 
-    Supports OpenAI and Anthropic. Uses env vars for configuration.
-    Never hardcodes credentials.
+    Supports OpenAI and Anthropic. Credentials come from environment
+    variables only — never hardcoded.
     """
 
     def __init__(self) -> None:
@@ -46,80 +62,159 @@ class LLMClient:
 
     def call(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         """
-        Call the configured LLM and parse the JSON response.
-
-        Args:
-            system_prompt: The system-level instructions.
-            user_prompt: The user-level task prompt.
-
-        Returns:
-            Parsed JSON dict from the LLM.
+        Call the configured LLM and return the parsed JSON response.
 
         Raises:
             ValueError: If the response cannot be parsed as JSON.
         """
-        raw_text = self._dispatch(system_prompt, user_prompt)
-        return self._parse_json_response(raw_text)
+        raw = self._dispatch(system_prompt, user_prompt)
+        return self._parse_json(raw)
 
     def _dispatch(self, system_prompt: str, user_prompt: str) -> str:
-        """Route to the correct LLM SDK."""
-        if self.provider == "openai":
-            return self._call_openai(system_prompt, user_prompt)
-        elif self.provider == "anthropic":
+        if self.provider == "anthropic":
             return self._call_anthropic(system_prompt, user_prompt)
-        else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider}")
+        return self._call_openai_compat(system_prompt, user_prompt)
 
-    def _call_openai(self, system_prompt: str, user_prompt: str) -> str:
-        """Call OpenAI Chat Completions API."""
+    def _call_openai_compat(self, system_prompt: str, user_prompt: str) -> str:
+        """OpenAI and OpenRouter both use the OpenAI-compatible SDK."""
         from openai import OpenAI  # type: ignore[import-untyped]
-
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.chat.completions.create(
+        if self.provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY", "")
+            base_url: str | None = "https://openrouter.ai/api/v1"
+            extra_headers: dict[str, str] = {
+                "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://github.com/agentic-data-analysis"),
+                "X-Title": "Agentic Data Analysis",
+            }
+        else:
+            api_key = os.getenv("OPENAI_API_KEY", "")
+            base_url = None
+            extra_headers = {}
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        if extra_headers:
+            client_kwargs["default_headers"] = extra_headers
+        client = OpenAI(**client_kwargs)
+        create_kwargs: dict[str, Any] = dict(
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         )
-        return response.choices[0].message.content or "{}"
+        if self.provider == "openai":
+            create_kwargs["response_format"] = {"type": "json_object"}
+        resp = client.chat.completions.create(**create_kwargs)
+        content = resp.choices[0].message.content
+        if content is None:
+            raise ValueError("LLM returned None content")
+        return content
 
     def _call_anthropic(self, system_prompt: str, user_prompt: str) -> str:
-        """Call Anthropic Messages API."""
         import anthropic  # type: ignore[import-untyped]
-
         client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        message = client.messages.create(
+        msg = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        return message.content[0].text
+        return msg.content[0].text
 
     @staticmethod
-    def _parse_json_response(raw: str) -> dict[str, Any]:
-        """Extract and parse the JSON block from an LLM response."""
-        # Strip markdown code fences if present
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0]
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0]
-        try:
-            return json.loads(raw.strip())
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"LLM returned non-JSON response: {raw[:300]}") from exc
+    def _parse_json(raw: str) -> dict[str, Any]:
+        # Strip markdown fences if present
+        for fence in ("```json", "```"):
+            if fence in raw:
+                raw = raw.split(fence)[1].split("```")[0]
+                break
 
+        cleaned = raw.strip()
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # Try json-repair library if installed (handles all edge cases)
+        try:
+            from json_repair import repair_json  # type: ignore[import-untyped]
+            candidate = repair_json(cleaned, return_objects=False)
+            if candidate:
+                return json.loads(candidate)
+        except (ImportError, json.JSONDecodeError):
+            pass
+
+        # Manual repair: close open strings/structures and fix trailing : or ,
+        repaired = LLMClient._repair_truncated_json(cleaned)
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"LLM returned non-JSON: {raw[:300]}") from exc
+
+    @staticmethod
+    def _repair_truncated_json(s: str) -> str:
+        """Close any open strings and bracket structures left by a truncated LLM response."""
+        stack: list[str] = []
+        in_string = False
+        escape_next = False
+
+        for ch in s:
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch in ("{", "["):
+                stack.append("}" if ch == "{" else "]")
+            elif ch in ("}", "]"):
+                if stack and stack[-1] == ch:
+                    stack.pop()
+
+        result = s
+
+        # 1. Close any open string literal
+        if in_string:
+            result += '"'
+
+        if not stack:
+            return result
+
+        # 2. Examine the last meaningful (non-whitespace) character to decide
+        #    what padding is needed before the closing brackets.
+        tail = result.rstrip()
+        last_ch = tail[-1] if tail else ""
+
+        if last_ch == ":":
+            # Truncated right after a colon — value never started
+            result = tail + " null"
+        elif last_ch == ",":
+            # Trailing comma — remove it so the structure closes cleanly
+            result = tail[:-1]
+
+        # 3. Close all open brackets/braces in innermost-first order
+        result += "".join(reversed(stack))
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Tool Registry — discovers and maps all tools
+# ---------------------------------------------------------------------------
 
 class ToolRegistry:
     """
-    Registry of all available tools.
+    Registry of all available execution-layer tools.
 
-    Automatically discovers and maps tool names to BaseTool instances.
-    The LLM references tools by name; this class resolves those to callables.
+    The LLM references tools by name; this class resolves them to
+    callable BaseTool instances.
     """
 
     def __init__(self) -> None:
@@ -130,7 +225,7 @@ class ToolRegistry:
             IngestDatasetTool,
         )
         from src.tools.statistical_analysis import SelectStatisticalTestTool
-        from src.tools.ml_pipeline import TrainModelTool, EvaluateModelTool
+        from src.tools.ml_pipeline import EvaluateModelTool, TrainModelTool
         from src.tools.visualization import GenerateVisualizationsTool
         from src.tools.report_generator import GenerateReportTool
 
@@ -148,7 +243,6 @@ class ToolRegistry:
         self._registry = {t.name: t for t in _tools}
 
     def get(self, name: str) -> Any:
-        """Look up a tool by name. Raises KeyError if not found."""
         if name not in self._registry:
             raise KeyError(
                 f"Unknown tool '{name}'. Available: {list(self._registry.keys())}"
@@ -156,15 +250,20 @@ class ToolRegistry:
         return self._registry[name]
 
     def get_all_descriptions(self) -> str:
-        """Return concatenated tool descriptions for LLM prompt injection."""
         return "\n\n".join(t.to_prompt_description() for t in self._registry.values())
 
 
+# ---------------------------------------------------------------------------
+# Agent Controller — the top-level orchestrator
+# ---------------------------------------------------------------------------
+
 class AgentController:
     """
-    Top-level orchestrator for the Agentic Data Analysis System.
+    Top-level orchestrator implementing the full 7-stage workflow.
 
-    Implements the reasoning-execution loop with RLM-based context management.
+    Reasoning and execution are strictly separated:
+      - Reasoning: LLMClient → RLMEngine → PromptManager
+      - Execution: ToolRegistry → BaseTool.run()
     """
 
     def __init__(
@@ -184,41 +283,129 @@ class AgentController:
         self.tool_registry = ToolRegistry()
         self._rlm_engine: RLMEngine | None = None
         self._prompt_manager: PromptManager | None = None
+        self._output_dir: str = os.getenv("OUTPUT_DIR", "output")
+        self._rlm_decomposed: bool = False   # run decomposition at most once per session
+        # Optional callback fired after each tool: (tool_name, status, detail) -> None
+        self.on_step_callback: Any = None
+        # Optional callback fired after each LLM iteration: (iteration, stage) -> None
+        self.on_iteration_callback: Any = None
 
-    # ------------------------------------------------------------------ #
-    # Public API
-    # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------
+    # Stage 1 — Dataset Ingestion
+    # ------------------------------------------------------------------
 
-    def load_dataset(self, file_path: str) -> DatasetMetadata:
+    def load_dataset(
+        self,
+        file_path: str,
+        target_hint: str | None = None,
+        interactive: bool = True,
+    ) -> DatasetMetadata:
         """
-        Ingest a dataset and store metadata in the Memory System.
+        Stage 1: Ingest the dataset and store metadata in Memory.
+
+        The LLM never sees raw data — only the compact metadata string.
 
         Args:
-            file_path: Path to a CSV or Excel file.
+            file_path:   Path to the CSV or Excel file.
+            target_hint: Optional column name to use as the ML target.
+            interactive: When True and auto-detection confidence is low,
+                         prompt the user via stdin. Set to False in
+                         non-interactive environments (Streamlit, API).
 
         Returns:
-            The extracted DatasetMetadata.
+            DatasetMetadata stored in the Memory System.
         """
-        console.print(Panel(
-            f"[bold]Loading dataset:[/] {file_path}",
-            title="[bold green]Agent Controller",
-            border_style="green",
-        ))
+        console.print(
+            Panel(
+                f"[bold]Stage 1 — Dataset Ingestion[/]\nFile: {file_path}",
+                title="[bold green]Agent Controller",
+                border_style="green",
+            )
+        )
+
+        # Override target from CLI hint or environment
+        target = target_hint or os.getenv("TARGET_COLUMN_HINT")
 
         ingest_tool = self.tool_registry.get("ingest_dataset")
-        result = ingest_tool.run(file_path=file_path)
+        result = ingest_tool.run(file_path=file_path, target_column=target)
 
         if result.status == "error":
             raise RuntimeError(f"Dataset ingestion failed: {result.error_message}")
 
-        metadata = DatasetMetadata(**result.output["metadata"])
+        raw_meta = result.output["metadata"]
+        metadata = DatasetMetadata(**raw_meta)
+
+        # Auto-detect target column when user hasn't provided one
+        if not metadata.target_column:
+            col, confidence = metadata.detect_target_with_confidence()
+
+            if col and confidence >= _AUTODETECT_HIGH:
+                # High confidence — proceed autonomously
+                metadata.target_column = col
+                console.print(
+                    f"  [green]Auto-detected '{col}' as the target "
+                    f"(confidence {confidence:.0%}). Proceeding with analysis...[/]"
+                )
+                metadata.task_type = metadata.infer_task_type()
+
+            elif col and confidence >= _AUTODETECT_LOW:
+                # Medium confidence — prompt if interactive, else use best guess
+                if interactive:
+                    console.print(
+                        f"\n[yellow]Low-confidence target detection: '{col}' "
+                        f"(confidence {confidence:.0%}).[/]"
+                    )
+                    user_input = input(
+                        f"  Press ENTER to accept '{col}', or type another column name: "
+                    ).strip()
+                    chosen = user_input if user_input else col
+                    if chosen in metadata.columns:
+                        metadata.target_column = chosen
+                        metadata.task_type = metadata.infer_task_type()
+                    else:
+                        console.print(f"  [yellow]Column '{chosen}' not found. Using EDA mode.[/]")
+                        metadata.task_type = "eda"
+                else:
+                    console.print(
+                        f"  [yellow]Using best-guess target '{col}' "
+                        f"(confidence {confidence:.0%}). Pass target_hint to override.[/]"
+                    )
+                    metadata.target_column = col
+                    metadata.task_type = metadata.infer_task_type()
+
+            else:
+                # Very low confidence / no viable candidate
+                if interactive:
+                    console.print("\n[yellow]Could not confidently determine the target column.[/]")
+                    avail = ", ".join(list(metadata.columns.keys())[:15])
+                    console.print(f"  Available columns: {avail}")
+                    user_input = input(
+                        "  Please input the target column name"
+                        " (or press ENTER for EDA mode): "
+                    ).strip()
+                    if user_input and user_input in metadata.columns:
+                        metadata.target_column = user_input
+                        metadata.task_type = metadata.infer_task_type()
+                    else:
+                        metadata.task_type = "eda"
+                else:
+                    console.print("  [dim]No target column detected. Defaulting to EDA mode.[/]")
+                    metadata.task_type = "eda"
+
+        elif not metadata.task_type:
+            metadata.task_type = metadata.infer_task_type()
+
         self.memory.store_dataset_metadata(metadata)
         self.memory.append_tool_result(result)
         return metadata
 
+    # ------------------------------------------------------------------
+    # Stages 2-7 — Full autonomous analysis pipeline
+    # ------------------------------------------------------------------
+
     def analyze(self) -> dict[str, Any]:
         """
-        Run the full autonomous analysis pipeline.
+        Run the complete autonomous analysis pipeline (Stages 2-7).
 
         Returns:
             Final analysis report as a structured dict.
@@ -226,16 +413,16 @@ class AgentController:
         if not self.memory.dataset_metadata:
             raise RuntimeError("No dataset loaded. Call load_dataset() first.")
 
-        # Initialize PromptManager and RLM Engine
-        tool_descriptions = self.tool_registry.get_all_descriptions()
-        self._prompt_manager = PromptManager(self.memory, tool_descriptions)
+        # Initialise PromptManager and RLMEngine
+        tool_desc = self.tool_registry.get_all_descriptions()
+        self._prompt_manager = PromptManager(self.memory, tool_desc)
         self._rlm_engine = RLMEngine(
             llm_callable=self.llm_client.call,
             system_prompt=self._prompt_manager.get_system_prompt(),
             max_depth=int(os.getenv("RLM_MAX_DEPTH", "5")),
         )
 
-        console.print("\n[bold magenta]🚀 Starting Autonomous Analysis[/]\n")
+        console.print("\n[bold magenta]🚀 Starting Autonomous Analysis — Stages 2-7[/]\n")
         final_result: dict[str, Any] = {}
 
         with Progress(
@@ -243,33 +430,48 @@ class AgentController:
             TextColumn("[progress.description]{task.description}"),
             transient=True,
         ) as progress:
-            task = progress.add_task("Reasoning...", total=None)
+            task_id = progress.add_task("Reasoning…", total=None)
 
             for iteration in range(1, self.max_iterations + 1):
                 self.memory.iteration_count = iteration
-                progress.update(task, description=f"Reasoning cycle {iteration}/{self.max_iterations}")
+                self._rlm_engine.set_iteration(iteration)
+                progress.update(
+                    task_id,
+                    description=f"Stage 2/4/5 — Reasoning cycle {iteration}/{self.max_iterations}",
+                )
 
-                # --- REASONING PHASE ---
+                # ---- Stage 2 / 4+5: Reasoning Phase ----
                 if iteration == 1:
                     user_prompt = self._prompt_manager.get_initial_user_prompt()
+                    stage_label = "stage2:initial_reasoning"
                 else:
                     user_prompt = self._prompt_manager.get_iteration_user_prompt()
+                    stage_label = f"stage4-5:iteration_{iteration}"
 
-                llm_response = self._rlm_engine.invoke(user_prompt, depth=0)
+                if self.on_iteration_callback:
+                    self.on_iteration_callback(iteration, stage_label)
 
-                # --- CHECK COMPLETION ---
+                llm_response = self._rlm_engine.invoke(
+                    user_prompt, depth=0, stage=stage_label
+                )
+
+                # ---- Fail fast on LLM errors ----
+                if llm_response.get("status") == "error":
+                    err_msg = llm_response.get("error", "Unknown LLM error")
+                    raise RuntimeError(f"LLM error on iteration {iteration}: {err_msg}")
+
+                # ---- Check for completion (Stage 7 trigger) ----
                 if llm_response.get("status") == "complete":
-                    console.print("\n[bold green]✅ Analysis Complete![/]")
+                    console.print("\n[bold green]✅ LLM signalled analysis complete.[/]")
                     final_result = llm_response
                     break
 
-                # --- PARSE & STORE PLAN ---
+                # ---- Parse plan steps ----
                 steps_data = llm_response.get("steps", [])
                 if not steps_data:
-                    console.print("[yellow]⚠ LLM returned no steps. Requesting final synthesis.[/]")
-                    final_prompt = self._prompt_manager.get_final_interpretation_prompt()
-                    final_result = self._rlm_engine.invoke(final_prompt, depth=0)
-                    break
+                    raise ValueError(
+                        f"LLM returned no steps on iteration {iteration}."
+                    )
 
                 steps = [
                     AnalysisStep(
@@ -282,27 +484,236 @@ class AgentController:
                 ]
                 self.memory.store_analysis_plan(steps)
 
-                # --- EXECUTION PHASE ---
-                for step in steps:
-                    try:
-                        tool = self.tool_registry.get(step.tool_name)
-                        result = tool.run(**step.parameters)
-                        self.memory.append_tool_result(result)
-                        self.memory.mark_step_complete(step.step_number, result)
-                    except KeyError as exc:
-                        console.print(f"[red]❌ Tool not found: {exc}[/]")
+                # ---- Stage 3: Tool Selection & Execution ----
+                progress.update(task_id, description=f"Stage 3 — Executing {len(steps)} tool(s)…")
+                self._execute_steps(steps)
+
+                # ---- Stage 6: RLM Decomposition (if enabled & many features, once only) ----
+                if self.enable_rlm and not self._rlm_decomposed and self._should_decompose():
+                    progress.update(task_id, description="Stage 6 — RLM task decomposition…")
+                    self._run_rlm_decomposition()
+                    self._rlm_decomposed = True
 
                 self.memory.save()
 
             else:
                 # Max iterations reached
-                console.print("[yellow]⚠ Max iterations reached. Generating final report.[/]")
+                console.print("[yellow]⚠ Max iterations reached — generating final report.[/]")
                 final_prompt = self._prompt_manager.get_final_interpretation_prompt()
-                final_result = self._rlm_engine.invoke(final_prompt, depth=0)
+                final_result = self._rlm_engine.invoke(
+                    final_prompt, depth=0, stage="stage7:max_iter_synthesis"
+                )
+
+        # ---- Stage 7: Report Generation ----
+        self._generate_final_report(final_result)
 
         # Print reasoning trace
-        if self.enable_rlm and self._rlm_engine:
+        if self._rlm_engine:
             console.print()
             self._rlm_engine.print_reasoning_trace()
 
         return final_result
+
+    # ------------------------------------------------------------------
+    # Stage 3 execution helper
+    # ------------------------------------------------------------------
+
+    def _execute_steps(self, steps: list[AnalysisStep]) -> None:
+        """
+        Stage 3 — execute each tool in the plan with retry on failure.
+
+        Retry logic: on the first failure, increment retry counter and
+        let the next LLM iteration re-plan. If MAX_STEP_RETRIES is
+        exceeded, the step is permanently marked as failed.
+        """
+        total_steps = len(steps)
+        for idx, step in enumerate(steps, 1):
+            if step.retry_count >= MAX_STEP_RETRIES and step.is_failed():
+                raise RuntimeError(
+                    f"Tool '{step.tool_name}' exceeded max retries ({MAX_STEP_RETRIES})."
+                )
+
+            console.print(
+                f"  [cyan]→ Step {step.step_number}: {step.tool_name}[/] "
+                f"[dim]{step.rationale[:60]}[/]"
+            )
+            # Fire pre-execution callback
+            if self.on_step_callback:
+                self.on_step_callback(step.tool_name, "running",
+                                      f"{idx}/{total_steps} — {step.tool_name}…")
+            # ── Auto-substitute cleaned_file_path & output_dir into params ──
+            params = dict(step.parameters)
+            cleaned = self.memory.get_context("cleaned_file_path")
+            if cleaned:
+                # Replace any placeholder or original path reference
+                if "file_path" in params:
+                    raw = params["file_path"]
+                    # Substitute if it looks like a placeholder or the original file
+                    if (raw in ("cleaned_file_path", "<cleaned_file_path>",
+                                "path/to/cleaned", "")
+                            or not raw.endswith((".csv", ".xlsx", ".xls"))):
+                        params["file_path"] = cleaned
+                    # Also substitute if it's the original (non-cleaned) path
+                    # and a cleaned version now exists
+                    elif step.tool_name not in ("clean_data", "ingest_dataset"):
+                        params["file_path"] = cleaned
+
+            # Inject output_dir for tools that write files
+            if step.tool_name in ("train_model", "evaluate_model",
+                                   "generate_visualizations", "generate_report"):
+                if "output_dir" not in params or not params.get("output_dir"):
+                    base = self._output_dir
+                    subdir = {
+                        "train_model":           "models",
+                        "evaluate_model":        "models",
+                        "generate_visualizations": "visualizations",
+                        "generate_report":       "reports",
+                    }.get(step.tool_name, "output")
+                    params["output_dir"] = str(Path(base) / subdir)
+
+            # ── Auto-substitute best_model_path for tools that need a trained model ──
+            if step.tool_name in ("evaluate_model", "generate_visualizations"):
+                best_path = self.memory.get_context("best_model_path")
+                if best_path:
+                    raw_mp = params.get("model_path", "")
+                    if not raw_mp or not Path(raw_mp).exists():
+                        params["model_path"] = best_path
+
+            tool = self.tool_registry.get(step.tool_name)
+            result = tool.run(**params)
+            self.memory.append_tool_result(result)
+            self.memory.mark_step_complete(step.step_number, result)
+
+            # Store important outputs in memory context for downstream tools
+            if step.tool_name == "train_model" and result.status == "success":
+                best = result.output.get("best_model", "")
+                mt = result.output.get("models_trained", {})
+                if best and best in mt:
+                    model_path = mt[best].get("model_path", "")
+                    if model_path:
+                        self.memory.set_context("best_model_path", model_path)
+                        self.memory.set_context("best_model_name", best)
+
+            # If cleaning produced a cleaned file, store it for downstream tools
+            if step.tool_name == "clean_data" and result.status == "success":
+                cleaned_path = result.output.get("cleaned_file_path")
+                if cleaned_path:
+                    self.memory.set_context("cleaned_file_path", cleaned_path)
+                    console.print(
+                        f"  [dim]Cleaned file stored → {cleaned_path}[/]"
+                    )
+            # Fire post-execution callback
+            if self.on_step_callback:
+                summary = result.output.get("summary", "")[:80] if result.status == "success" else result.error_message
+                self.on_step_callback(step.tool_name, result.status, f"{idx}/{total_steps} done — {summary}")
+
+    # ------------------------------------------------------------------
+    # Stage 6 — RLM decomposition
+    # ------------------------------------------------------------------
+
+    def _should_decompose(self) -> bool:
+        """Trigger decomposition when the dataset has many features (>15)."""
+        meta = self.memory.dataset_metadata
+        return meta is not None and meta.column_count > 15
+
+    def _run_rlm_decomposition(self) -> None:
+        """
+        Stage 6: Decompose the feature space into sub-groups and run
+        targeted LLM sub-calls on each group.
+
+        This is the core RLM innovation: instead of one monolithic context,
+        each feature group gets its own focused reasoning call.
+        """
+        if self._rlm_engine is None or self._prompt_manager is None:
+            return
+
+        meta = self.memory.dataset_metadata
+        if meta is None:
+            return
+
+        num_cols = meta.numerical_cols
+        cat_cols = meta.categorical_cols
+
+        # Partition numerical columns into groups of ≤8
+        groups: dict[str, list[str]] = {}
+        chunk_size = 8
+        for i in range(0, len(num_cols), chunk_size):
+            groups[f"numerical_group_{i // chunk_size + 1}"] = num_cols[i: i + chunk_size]
+        if cat_cols:
+            groups["categorical_group"] = cat_cols[:10]
+
+        sub_tasks = [
+            RLMSubTask(
+                task_id=gid,
+                description=f"Analyse {len(cols)}-feature group: {', '.join(cols[:5])}…",
+                context={"columns": cols, "group_id": gid},
+            )
+            for gid, cols in groups.items()
+        ]
+
+        if not sub_tasks:
+            return
+
+        def build_prompt(task: RLMSubTask) -> str:
+            assert self._prompt_manager is not None
+            ctx_summary = json.dumps(task.context)
+            return self._prompt_manager.get_rlm_subtask_prompt(
+                task_id=task.task_id,
+                description=task.description,
+                context_summary=ctx_summary,
+            )
+
+        sub_results = self._rlm_engine.decompose_and_invoke(
+            sub_tasks=sub_tasks,
+            prompt_builder=build_prompt,
+            depth=1,
+        )
+
+        # Store sub-results in memory context for final synthesis
+        self.memory.set_context("rlm_sub_results", sub_results)
+        console.print(
+            f"  [green]✓ RLM decomposition complete: "
+            f"{len(sub_results)} sub-task(s) resolved.[/]"
+        )
+
+    # ------------------------------------------------------------------
+    # Stage 7 — Report generation
+    # ------------------------------------------------------------------
+
+    def _generate_final_report(self, llm_final: dict[str, Any]) -> None:
+        """
+        Stage 7: Invoke GenerateReportTool to produce the Markdown/JSON report.
+
+        The report tool is called with the serialised tool results and the
+        LLM's final interpretation so it can produce a complete document.
+        """
+        meta = self.memory.dataset_metadata
+        dataset_name = Path(meta.file_path).stem if meta else "dataset"
+
+        tool_results_json = json.dumps(
+            [r.to_dict() for r in self.memory.tool_results], default=str
+        )
+
+        report_tool = self.tool_registry.get("generate_report")
+        result = report_tool.run(
+            dataset_name=dataset_name,
+            tool_results_json=tool_results_json,
+            llm_insights=llm_final,
+            output_dir=str(Path(self._output_dir) / "reports"),
+        )
+
+        self.memory.append_tool_result(result)
+
+        if result.status == "success":
+            console.print(
+                Panel(
+                    f"[bold green]Stage 7 — Report Generated[/]\n"
+                    f"Markdown: {result.output.get('markdown_path')}\n"
+                    f"JSON:     {result.output.get('json_path')}",
+                    border_style="green",
+                )
+            )
+        else:
+            console.print(
+                f"[yellow]⚠ Report generation failed: {result.error_message}[/]"
+            )

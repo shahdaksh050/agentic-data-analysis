@@ -1,0 +1,127 @@
+"""Unit tests for ML Pipeline Tools — Stage 3 model training."""
+from __future__ import annotations
+
+import pandas as pd
+import pytest
+
+from src.tools.ml_pipeline import EvaluateModelTool, TrainModelTool
+
+
+@pytest.fixture
+def classification_csv(tmp_path: pytest.TempPathFactory) -> str:
+    import numpy as np
+    rng = np.random.default_rng(42)
+    n = 200
+    df = pd.DataFrame(
+        {
+            "f1": rng.normal(0, 1, n),
+            "f2": rng.normal(0, 1, n),
+            "f3": rng.normal(0, 1, n),
+            "label": (rng.normal(0, 1, n) > 0).astype(int),
+        }
+    )
+    p = tmp_path / "clf.csv"
+    df.to_csv(p, index=False)
+    return str(p)
+
+
+@pytest.fixture
+def regression_csv(tmp_path: pytest.TempPathFactory) -> str:
+    import numpy as np
+    rng = np.random.default_rng(0)
+    n = 200
+    df = pd.DataFrame(
+        {
+            "x1": rng.normal(0, 1, n),
+            "x2": rng.normal(0, 1, n),
+            "price": rng.normal(100, 15, n),
+        }
+    )
+    p = tmp_path / "reg.csv"
+    df.to_csv(p, index=False)
+    return str(p)
+
+
+class TestTrainModelTool:
+    def test_classification_trains_successfully(self, classification_csv: str) -> None:
+        result = TrainModelTool().run(
+            file_path=classification_csv,
+            target_column="label",
+            task_type="classification",
+            models=["random_forest", "logistic_regression"],
+        )
+        assert result.status == "success"
+        assert "best_model" in result.output
+
+    def test_cv_scores_present(self, classification_csv: str) -> None:
+        result = TrainModelTool().run(
+            file_path=classification_csv,
+            target_column="label",
+            models=["logistic_regression"],
+        )
+        assert result.status == "success"
+        model_results = result.output["models_trained"]
+        for m in model_results.values():
+            assert "cv_mean" in m
+            assert "cv_std" in m
+
+    def test_train_test_gap_present(self, classification_csv: str) -> None:
+        result = TrainModelTool().run(
+            file_path=classification_csv,
+            target_column="label",
+            models=["logistic_regression"],
+        )
+        model_results = result.output["models_trained"]
+        for m in model_results.values():
+            assert "train_test_gap" in m
+
+    def test_regression_trains_successfully(self, regression_csv: str) -> None:
+        result = TrainModelTool().run(
+            file_path=regression_csv,
+            target_column="price",
+            task_type="regression",
+            models=["linear_regression", "ridge"],
+        )
+        assert result.status == "success"
+
+    def test_low_max_depth_reduces_overfit_risk(self, classification_csv: str) -> None:
+        """With max_depth=2, RF should generalise well on random data."""
+        result = TrainModelTool().run(
+            file_path=classification_csv,
+            target_column="label",
+            models=["random_forest"],
+            max_depth=2,
+        )
+        assert result.status == "success"
+        gap = result.output["models_trained"]["random_forest"]["train_test_gap"]
+        # Capped depth should keep gap < 0.30 even on random data
+        assert gap < 0.30
+
+    def test_missing_target_returns_error(self, classification_csv: str) -> None:
+        result = TrainModelTool().run(
+            file_path=classification_csv,
+            target_column="nonexistent_col",
+        )
+        assert result.status == "error"
+
+
+class TestEvaluateModelTool:
+    def test_evaluate_after_train(self, classification_csv: str, tmp_path: pytest.TempPathFactory) -> None:
+        output_dir = str(tmp_path / "models")
+        train_result = TrainModelTool().run(
+            file_path=classification_csv,
+            target_column="label",
+            models=["logistic_regression"],
+            output_dir=output_dir,
+        )
+        assert train_result.status == "success"
+        model_path = train_result.output["models_trained"]["logistic_regression"]["model_path"]
+
+        eval_result = EvaluateModelTool().run(
+            model_path=model_path,
+            file_path=classification_csv,
+            target_column="label",
+            task_type="classification",
+        )
+        assert eval_result.status == "success"
+        assert "accuracy" in eval_result.output

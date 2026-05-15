@@ -7,7 +7,6 @@ name = "agentic-data-analysis"
 version = "1.0.0"
 description = "Autonomous AI-Powered Data Analysis System with RLM Inference"
 readme = "README.md"
-license = { file = "LICENSE" }
 requires-python = ">=3.11"
 
 # ==============================================================
@@ -19,21 +18,8 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes
-    "I",   # isort (import sorting)
-    "UP",  # pyupgrade
-    "N",   # pep8-naming
-    "B",   # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "RUF", # ruff-specific rules
-]
-ignore = [
-    "E501", # Line too long (handled by formatter)
-    "B008", # Do not perform function calls in default arguments
-]
+select = ["E", "W", "F", "I", "UP", "N", "B", "C4", "RUF"]
+ignore = ["E501", "B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]

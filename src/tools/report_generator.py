@@ -1,40 +1,186 @@
 """
 Report Generator Tool — Execution Layer.
 
-TODO (Phase 4): Implement PDF/Markdown report assembly.
-Planned: Compile all tool results, visualizations, and LLM insights
-into a structured PDF report using ReportLab or WeasyPrint.
+Stage 7: Report Generation.
+
+Compiles all tool results, LLM insights, and metric summaries into:
+  - A structured Markdown report  (output/reports/analysis_report.md)
+  - A raw JSON dump               (output/reports/final_report.json)
+
+The Markdown report is human-readable and suitable for conversion to PDF
+via pandoc or any Markdown renderer.
 """
 from __future__ import annotations
 
+import json
+import time
+from pathlib import Path
 from typing import Any
 
 from src.tools.base import BaseTool
 
 
 class GenerateReportTool(BaseTool):
-    """Compiles analysis results into a structured PDF/Markdown report."""
+    """
+    Compile all analysis results into a structured Markdown report.
+
+    Inputs come from the MemorySystem via the `tool_results_json` parameter
+    (a JSON string of the serialised tool results list) and the `llm_insights`
+    parameter (the LLM's final interpretation dict).
+    """
 
     name = "generate_report"
     description = (
-        "Assemble a final analysis report from all tool results and LLM insights. "
-        "Output: PDF and Markdown formats."
+        "Assemble the final analysis report from all tool results and LLM insights. "
+        "Produces a Markdown report and a JSON data file. "
+        "Returns output file paths."
     )
 
-    def execute(self, **kwargs: Any) -> dict[str, Any]:
-        # TODO: Implement in Phase 4
+    def execute(
+        self,
+        dataset_name: str = "dataset",
+        tool_results_json: str = "[]",
+        llm_insights: dict[str, Any] | None = None,
+        output_dir: str = "output/reports",
+        **_: Any,
+    ) -> dict[str, Any]:
+        if llm_insights is None:
+            raise ValueError("llm_insights must not be None.")
+        # LLM sometimes double-serializes llm_insights as a JSON string
+        if isinstance(llm_insights, str):
+            try:
+                llm_insights = json.loads(llm_insights)
+            except json.JSONDecodeError:
+                llm_insights = {}
+        if not isinstance(llm_insights, dict):
+            llm_insights = {}
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        if not tool_results_json or not tool_results_json.strip():
+            tool_results_json = "[]"
+        try:
+            _parsed = json.loads(tool_results_json)
+        except json.JSONDecodeError:
+            try:
+                _parsed, _offset = json.JSONDecoder().raw_decode(tool_results_json.strip())
+            except json.JSONDecodeError:
+                _parsed = []
+        tool_results: list[dict[str, Any]] = _parsed if isinstance(_parsed, list) else []  # type: ignore[assignment]
+
+        # Build Markdown
+        md_lines: list[str] = [
+            f"# Agentic Data Analysis Report",
+            f"",
+            f"**Dataset**: {dataset_name}  ",
+            f"**Generated**: {timestamp}  ",
+            f"**Powered by**: Recursive Language Model Inference (Zhang et al., 2024)",
+            f"",
+            "---",
+            "",
+        ]
+
+        # Executive summary from LLM
+        reasoning = llm_insights.get("reasoning", "")
+        if reasoning:
+            md_lines += ["## Executive Summary", "", reasoning, ""]
+
+        insights = llm_insights.get("insights") or []
+        recs = llm_insights.get("recommendations") or []
+
+        if insights:
+            md_lines += ["## Key Insights", ""]
+            for i, insight in enumerate(insights, 1):
+                md_lines.append(f"{i}. {insight}")
+            md_lines.append("")
+
+        # Recommendations
+        if recs:
+            md_lines += ["## Recommendations", ""]
+            for rec in recs:
+                md_lines.append(f"- {rec}")
+            md_lines.append("")
+
+        # Model performance
+        best_model = llm_insights.get("best_model")
+        key_metrics = llm_insights.get("key_metrics", {})
+        if best_model or key_metrics:
+            md_lines += ["## Model Performance", ""]
+            if best_model:
+                md_lines.append(f"**Best model**: {best_model}")
+            if key_metrics:
+                md_lines.append("")
+                md_lines.append("| Metric | Value |")
+                md_lines.append("|--------|-------|")
+                for k, v in key_metrics.items():
+                    md_lines.append(f"| {k} | {v} |")
+            md_lines.append("")
+
+        # Tool execution log
+        if tool_results:
+            md_lines += ["## Tool Execution Log", "", "| Tool | Status | Summary |", "|------|--------|---------|"]
+            for r in tool_results:
+                name = r.get("tool_name", "?")
+                status = r.get("status", "?")
+                summary = r.get("output", {}).get("summary", r.get("error", ""))[:120]
+                md_lines.append(f"| {name} | {status} | {summary} |")
+            md_lines.append("")
+
+        md_lines += [
+            "---",
+            "",
+            "*Report generated by the Agentic Data Analysis System.*",
+            "*Architecture: Reasoning ↔ Execution separation with RLM context offloading.*",
+        ]
+
+        md_content = "\n".join(md_lines)
+        md_path = Path(output_dir) / f"{dataset_name}_report.md"
+        md_path.write_text(md_content, encoding="utf-8")
+
+        json_path = Path(output_dir) / f"{dataset_name}_raw.json"
+        json_path.write_text(
+            json.dumps(
+                {
+                    "timestamp": timestamp,
+                    "dataset": dataset_name,
+                    "llm_insights": llm_insights,
+                    "tool_results": tool_results,
+                },
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
+
         return {
-            "summary": "[STUB] Report generation queued — implementation in progress.",
-            "status": "stub",
-            "output_path": kwargs.get("output_path", "output/reports/report.pdf"),
+            "summary": f"Report generated: {md_path} and {json_path}.",
+            "markdown_path": str(md_path),
+            "json_path": str(json_path),
+            "n_insights": len(insights),
+            "n_recommendations": len(recs),
         }
 
     def get_schema(self) -> dict[str, Any]:
         return {
-            "output_path": {"type": "string", "description": "Path for the output report.", "required": False},
-            "include_visualizations": {
-                "type": "bool",
-                "description": "Whether to embed charts in the report.",
+            "dataset_name": {
+                "type": "string",
+                "description": "Name used in the report filename and header.",
+                "required": False,
+            },
+            "tool_results_json": {
+                "type": "string",
+                "description": "JSON-serialised list of tool result dicts.",
+                "required": False,
+            },
+            "llm_insights": {
+                "type": "dict",
+                "description": "Final LLM interpretation dict (insights, recommendations, metrics).",
+                "required": False,
+            },
+            "output_dir": {
+                "type": "string",
+                "description": "Output directory. Default: output/reports.",
                 "required": False,
             },
         }
