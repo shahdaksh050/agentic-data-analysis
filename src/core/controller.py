@@ -24,15 +24,28 @@ import os
 from pathlib import Path
 from typing import Any, cast
 
+import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from src.core.dashboard import build_dashboard, dashboard_to_json
 from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem, ToolResult
+from src.core.profiler import DatasetProfile, profile_dataframe
 from src.core.prompt_manager import PromptManager
 from src.rlm.engine import RLMEngine, RLMSubTask
 
 console = Console()
+
+
+def _read_dataframe(file_path: str) -> pd.DataFrame:
+    """Load a CSV/Excel dataset for profiling and dashboard generation."""
+    lower = file_path.lower()
+    if lower.endswith(".csv"):
+        return pd.read_csv(file_path)
+    if lower.endswith((".xlsx", ".xls")):
+        return pd.read_excel(file_path)
+    raise ValueError(f"Unsupported dataset format: {file_path}")
 
 # Max retries before abandoning a failed step
 MAX_STEP_RETRIES = 2
@@ -289,6 +302,12 @@ class AgentController:
         self._rlm_engine: RLMEngine | None = None
         self._prompt_manager: PromptManager | None = None
         self._output_dir: str = os.getenv("OUTPUT_DIR", "output")
+        # Natural-language analysis objective supplied by the user (optional).
+        self.objective: str = os.getenv("USER_OBJECTIVE", "").strip()
+        if self.objective:
+            self.memory.set_context("user_objective", self.objective)
+        # Most recent dataset profile (set during load_dataset).
+        self.last_profile: DatasetProfile | None = None
         self._rlm_decomposed: bool = False   # run decomposition at most once per session
         # Failures per tool across iterations — LLM-replanned steps are new
         # objects each cycle, so retry budgets must be tracked here.
@@ -405,6 +424,22 @@ class AgentController:
 
         self.memory.store_dataset_metadata(metadata)
         self.memory.append_tool_result(result)
+
+        # ---- Data profiling (the data scientist's "first look") ----
+        # Failure here must never block the pipeline — it only enriches it.
+        try:
+            df = _read_dataframe(file_path)
+            profile = profile_dataframe(df, target_column=metadata.target_column)
+            self.last_profile = profile
+            self.memory.set_context("data_profile", profile.to_dict())
+            self.memory.set_context("data_profile_summary", profile.to_prompt_string())
+            console.print(
+                f"  [cyan]🔬 Profile: quality {profile.quality_score}/100, "
+                f"{len(profile.warnings)} warning(s).[/]"
+            )
+        except Exception as exc:
+            console.print(f"  [yellow]⚠ Data profiling failed (non-fatal): {exc}[/]")
+
         return metadata
 
     # ------------------------------------------------------------------
@@ -528,6 +563,7 @@ class AgentController:
 
         # ---- Stage 7: Report Generation ----
         self._generate_final_report(final_result)
+        self._generate_dashboard()
 
         # Print reasoning trace
         if self._rlm_engine:
@@ -640,6 +676,35 @@ class AgentController:
             "steps": steps,
         }
 
+    def _generate_dashboard(self) -> None:
+        """
+        Build the dynamic dashboard from the final state of the analysis and
+        save it as JSON next to the reports. Non-fatal on any failure.
+        """
+        meta = self.memory.dataset_metadata
+        if meta is None:
+            return
+        source = str(self.memory.get_context("cleaned_file_path") or meta.file_path)
+        try:
+            df = _read_dataframe(source)
+            profile = profile_dataframe(df, target_column=meta.target_column)
+            charts = build_dashboard(
+                df,
+                profile,
+                target_column=meta.target_column,
+                task_type=meta.task_type,
+                tool_results=[r.to_dict() for r in self.memory.tool_results],
+            )
+            out_path = Path(self._output_dir) / "reports" / "dashboard.json"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(dashboard_to_json(charts), encoding="utf-8")
+            self.memory.set_context("dashboard_path", str(out_path))
+            console.print(
+                f"  [green]📊 Dashboard generated: {len(charts)} chart(s) → {out_path}[/]"
+            )
+        except Exception as exc:
+            console.print(f"  [yellow]⚠ Dashboard generation failed (non-fatal): {exc}[/]")
+
     def _deterministic_final(self) -> dict[str, Any]:
         """Synthesise a final report dict from accumulated tool results, no LLM needed."""
         insights: list[str] = []
@@ -700,12 +765,16 @@ class AgentController:
                 "of these deterministic findings."
             )
 
+        reasoning = (
+            "Deterministic synthesis: the LLM was unavailable, so findings were "
+            "compiled directly from tool outputs."
+        )
+        if self.objective:
+            reasoning = f"User objective: {self.objective}\n{reasoning}"
+
         return {
             "status": "complete",
-            "reasoning": (
-                "Deterministic synthesis: the LLM was unavailable, so findings were "
-                "compiled directly from tool outputs."
-            ),
+            "reasoning": reasoning,
             "insights": insights,
             "recommendations": recommendations,
             "best_model": best_model,

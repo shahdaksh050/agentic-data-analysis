@@ -203,6 +203,25 @@ class PromptManager:
     def get_system_prompt(self) -> str:
         return SYSTEM_PROMPT_CORE.format(tool_descriptions=self.tool_descriptions)
 
+    def _objective_block(self) -> str:
+        """User's natural-language goal, injected into every reasoning prompt."""
+        objective = self.memory.get_context("user_objective")
+        if not objective:
+            return ""
+        return (
+            f"\n## User Objective\n"
+            f'The user asked: "{objective}"\n'
+            f"Prioritise analyses that answer this objective. "
+            f"Your final insights MUST directly address it.\n"
+        )
+
+    def _profile_block(self) -> str:
+        """Compact data-profile summary produced at ingestion, when available."""
+        summary = self.memory.get_context("data_profile_summary")
+        if not summary:
+            return ""
+        return f"\n## Data Profile (automated first look)\n{summary}\n"
+
     def get_initial_user_prompt(self) -> str:
         meta = self.memory.dataset_metadata
         file_path  = meta.file_path  if meta else "UNKNOWN_PATH"
@@ -218,9 +237,14 @@ class PromptManager:
             f"- After clean_data runs, the controller will automatically "
             f"substitute cleaned_file_path for file_path in subsequent tools.\n"
         )
-        return INITIAL_ANALYSIS_PROMPT.format(
-            dataset_metadata=self.memory.get_metadata_prompt(),
-        ) + concrete_instructions
+        return (
+            INITIAL_ANALYSIS_PROMPT.format(
+                dataset_metadata=self.memory.get_metadata_prompt(),
+            )
+            + self._profile_block()
+            + self._objective_block()
+            + concrete_instructions
+        )
 
     def get_iteration_user_prompt(self) -> str:
         meta = self.memory.dataset_metadata
@@ -257,18 +281,22 @@ class PromptManager:
         if meta and meta.target_column:
             concrete += f"- target_column = \"{meta.target_column}\"\n"
 
-        return ITERATION_PROMPT.format(
-            dataset_metadata=self.memory.get_metadata_prompt(),
-            results_summary=self.memory.get_results_summary(),
-            pending_steps=pending_str,
-            failed_steps=failed_str,
-        ) + concrete
+        return (
+            ITERATION_PROMPT.format(
+                dataset_metadata=self.memory.get_metadata_prompt(),
+                results_summary=self.memory.get_results_summary(),
+                pending_steps=pending_str,
+                failed_steps=failed_str,
+            )
+            + self._objective_block()
+            + concrete
+        )
 
     def get_final_interpretation_prompt(self) -> str:
         return FINAL_INTERPRETATION_PROMPT.format(
             dataset_metadata=self.memory.get_metadata_prompt(),
             results_summary=self.memory.get_results_summary(),
-        )
+        ) + self._objective_block()
 
     def get_rlm_subtask_prompt(
         self,
