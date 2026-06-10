@@ -22,13 +22,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem
+from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem, ToolResult
 from src.core.prompt_manager import PromptManager
 from src.rlm.engine import RLMEngine, RLMSubTask
 
@@ -77,7 +77,7 @@ class LLMClient:
 
     def _call_openai_compat(self, system_prompt: str, user_prompt: str) -> str:
         """OpenAI and OpenRouter both use the OpenAI-compatible SDK."""
-        from openai import OpenAI  # type: ignore[import-untyped]
+        from openai import OpenAI
         if self.provider == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY", "")
             base_url: str | None = "https://openrouter.ai/api/v1"
@@ -95,25 +95,27 @@ class LLMClient:
         if extra_headers:
             client_kwargs["default_headers"] = extra_headers
         client = OpenAI(**client_kwargs)
-        create_kwargs: dict[str, Any] = dict(
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-            messages=[
+        create_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-        )
+        }
         if self.provider == "openai":
             create_kwargs["response_format"] = {"type": "json_object"}
         resp = client.chat.completions.create(**create_kwargs)
         content = resp.choices[0].message.content
         if content is None:
             raise ValueError("LLM returned None content")
-        return content
+        return str(content)
 
     def _call_anthropic(self, system_prompt: str, user_prompt: str) -> str:
-        import anthropic  # type: ignore[import-untyped]
+        import anthropic
+        from anthropic.types import TextBlock
+
         client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         msg = client.messages.create(
             model=self.model,
@@ -121,7 +123,10 @@ class LLMClient:
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        return msg.content[0].text
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                return block.text
+        raise ValueError("Anthropic response contained no text block.")
 
     @staticmethod
     def _parse_json(raw: str) -> dict[str, Any]:
@@ -134,23 +139,23 @@ class LLMClient:
         cleaned = raw.strip()
 
         try:
-            return json.loads(cleaned)
+            return cast(dict[str, Any], json.loads(cleaned))
         except json.JSONDecodeError:
             pass
 
         # Try json-repair library if installed (handles all edge cases)
         try:
-            from json_repair import repair_json  # type: ignore[import-untyped]
+            from json_repair import repair_json
             candidate = repair_json(cleaned, return_objects=False)
             if candidate:
-                return json.loads(candidate)
+                return cast(dict[str, Any], json.loads(candidate))
         except (ImportError, json.JSONDecodeError):
             pass
 
         # Manual repair: close open strings/structures and fix trailing : or ,
         repaired = LLMClient._repair_truncated_json(cleaned)
         try:
-            return json.loads(repaired)
+            return cast(dict[str, Any], json.loads(repaired))
         except json.JSONDecodeError as exc:
             raise ValueError(f"LLM returned non-JSON: {raw[:300]}") from exc
 
@@ -224,10 +229,10 @@ class ToolRegistry:
             DetectOutliersTool,
             IngestDatasetTool,
         )
-        from src.tools.statistical_analysis import SelectStatisticalTestTool
         from src.tools.ml_pipeline import EvaluateModelTool, TrainModelTool
-        from src.tools.visualization import GenerateVisualizationsTool
         from src.tools.report_generator import GenerateReportTool
+        from src.tools.statistical_analysis import SelectStatisticalTestTool
+        from src.tools.visualization import GenerateVisualizationsTool
 
         _tools = [
             IngestDatasetTool(),
@@ -285,6 +290,9 @@ class AgentController:
         self._prompt_manager: PromptManager | None = None
         self._output_dir: str = os.getenv("OUTPUT_DIR", "output")
         self._rlm_decomposed: bool = False   # run decomposition at most once per session
+        # Failures per tool across iterations — LLM-replanned steps are new
+        # objects each cycle, so retry budgets must be tracked here.
+        self._tool_failure_counts: dict[str, int] = {}
         # Optional callback fired after each tool: (tool_name, status, detail) -> None
         self.on_step_callback: Any = None
         # Optional callback fired after each LLM iteration: (iteration, stage) -> None
@@ -451,14 +459,30 @@ class AgentController:
                 if self.on_iteration_callback:
                     self.on_iteration_callback(iteration, stage_label)
 
-                llm_response = self._rlm_engine.invoke(
-                    user_prompt, depth=0, stage=stage_label
-                )
-
-                # ---- Fail fast on LLM errors ----
-                if llm_response.get("status") == "error":
-                    err_msg = llm_response.get("error", "Unknown LLM error")
-                    raise RuntimeError(f"LLM error on iteration {iteration}: {err_msg}")
+                # ---- Reasoning with graceful degradation ----
+                # An LLM/API failure must never abort a running analysis:
+                # iteration 1 falls back to a deterministic plan, later
+                # iterations synthesise a final answer from existing results.
+                try:
+                    llm_response = self._rlm_engine.invoke(
+                        user_prompt, depth=0, stage=stage_label
+                    )
+                    if llm_response.get("status") == "error":
+                        raise RuntimeError(
+                            str(llm_response.get("error", "Unknown LLM error"))
+                        )
+                except Exception as exc:
+                    self.memory.set_context("llm_error", f"{exc}")
+                    console.print(
+                        f"[yellow]⚠ LLM failure on iteration {iteration}: {exc}[/]"
+                    )
+                    if iteration == 1:
+                        console.print("[yellow]  → Using deterministic fallback plan.[/]")
+                        llm_response = self._build_fallback_plan()
+                    else:
+                        console.print("[yellow]  → Synthesising final report from results.[/]")
+                        final_result = self._deterministic_final()
+                        break
 
                 # ---- Check for completion (Stage 7 trigger) ----
                 if llm_response.get("status") == "complete":
@@ -466,22 +490,14 @@ class AgentController:
                     final_result = llm_response
                     break
 
-                # ---- Parse plan steps ----
-                steps_data = llm_response.get("steps", [])
-                if not steps_data:
-                    raise ValueError(
-                        f"LLM returned no steps on iteration {iteration}."
+                # ---- Parse plan steps (tolerant of malformed entries) ----
+                steps = self._parse_steps(llm_response)
+                if not steps:
+                    console.print(
+                        f"[yellow]⚠ No valid steps on iteration {iteration} — synthesising final report.[/]"
                     )
-
-                steps = [
-                    AnalysisStep(
-                        step_number=s["step_number"],
-                        tool_name=s["tool_name"],
-                        parameters=s.get("parameters", {}),
-                        rationale=s.get("rationale", ""),
-                    )
-                    for s in steps_data
-                ]
+                    final_result = self._deterministic_final()
+                    break
                 self.memory.store_analysis_plan(steps)
 
                 # ---- Stage 3: Tool Selection & Execution ----
@@ -500,9 +516,15 @@ class AgentController:
                 # Max iterations reached
                 console.print("[yellow]⚠ Max iterations reached — generating final report.[/]")
                 final_prompt = self._prompt_manager.get_final_interpretation_prompt()
-                final_result = self._rlm_engine.invoke(
-                    final_prompt, depth=0, stage="stage7:max_iter_synthesis"
-                )
+                try:
+                    final_result = self._rlm_engine.invoke(
+                        final_prompt, depth=0, stage="stage7:max_iter_synthesis"
+                    )
+                    if final_result.get("status") == "error":
+                        raise RuntimeError(str(final_result.get("error", "Unknown LLM error")))
+                except Exception as exc:
+                    self.memory.set_context("llm_error", f"{exc}")
+                    final_result = self._deterministic_final()
 
         # ---- Stage 7: Report Generation ----
         self._generate_final_report(final_result)
@@ -515,23 +537,214 @@ class AgentController:
         return final_result
 
     # ------------------------------------------------------------------
+    # Resilience helpers — plan parsing and LLM-failure fallbacks
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_steps(llm_response: dict[str, Any]) -> list[AnalysisStep]:
+        """Parse LLM plan steps, skipping malformed entries instead of crashing."""
+        steps: list[AnalysisStep] = []
+        raw_steps = llm_response.get("steps", [])
+        if not isinstance(raw_steps, list):
+            return steps
+        for idx, s in enumerate(raw_steps, 1):
+            if not isinstance(s, dict):
+                continue
+            tool_name = s.get("tool_name")
+            if not isinstance(tool_name, str) or not tool_name:
+                continue
+            parameters = s.get("parameters", {})
+            if not isinstance(parameters, dict):
+                parameters = {}
+            step_number = s.get("step_number")
+            steps.append(
+                AnalysisStep(
+                    step_number=step_number if isinstance(step_number, int) else idx,
+                    tool_name=tool_name,
+                    parameters=parameters,
+                    rationale=str(s.get("rationale", "")),
+                )
+            )
+        return steps
+
+    def _build_fallback_plan(self) -> dict[str, Any]:
+        """
+        Deterministic analysis plan used when the LLM is unreachable on the
+        first reasoning cycle. Mirrors the mandatory plan structure from the
+        initial prompt: clean → outliers → correlation → (train + evaluate
+        when a target exists, otherwise EDA visualisations).
+        """
+        meta = self.memory.dataset_metadata
+        if meta is None:
+            raise RuntimeError("No dataset loaded — cannot build a fallback plan.")
+        fp = meta.file_path
+        steps: list[dict[str, Any]] = [
+            {
+                "step_number": 1,
+                "tool_name": "clean_data",
+                "parameters": {
+                    "file_path": fp,
+                    "strategy": "median",
+                    "target_column": meta.target_column,
+                },
+                "rationale": "Fallback plan: impute missing values before analysis.",
+            },
+            {
+                "step_number": 2,
+                "tool_name": "detect_outliers",
+                "parameters": {"file_path": fp, "method": "iqr"},
+                "rationale": "Fallback plan: flag anomalous rows.",
+            },
+            {
+                "step_number": 3,
+                "tool_name": "correlation_analysis",
+                "parameters": {"file_path": fp, "target_column": meta.target_column},
+                "rationale": "Fallback plan: quantify feature relationships.",
+            },
+        ]
+        if meta.target_column and meta.task_type in ("classification", "regression"):
+            steps += [
+                {
+                    "step_number": 4,
+                    "tool_name": "train_model",
+                    "parameters": {
+                        "file_path": fp,
+                        "target_column": meta.target_column,
+                        "task_type": meta.task_type,
+                    },
+                    "rationale": "Fallback plan: train baseline models with CV.",
+                },
+                {
+                    "step_number": 5,
+                    "tool_name": "evaluate_model",
+                    "parameters": {
+                        "file_path": fp,
+                        "target_column": meta.target_column,
+                        "task_type": meta.task_type,
+                    },
+                    "rationale": "Fallback plan: evaluate the best model on held-out data.",
+                },
+            ]
+        else:
+            steps.append(
+                {
+                    "step_number": 4,
+                    "tool_name": "generate_visualizations",
+                    "parameters": {"file_path": fp, "chart_type": "correlation_heatmap"},
+                    "rationale": "Fallback plan: EDA visualisation without a target.",
+                }
+            )
+        return {
+            "status": "in_progress",
+            "reasoning": "LLM unavailable — executing deterministic fallback plan.",
+            "steps": steps,
+        }
+
+    def _deterministic_final(self) -> dict[str, Any]:
+        """Synthesise a final report dict from accumulated tool results, no LLM needed."""
+        insights: list[str] = []
+        recommendations: list[str] = []
+        key_metrics: dict[str, Any] = {}
+        best_model = self.memory.get_context("best_model_name")
+
+        train = self.memory.get_last_result_for("train_model")
+        if train and train.status == "success":
+            models_trained = train.output.get("models_trained", {})
+            best = train.output.get("best_model")
+            if best and best in models_trained:
+                best_model = best
+                metrics = models_trained[best]
+                key_metrics["cv_mean"] = metrics.get("cv_mean")
+                key_metrics["cv_std"] = metrics.get("cv_std")
+                key_metrics["train_test_gap"] = metrics.get("train_test_gap")
+                insights.append(
+                    f"Best model '{best}' reached cross-validated score "
+                    f"{metrics.get('cv_mean')} ± {metrics.get('cv_std')} "
+                    f"with train-test gap {metrics.get('train_test_gap')}."
+                )
+            warnings = train.output.get("overfit_warnings", [])
+            insights.extend(f"Overfitting warning: {w}" for w in warnings)
+            if warnings:
+                recommendations.append(
+                    "Reduce model complexity (lower max_depth) or add regularisation "
+                    "to close the train-test gap."
+                )
+
+        corr = self.memory.get_last_result_for("correlation_analysis")
+        if corr and corr.status == "success":
+            top = corr.output.get("top_correlations", [])
+            if top:
+                pair = top[0]
+                insights.append(
+                    f"Strongest feature correlation: {pair.get('col_a')} ↔ "
+                    f"{pair.get('col_b')} (r={pair.get('correlation')})."
+                )
+
+        outliers = self.memory.get_last_result_for("detect_outliers")
+        if outliers and outliers.status == "success":
+            insights.append(
+                f"Outlier scan ({outliers.output.get('method')}): "
+                f"{outliers.output.get('total_outliers')} rows flagged "
+                f"({outliers.output.get('outlier_percentage')}% of data)."
+            )
+
+        stat = self.memory.get_last_result_for("select_statistical_test")
+        if stat and stat.status == "success":
+            insights.append(str(stat.output.get("summary", "")))
+
+        if not insights:
+            insights.append("Analysis produced no tool results to synthesise.")
+        if not recommendations:
+            recommendations.append(
+                "Re-run with a reachable LLM provider for narrative interpretation "
+                "of these deterministic findings."
+            )
+
+        return {
+            "status": "complete",
+            "reasoning": (
+                "Deterministic synthesis: the LLM was unavailable, so findings were "
+                "compiled directly from tool outputs."
+            ),
+            "insights": insights,
+            "recommendations": recommendations,
+            "best_model": best_model,
+            "key_metrics": key_metrics,
+        }
+
+    # ------------------------------------------------------------------
     # Stage 3 execution helper
     # ------------------------------------------------------------------
 
     def _execute_steps(self, steps: list[AnalysisStep]) -> None:
         """
-        Stage 3 — execute each tool in the plan with retry on failure.
+        Stage 3 — execute each tool in the plan with retry budgets.
 
-        Retry logic: on the first failure, increment retry counter and
-        let the next LLM iteration re-plan. If MAX_STEP_RETRIES is
-        exceeded, the step is permanently marked as failed.
+        Retry logic: failures are counted per tool across iterations
+        (the LLM re-plans with fresh step objects each cycle). Once a
+        tool has failed MAX_STEP_RETRIES times it is skipped instead of
+        executed again, so one broken tool can never stall the pipeline.
         """
         total_steps = len(steps)
         for idx, step in enumerate(steps, 1):
-            if step.retry_count >= MAX_STEP_RETRIES and step.is_failed():
-                raise RuntimeError(
-                    f"Tool '{step.tool_name}' exceeded max retries ({MAX_STEP_RETRIES})."
+            if self._tool_failure_counts.get(step.tool_name, 0) >= MAX_STEP_RETRIES:
+                console.print(
+                    f"  [yellow]⏭ Step {step.step_number}: {step.tool_name} skipped "
+                    f"(exceeded {MAX_STEP_RETRIES} retries).[/]"
                 )
+                skip_result = ToolResult(
+                    tool_name=step.tool_name,
+                    status="skipped",
+                    output={
+                        "summary": (
+                            f"Skipped: '{step.tool_name}' already failed "
+                            f"{MAX_STEP_RETRIES} times. Do not plan it again."
+                        )
+                    },
+                )
+                self.memory.append_tool_result(skip_result)
+                self.memory.mark_step_complete(step.step_number, skip_result)
+                continue
 
             console.print(
                 f"  [cyan]→ Step {step.step_number}: {step.tool_name}[/] "
@@ -579,10 +792,28 @@ class AgentController:
                     if not raw_mp or not Path(raw_mp).exists():
                         params["model_path"] = best_path
 
+            # ── generate_report needs the accumulated results, which the LLM
+            #    cannot supply — inject them from memory ──
+            if step.tool_name == "generate_report":
+                meta = self.memory.dataset_metadata
+                params.setdefault(
+                    "dataset_name", Path(meta.file_path).stem if meta else "dataset"
+                )
+                params["tool_results_json"] = json.dumps(
+                    [r.to_dict() for r in self.memory.tool_results], default=str
+                )
+                params.setdefault("llm_insights", {})
+
             tool = self.tool_registry.get(step.tool_name)
             result = tool.run(**params)
             self.memory.append_tool_result(result)
             self.memory.mark_step_complete(step.step_number, result)
+
+            if result.status == "error":
+                self._tool_failure_counts[step.tool_name] = (
+                    self._tool_failure_counts.get(step.tool_name, 0) + 1
+                )
+                self.memory.increment_retry(step.step_number)
 
             # Store important outputs in memory context for downstream tools
             if step.tool_name == "train_model" and result.status == "success":

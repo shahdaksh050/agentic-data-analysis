@@ -82,7 +82,7 @@ class BaseTool(ABC):
                 error_message=str(exc),
                 execution_time_ms=elapsed,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             elapsed = (time.monotonic() - start) * 1000
             return ToolResult(
                 tool_name=self.name,

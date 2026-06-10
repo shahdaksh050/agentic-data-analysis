@@ -45,7 +45,7 @@ class GenerateReportTool(BaseTool):
         **_: Any,
     ) -> dict[str, Any]:
         if llm_insights is None:
-            raise ValueError("llm_insights must not be None.")
+            llm_insights = {}
         # LLM sometimes double-serializes llm_insights as a JSON string
         if isinstance(llm_insights, str):
             try:
@@ -67,16 +67,16 @@ class GenerateReportTool(BaseTool):
                 _parsed, _offset = json.JSONDecoder().raw_decode(tool_results_json.strip())
             except json.JSONDecodeError:
                 _parsed = []
-        tool_results: list[dict[str, Any]] = _parsed if isinstance(_parsed, list) else []  # type: ignore[assignment]
+        tool_results: list[dict[str, Any]] = _parsed if isinstance(_parsed, list) else []
 
         # Build Markdown
         md_lines: list[str] = [
-            f"# Agentic Data Analysis Report",
-            f"",
+            "# Agentic Data Analysis Report",
+            "",
             f"**Dataset**: {dataset_name}  ",
             f"**Generated**: {timestamp}  ",
-            f"**Powered by**: Recursive Language Model Inference (Zhang et al., 2024)",
-            f"",
+            "**Powered by**: Recursive Language Model Inference (Zhang et al., 2024)",
+            "",
             "---",
             "",
         ]

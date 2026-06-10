@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -105,6 +106,11 @@ class RLMEngine:
     def set_iteration(self, iteration: int) -> None:
         """Tell the engine which outer reasoning cycle we are in."""
         self._iteration = iteration
+
+    @property
+    def trace(self) -> list[_TraceEntry]:
+        """Read-only copy of the reasoning trace (one entry per LLM call)."""
+        return list(self._trace)
 
     def invoke(
         self,

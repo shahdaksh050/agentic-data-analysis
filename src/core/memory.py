@@ -24,6 +24,20 @@ from rich.table import Table
 console = Console()
 
 
+# Target-detection keyword sets (used by detect_target_with_confidence)
+_PRIMARY_TARGET_NAMES = frozenset({"target", "label", "class", "outcome", "y"})
+_DOMAIN_TARGET_NAMES = frozenset({
+    "churn", "survived", "fraud", "default", "purchased", "converted",
+    "cancelled", "canceled", "clicked", "subscribed", "is_fraud",
+    "is_churn", "is_default",
+})
+_NUMERIC_TARGET_NAMES = frozenset({
+    "profit", "sales", "revenue", "price", "amount", "total", "cost",
+    "score", "rating", "demand", "margin", "result", "status",
+})
+_PARTIAL_TARGET_HINTS = ("target", "label", "class", "outcome", "predict", "response")
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -46,10 +60,6 @@ class DatasetMetadata:
     high_cardinality_cols: list[str] = field(default_factory=list)
     column_nunique: dict[str, int] = field(default_factory=dict)   # {col: nunique count}
 
-    # Confidence thresholds for auto-detection decisions
-    _AUTODETECT_HIGH: float = 0.75   # proceed autonomously
-    _AUTODETECT_LOW: float = 0.40    # prompt the user (CLI) or use best guess (UI)
-
     # ------------------------------------------------------------------
     def detect_target_with_confidence(self) -> tuple[str | None, float]:
         """
@@ -64,18 +74,6 @@ class DatasetMetadata:
             (column, confidence) where confidence ∈ [0.0, 1.0].
             (None, 0.0) when the dataset has no columns.
         """
-        _PRIMARY = frozenset({"target", "label", "class", "outcome", "y"})
-        _DOMAIN = frozenset({
-            "churn", "survived", "fraud", "default", "purchased", "converted",
-            "cancelled", "canceled", "clicked", "subscribed", "is_fraud",
-            "is_churn", "is_default",
-        })
-        _NUMERIC_TARGETS = frozenset({
-            "profit", "sales", "revenue", "price", "amount", "total", "cost",
-            "score", "rating", "demand", "margin", "result", "status",
-        })
-        _PARTIAL = ("target", "label", "class", "outcome", "predict", "response")
-
         col_names = list(self.columns.keys())
         if not col_names:
             return None, 0.0
@@ -85,13 +83,13 @@ class DatasetMetadata:
 
         for lower, original in lower_to_orig.items():
             base = 0.0
-            if lower in _PRIMARY:
+            if lower in _PRIMARY_TARGET_NAMES:
                 base = 0.95
-            elif lower in _DOMAIN:
+            elif lower in _DOMAIN_TARGET_NAMES:
                 base = 0.90
-            elif lower in _NUMERIC_TARGETS:
+            elif lower in _NUMERIC_TARGET_NAMES:
                 base = 0.85
-            elif any(h in lower for h in _PARTIAL):
+            elif any(h in lower for h in _PARTIAL_TARGET_HINTS):
                 base = 0.75
 
             if base == 0.0:
@@ -137,15 +135,19 @@ class DatasetMetadata:
 
         Rules
         -----
-        - No target → try auto_detect_target(); if still none → EDA mode
-        - Binary / low-cardinality integer (≤20 unique) → classification
+        - No target column → clustering (unsupervised fallback)
+        - Boolean / low-cardinality integer (≤20 unique) → classification
         - High-cardinality numeric → regression
+        - Object/string targets → classification
         """
         if not self.target_column:
-            raise ValueError("No target column detected.")
+            return "clustering"
         dtype = self.columns.get(self.target_column, "")
-        if "int" in dtype or "bool" in dtype:
+        nunique = self.column_nunique.get(self.target_column, -1)
+        if "bool" in dtype:
             return "classification"
+        if "int" in dtype:
+            return "classification" if nunique == -1 or nunique <= 20 else "regression"
         if "float" in dtype:
             return "regression"
         return "classification"  # default for object/string targets
@@ -288,8 +290,8 @@ class MemorySystem:
 
     def append_tool_result(self, result: ToolResult) -> None:
         self.tool_results.append(result)
-        color = "green" if result.status == "success" else "red"
-        icon = "✓" if result.status == "success" else "✗"
+        color = {"success": "green", "skipped": "yellow"}.get(result.status, "red")
+        icon = {"success": "✓", "skipped": "⏭"}.get(result.status, "✗")
         console.print(
             f"  [{color}]{icon} {result.tool_name}[/] → {result.status} "
             f"[dim]({result.execution_time_ms:.0f} ms)[/]"
@@ -309,6 +311,8 @@ class MemorySystem:
                 slim = {k: v for k, v in r.output.items() if k not in {"raw_data", "dataframe"}}
                 serialised = json.dumps(slim, default=str)[:max_chars_per_result]
                 lines.append(f"[{r.tool_name}] SUCCESS → {serialised}")
+            elif r.status == "skipped":
+                lines.append(f"[{r.tool_name}] SKIPPED → {r.output.get('summary', '')}")
             else:
                 lines.append(f"[{r.tool_name}] ERROR → {r.error_message}")
         return "\n".join(lines)

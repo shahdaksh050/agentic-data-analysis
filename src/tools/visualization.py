@@ -9,6 +9,7 @@ All charts are saved to the output directory.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,8 @@ import pandas as pd
 from src.tools.base import BaseTool, ToolExecutionError
 
 
-def _read_df(file_path: str) -> "pd.DataFrame":
-    from pathlib import Path as _P
-    path = _P(file_path)
+def _read_df(file_path: str) -> pd.DataFrame:
+    path = Path(file_path)
     suffix = path.suffix.lower()
     if suffix in {".csv", ".tsv"}:
         return pd.read_csv(path)
@@ -51,7 +51,7 @@ class GenerateVisualizationsTool(BaseTool):
         "Saves PNG + HTML to output_dir. Returns file paths."
     )
 
-    def execute(
+    def execute(  # type: ignore[override]
         self,
         file_path: str,
         chart_type: str,
@@ -62,14 +62,13 @@ class GenerateVisualizationsTool(BaseTool):
     ) -> dict[str, Any]:
         import matplotlib
         matplotlib.use("Agg")  # non-interactive backend
-        import matplotlib.pyplot as plt  # type: ignore
-        import seaborn as sns  # type: ignore
+        import matplotlib.pyplot as plt
+        import seaborn as sns
 
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        path = Path(file_path)
         df = _read_df(file_path)
 
-        handlers = {
+        handlers: dict[str, Callable[..., list[str]]] = {
             "correlation_heatmap": self._heatmap,
             "feature_importance": self._feature_importance,
             "distributions": self._distributions,
@@ -127,14 +126,14 @@ class GenerateVisualizationsTool(BaseTool):
         self, df: pd.DataFrame, target_column: str | None, model_path: str | None,
         output_dir: str, plt: Any, sns: Any, **_: Any
     ) -> list[str]:
-        import pickle  # noqa: S403
+        import pickle
         if not model_path or not Path(model_path).exists():
             raise ToolExecutionError("model_path is required for feature_importance chart.")
         if not target_column:
             raise ToolExecutionError("target_column is required for feature_importance chart.")
 
         with open(model_path, "rb") as f:
-            model = pickle.load(f)  # noqa: S301
+            model = pickle.load(f)
 
         feature_cols = [c for c in df.columns if c != target_column]
 
@@ -160,7 +159,10 @@ class GenerateVisualizationsTool(BaseTool):
         importances = importances.sort_values(ascending=False).head(20)
 
         fig, ax = plt.subplots(figsize=(10, max(4, len(importances) * 0.4)))
-        sns.barplot(x=importances.values, y=importances.index, ax=ax, palette="Blues_d")
+        sns.barplot(
+            x=importances.values, y=importances.index, hue=importances.index,
+            legend=False, ax=ax, palette="Blues_d",
+        )
         ax.set_title(chart_title)
         ax.set_xlabel("Importance score")
         out = str(Path(output_dir) / "feature_importance.png")
@@ -189,15 +191,15 @@ class GenerateVisualizationsTool(BaseTool):
         self, df: pd.DataFrame, target_column: str | None, model_path: str | None,
         output_dir: str, plt: Any, sns: Any, **_: Any
     ) -> list[str]:
-        import pickle  # noqa: S403
-        from sklearn.preprocessing import LabelEncoder  # type: ignore
-        from sklearn.metrics import roc_curve, auc  # type: ignore
+        import pickle
+
+        from sklearn.metrics import auc, roc_curve
 
         if not model_path or not target_column:
             raise ToolExecutionError("model_path and target_column required for roc_curve.")
 
         with open(model_path, "rb") as f:
-            model = pickle.load(f)  # noqa: S301
+            model = pickle.load(f)
 
         y = df[target_column]
         unique_classes = y.nunique()
@@ -208,10 +210,12 @@ class GenerateVisualizationsTool(BaseTool):
                 f"Use feature_importance or distributions for regression tasks."
             )
 
-        X = df.drop(columns=[target_column])
-        for col in X.select_dtypes(include="object").columns:
-            X = X.copy()
-            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+        # Reuse the training-time feature/target preparation so the model
+        # sees the exact column layout it was fitted on
+        from src.tools.ml_pipeline import _encode_target, _prepare_features
+
+        X, y_raw = _prepare_features(df, target_column)
+        y, _class_labels = _encode_target(y_raw)
 
         if not hasattr(model, "predict_proba"):
             raise ToolExecutionError("Model does not support probability predictions (no predict_proba).")
@@ -240,25 +244,27 @@ class GenerateVisualizationsTool(BaseTool):
         self, df: pd.DataFrame, target_column: str | None, model_path: str | None,
         output_dir: str, plt: Any, sns: Any, **_: Any
     ) -> list[str]:
-        import pickle  # noqa: S403
-        from sklearn.preprocessing import LabelEncoder  # type: ignore
-        from sklearn.metrics import confusion_matrix  # type: ignore
+        import pickle
+
+        from sklearn.metrics import confusion_matrix
 
         if not model_path or not target_column:
             raise ToolExecutionError("model_path and target_column required for confusion_matrix.")
 
         with open(model_path, "rb") as f:
-            model = pickle.load(f)  # noqa: S301
+            model = pickle.load(f)
 
-        y = df[target_column]
-        X = df.drop(columns=[target_column])
-        for col in X.select_dtypes(include="object").columns:
-            X = X.copy()
-            X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+        # Reuse the training-time feature/target preparation so the model
+        # sees the exact column layout it was fitted on
+        from src.tools.ml_pipeline import _encode_target, _prepare_features
+
+        X, y_raw = _prepare_features(df, target_column)
+        y, _class_labels = _encode_target(y_raw)
 
         y_pred = model.predict(X)
         cm = confusion_matrix(y, y_pred)
-        labels = sorted(y.unique())
+        # LabelEncoder sorts classes, so _class_labels aligns with encoded ints
+        labels = _class_labels if _class_labels else sorted(y.unique())
 
         fig, ax = plt.subplots(figsize=(max(5, len(labels)), max(4, len(labels))))
         sns.heatmap(

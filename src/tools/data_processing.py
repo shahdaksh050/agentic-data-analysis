@@ -19,7 +19,7 @@ import pandas as pd
 from src.tools.base import BaseTool, ToolExecutionError
 
 
-def _read_df(file_path: str) -> "pd.DataFrame":
+def _read_df(file_path: str) -> pd.DataFrame:
     """Read CSV or Excel file robustly with explicit engines."""
     path = Path(file_path)
     suffix = path.suffix.lower()
@@ -53,7 +53,7 @@ class IngestDatasetTool(BaseTool):
         "Returns structured metadata — do NOT pass raw data to the LLM."
     )
 
-    def execute(self, file_path: str, target_column: str | None = None, **_: Any) -> dict[str, Any]:
+    def execute(self, file_path: str, target_column: str | None = None, **_: Any) -> dict[str, Any]:  # type: ignore[override]
         path = Path(file_path)
         if not path.exists():
             raise ToolExecutionError(f"File not found: {file_path}")
@@ -161,7 +161,7 @@ class CleanDataTool(BaseTool):
 
     STRATEGIES = frozenset({"mean", "median", "mode", "drop_rows", "forward_fill"})
 
-    def execute(
+    def execute(  # type: ignore[override]
         self,
         file_path: str,
         strategy: str = "median",
@@ -251,7 +251,7 @@ class DetectOutliersTool(BaseTool):
         "Returns per-column counts and an outlier-flagged dataset path."
     )
 
-    def execute(
+    def execute(  # type: ignore[override]
         self,
         file_path: str,
         method: str = "iqr",
@@ -288,7 +288,7 @@ class DetectOutliersTool(BaseTool):
             report.update({"total_outliers": int(mask.sum()), "per_column_outliers": per_col})
 
         elif method == "zscore":
-            from scipy import stats  # type: ignore[import-untyped]
+            from scipy import stats
             clean = num_df.dropna()
             z = np.abs(stats.zscore(clean))
             mask_idx = (z > threshold).any(axis=1)
@@ -301,7 +301,7 @@ class DetectOutliersTool(BaseTool):
             mask.iloc[clean.index[mask_idx]] = True
 
         elif method == "isolation_forest":
-            from sklearn.ensemble import IsolationForest  # type: ignore[import-untyped]
+            from sklearn.ensemble import IsolationForest
             model = IsolationForest(contamination=0.05, random_state=42, n_jobs=-1)
             clean = num_df.dropna()
             preds = model.fit_predict(clean)
@@ -373,7 +373,7 @@ class CorrelationAnalysisTool(BaseTool):
         "Methods: 'pearson' (default), 'spearman', 'kendall'."
     )
 
-    def execute(
+    def execute(  # type: ignore[override]
         self,
         file_path: str,
         method: str = "pearson",
@@ -381,14 +381,13 @@ class CorrelationAnalysisTool(BaseTool):
         target_column: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
-        path = Path(file_path)
         df = _read_df(file_path)
         num_df = df.select_dtypes(include="number").dropna()
 
         if num_df.shape[1] < 2:
             raise ToolExecutionError("Need at least 2 numerical columns for correlation analysis.")
 
-        corr = num_df.corr(method=method)  # type: ignore[call-arg]
+        corr = num_df.corr(method=method)
 
         # Top correlated pairs (exclude self-correlations)
         pairs: list[dict[str, Any]] = []

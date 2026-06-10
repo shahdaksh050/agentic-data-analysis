@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from src.core.memory import MemorySystem
 
-
 # ---------------------------------------------------------------------------
 # System prompt — injected once per session
 # ---------------------------------------------------------------------------
