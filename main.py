@@ -40,6 +40,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model", type=str, default=None, help="Override LLM model name.")
     parser.add_argument("--target", type=str, default=None, help="Target/label column name.")
+    parser.add_argument(
+        "--objective",
+        type=str,
+        default=None,
+        help='Natural-language analysis goal, e.g. "what drives customer churn?".',
+    )
     parser.add_argument("--max-iterations", type=int, default=15, help="Max reasoning-execution cycles.")
     parser.add_argument("--no-rlm", action="store_true", help="Disable RLM inference (flat loop).")
     parser.add_argument(
@@ -131,6 +137,8 @@ def main() -> None:
         os.environ["ENABLE_RLM_INFERENCE"] = "false"
     if args.target:
         os.environ["TARGET_COLUMN_HINT"] = args.target
+    if args.objective:
+        os.environ["USER_OBJECTIVE"] = args.objective
 
     from src.core.controller import AgentController
 

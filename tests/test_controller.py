@@ -195,6 +195,58 @@ class TestAnalyzeWorkflow:
 
 
 # ---------------------------------------------------------------------------
+# Objective, profiling, and dashboard integration
+# ---------------------------------------------------------------------------
+
+class TestObjectiveAndProfile:
+    def test_objective_env_stored_in_memory(
+        self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("USER_OBJECTIVE", "what drives the label?")
+        monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+        agent = AgentController(max_iterations=3, enable_rlm=False)
+        assert agent.objective == "what drives the label?"
+        assert agent.memory.get_context("user_objective") == "what drives the label?"
+
+    def test_no_objective_leaves_context_empty(self, agent: AgentController) -> None:
+        assert agent.memory.get_context("user_objective") is None
+
+    def test_load_dataset_produces_profile(
+        self, agent: AgentController, sample_csv: str
+    ) -> None:
+        agent.load_dataset(sample_csv, target_hint="label", interactive=False)
+        assert agent.last_profile is not None
+        profile_dict = agent.memory.get_context("data_profile")
+        assert profile_dict["row_count"] == 80
+        assert agent.memory.get_context("data_profile_summary")
+
+    def test_objective_echoed_in_deterministic_final(
+        self, sample_csv: str, tmp_path: pytest.TempPathFactory,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("USER_OBJECTIVE", "find churn drivers")
+        monkeypatch.setenv("OUTPUT_DIR", str(tmp_path / "output"))
+        agent = AgentController(max_iterations=3, enable_rlm=False)
+        agent.llm_client = _ScriptedLLM([RuntimeError("api down")])  # type: ignore[assignment]
+        agent.load_dataset(sample_csv, target_hint="label", interactive=False)
+        final = agent.analyze()
+        assert "find churn drivers" in final["reasoning"]
+
+    def test_dashboard_json_written_after_analyze(
+        self, agent: AgentController, sample_csv: str
+    ) -> None:
+        agent.llm_client = _ScriptedLLM([RuntimeError("api down")])  # type: ignore[assignment]
+        agent.load_dataset(sample_csv, target_hint="label", interactive=False)
+        agent.analyze()
+        dash_path = agent.memory.get_context("dashboard_path")
+        assert dash_path and Path(dash_path).exists()
+        import json
+        charts = json.loads(Path(dash_path).read_text(encoding="utf-8"))
+        assert charts, "dashboard must contain at least one chart"
+        assert all("spec" in c for c in charts)
+
+
+# ---------------------------------------------------------------------------
 # LLM client JSON parsing
 # ---------------------------------------------------------------------------
 

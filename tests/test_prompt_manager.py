@@ -89,3 +89,53 @@ class TestPromptManager:
         )
         assert "numerical_group_1" in prompt
         assert '"age"' in prompt
+
+
+class TestObjectiveInjection:
+    """The user's natural-language objective must reach every reasoning prompt."""
+
+    OBJECTIVE = "Which customers should we target with retention offers?"
+
+    def test_objective_in_initial_prompt(
+        self, pm: PromptManager, memory: MemorySystem
+    ) -> None:
+        memory.set_context("user_objective", self.OBJECTIVE)
+        prompt = pm.get_initial_user_prompt()
+        assert "User Objective" in prompt
+        assert self.OBJECTIVE in prompt
+
+    def test_objective_in_iteration_prompt(
+        self, pm: PromptManager, memory: MemorySystem
+    ) -> None:
+        memory.set_context("user_objective", self.OBJECTIVE)
+        assert self.OBJECTIVE in pm.get_iteration_user_prompt()
+
+    def test_objective_in_final_prompt(
+        self, pm: PromptManager, memory: MemorySystem
+    ) -> None:
+        memory.set_context("user_objective", self.OBJECTIVE)
+        prompt = pm.get_final_interpretation_prompt()
+        assert self.OBJECTIVE in prompt
+        assert "MUST directly address" in prompt
+
+    def test_no_objective_means_no_section(self, pm: PromptManager) -> None:
+        assert "User Objective" not in pm.get_initial_user_prompt()
+        assert "User Objective" not in pm.get_iteration_user_prompt()
+
+
+class TestProfileInjection:
+    """The automated data profile summary feeds the initial planning prompt."""
+
+    def test_profile_summary_in_initial_prompt(
+        self, pm: PromptManager, memory: MemorySystem
+    ) -> None:
+        memory.set_context(
+            "data_profile_summary",
+            "Data profile: quality score 88/100; 0 duplicate rows.",
+        )
+        prompt = pm.get_initial_user_prompt()
+        assert "Data Profile" in prompt
+        assert "quality score 88/100" in prompt
+
+    def test_no_profile_means_no_section(self, pm: PromptManager) -> None:
+        assert "Data Profile" not in pm.get_initial_user_prompt()
