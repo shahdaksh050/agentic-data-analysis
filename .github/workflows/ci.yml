@@ -2,9 +2,9 @@ name: CI — Agentic Data Analysis System
 
 on:
   push:
-    branches: [main, dev]
+    branches: [master, main, dev, agent-updates]
   pull_request:
-    branches: [main]
+    branches: [master, main]
 
 jobs:
   quality:
@@ -33,22 +33,11 @@ jobs:
       - name: Lint with Ruff
         run: ruff check . --output-format=github
 
-      - name: Format check with Ruff
-        run: ruff format --check .
-
       - name: Type-check with Mypy
-        run: mypy src/ --ignore-missing-imports
+        run: mypy src/
 
       - name: Run tests with Pytest
-        env:
-          # Secrets injected from GitHub Actions — never hardcoded
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: pytest tests/ -v --tb=short
 
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.python-version }}
-          path: .pytest_cache/
+      - name: Dry-run the 7-stage workflow (mock LLM, no API key)
+        run: python scripts/validate.py

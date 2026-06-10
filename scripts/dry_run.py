@@ -159,7 +159,6 @@ results: list[tuple[str, str, str]] = []  # (stage, check, status)
 
 
 def check(stage: str, label: str, condition: bool, detail: str = "") -> None:
-    status = PASS if condition else FAIL
     results.append((stage, label, "✓" if condition else "✗"))
     icon = "✓" if condition else "✗"
     color = "green" if condition else "red"
@@ -204,7 +203,7 @@ def main() -> None:
         # Stage 1 — Memory System
         # ----------------------------------------------------------------
         console.print("\n[bold]Stage 1 — Memory System[/]")
-        from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem, ToolResult
+        from src.core.memory import DatasetMetadata, MemorySystem
         mem = MemorySystem()
         meta = DatasetMetadata(**ingest.output["metadata"])
         mem.store_dataset_metadata(meta)
@@ -387,7 +386,7 @@ def main() -> None:
         # ----------------------------------------------------------------
         console.print("\n[bold]Reasoning Trace[/]")
         engine.print_reasoning_trace()
-        check("Trace", "Call log non-empty", len(engine._trace) > 0)
+        check("Trace", "Call log non-empty", len(engine.trace) > 0)
 
     # ----------------------------------------------------------------
     # Summary
