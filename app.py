@@ -60,10 +60,10 @@ def _stub_rich() -> None:
         def add_row(self, *a: Any, **k: Any) -> None: pass
     class _Tr:
         def __init__(self, *a: Any, **k: Any): pass
-        def add(self, *a: Any, **k: Any) -> "_Tr": return self
+        def add(self, *a: Any, **k: Any) -> _Tr: return self
     class _Pr:
         def __init__(self, *a: Any, **k: Any): pass
-        def __enter__(self) -> "_Pr": return self
+        def __enter__(self) -> _Pr: return self
         def __exit__(self, *a: Any) -> None: pass
         def add_task(self, *a: Any, **k: Any) -> int: return 0
         def update(self, *a: Any, **k: Any) -> None: pass
@@ -153,6 +153,19 @@ STAGE_DEFS = [
     ("6", "RLM Decomposition",     "🔀"),
     ("7", "Report Generation",     "📄"),
 ]
+
+# Shared Vega-Lite config so dashboard charts match the app's dark theme
+VEGA_DARK_CONFIG = {
+    "axis": {
+        "labelColor": "#bbb",
+        "titleColor": "#bbb",
+        "gridColor": "#2a2d3e",
+        "domainColor": "#333",
+        "tickColor": "#333",
+    },
+    "legend": {"labelColor": "#bbb", "titleColor": "#bbb"},
+    "view": {"stroke": "#2a2d3e"},
+}
 
 OR_MODELS = [
     "openai/gpt-4o",
@@ -439,7 +452,7 @@ if run_clicked:
         _progress_lines.append(f"{_ico} Stage {num}: {_nm}" + (f" — {detail}" if detail else ""))
 
     try:
-        from src.core.controller import AgentController  # noqa: PLC0415
+        from src.core.controller import AgentController
 
         _upd("1", "active", "ingesting…")
         agent = AgentController(
@@ -465,7 +478,7 @@ if run_clicked:
 
         # ── Lightweight callbacks — only update stage_log, no st.write ────
         def _on_step(tool_name: str, status: str, detail: str) -> None:
-            _set_stage("3", "active" if status in ("running", "success") else "active", detail)
+            _set_stage("3", "active", detail)
             _progress_lines.append(f"  {'✓' if status=='success' else '→'} {detail}")
 
         def _on_iter(iteration: int, stage: str) -> None:
@@ -565,11 +578,6 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
 
     # ── Overview ─────────────────────────────────────────────────────────────
     with tab_ov:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import numpy as np
-
         best_model   = report.get("best_model") or "N/A"
         best_cv      = "—"
         best_gap_str = "—"
@@ -611,64 +619,90 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
             st.markdown(f'<div class="wc">⚠ {_w}</div>',
                         unsafe_allow_html=True)
 
-        # Model comparison bar chart
+        # Model comparison — interactive Vega-Lite grouped bars
         if train_out:
             _mt_map2 = train_out.get("models_trained", {})
             if _mt_map2:
                 st.markdown("#### Model Comparison")
-                _names = list(_mt_map2.keys())
-                _task  = train_out.get("task_type", "classification")
-                _pk    = "accuracy" if _task == "classification" else "r2"
-                _tr    = [_mt_map2[m].get("train_metrics", {}).get(_pk, 0)*100 for m in _names]
-                _te    = [_mt_map2[m].get("test_metrics",  {}).get(_pk, 0)*100 for m in _names]
-                _cv    = [_mt_map2[m].get("cv_mean", 0)*100 for m in _names]
-                _x     = np.arange(len(_names))
-                _w2    = 0.25
-                _fig, _ax = plt.subplots(figsize=(max(6, len(_names)*2.5), 4))
-                _fig.patch.set_facecolor("#0f1117")
-                _ax.set_facecolor("#1a1d27")
-                _ax.bar(_x-_w2, _tr, _w2, label="Train",   color="#5b8dee", alpha=.85)
-                _ax.bar(_x,     _te, _w2, label="Test",    color="#2ecc71", alpha=.85)
-                _ax.bar(_x+_w2, _cv, _w2, label="CV mean", color="#e67e22", alpha=.85)
-                _ax.set_xticks(_x)
-                _ax.set_xticklabels(_names, color="#bbb", fontsize=9)
-                _ax.set_ylabel(f"{_pk} %", color="#bbb", fontsize=9)
-                _ax.tick_params(colors="#bbb")
-                for _sp in _ax.spines.values():
-                    _sp.set_color("#333")
-                _ax.spines["top"].set_visible(False)
-                _ax.spines["right"].set_visible(False)
-                _ax.legend(fontsize=8, labelcolor="#bbb",
-                           facecolor="#1a1d27", edgecolor="#333")
-                _ax.set_ylim(0, 110)
-                plt.tight_layout()
-                st.pyplot(_fig, width='stretch')
-                plt.close(_fig)
+                _task = train_out.get("task_type", "classification")
+                _pk   = "accuracy" if _task == "classification" else "r2"
+                _rows_v = []
+                for _name, _m in _mt_map2.items():
+                    _rows_v += [
+                        {"model": _name, "metric": "Train",
+                         "score": round(_m.get("train_metrics", {}).get(_pk, 0) * 100, 2)},
+                        {"model": _name, "metric": "Test",
+                         "score": round(_m.get("test_metrics", {}).get(_pk, 0) * 100, 2)},
+                        {"model": _name, "metric": "CV mean",
+                         "score": round(_m.get("cv_mean", 0) * 100, 2)},
+                    ]
+                st.vega_lite_chart(
+                    pd.DataFrame(_rows_v),
+                    {
+                        "mark": {"type": "bar", "cornerRadiusEnd": 2},
+                        "height": 300,
+                        "background": "#0f1117",
+                        "config": VEGA_DARK_CONFIG,
+                        "encoding": {
+                            "x": {"field": "model", "type": "nominal",
+                                  "axis": {"labelAngle": 0, "title": None}},
+                            "xOffset": {"field": "metric"},
+                            "y": {"field": "score", "type": "quantitative",
+                                  "title": f"{_pk} %",
+                                  "scale": {"domain": [0, 110]}},
+                            "color": {
+                                "field": "metric",
+                                "scale": {
+                                    "domain": ["Train", "Test", "CV mean"],
+                                    "range": ["#5b8dee", "#2ecc71", "#e67e22"],
+                                },
+                                "legend": {"orient": "top", "title": None},
+                            },
+                            "tooltip": [
+                                {"field": "model"},
+                                {"field": "metric"},
+                                {"field": "score", "title": f"{_pk} %"},
+                            ],
+                        },
+                    },
+                    use_container_width=True,
+                )
 
-        # Correlation chart
+        # Correlation chart — interactive Vega-Lite diverging bars
         if corr_out:
             _top = corr_out.get("top_correlations", [])[:10]
             if _top:
                 st.markdown("#### Top Feature Correlations")
-                _pairs  = [f"{r['col_a']} ↔ {r['col_b']}" for r in _top]
-                _vals   = [r["correlation"] for r in _top]
-                _clrs   = ["#2ecc71" if v >= 0 else "#e74c3c" for v in _vals]
-                _fig2, _ax2 = plt.subplots(
-                    figsize=(8, max(3, len(_pairs)*0.42)))
-                _fig2.patch.set_facecolor("#0f1117")
-                _ax2.set_facecolor("#1a1d27")
-                _ax2.barh(_pairs[::-1], _vals[::-1],
-                          color=_clrs[::-1], alpha=.85)
-                _ax2.set_xlabel("Correlation coefficient",
-                                color="#bbb", fontsize=9)
-                _ax2.tick_params(colors="#bbb", labelsize=8)
-                _ax2.axvline(0, color="#555", lw=0.8)
-                _ax2.set_xlim(-1.1, 1.1)
-                for _sp2 in _ax2.spines.values():
-                    _sp2.set_color("#333")
-                plt.tight_layout()
-                st.pyplot(_fig2, width='stretch')
-                plt.close(_fig2)
+                _corr_df = pd.DataFrame(
+                    [{"pair": f"{r['col_a']} ↔ {r['col_b']}",
+                      "correlation": r["correlation"]} for r in _top]
+                )
+                st.vega_lite_chart(
+                    _corr_df,
+                    {
+                        "mark": {"type": "bar", "cornerRadiusEnd": 2},
+                        "height": max(160, len(_top) * 30),
+                        "background": "#0f1117",
+                        "config": VEGA_DARK_CONFIG,
+                        "encoding": {
+                            "y": {"field": "pair", "type": "nominal",
+                                  "sort": "-x", "title": None},
+                            "x": {"field": "correlation", "type": "quantitative",
+                                  "scale": {"domain": [-1.1, 1.1]},
+                                  "title": "Correlation coefficient"},
+                            "color": {
+                                "condition": {"test": "datum.correlation >= 0",
+                                              "value": "#2ecc71"},
+                                "value": "#e74c3c",
+                            },
+                            "tooltip": [
+                                {"field": "pair"},
+                                {"field": "correlation"},
+                            ],
+                        },
+                    },
+                    use_container_width=True,
+                )
 
     # ── Dataset ───────────────────────────────────────────────────────────────
     with tab_ds:

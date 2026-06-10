@@ -100,12 +100,13 @@ def _print_final_report(report: dict) -> None:  # type: ignore[type-arg]
         table = Table(title="Recommendations", show_header=False, padding=(0, 1))
         table.add_column("", style="yellow")
         table.add_column("")
-        for i, rec in enumerate(recommendations, 1):
-            table.add_row(f"[bold]→[/]", str(rec))
+        for rec in recommendations:
+            table.add_row("[bold]→[/]", str(rec))
         console.print(table)
 
     # Save raw JSON report
-    report_path = Path("output") / "reports" / "final_report.json"
+    output_dir = os.getenv("OUTPUT_DIR", "output")
+    report_path = Path(output_dir) / "reports" / "final_report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, default=str))
     console.print(f"\n[dim]Full report saved to: {report_path}[/]")

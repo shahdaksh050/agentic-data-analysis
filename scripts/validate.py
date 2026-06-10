@@ -16,11 +16,17 @@ import json
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 from typing import Any
 
 # Project root on path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Windows consoles default to cp1252, which cannot print ✓/✗ — force UTF-8
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 # Minimal console shim so src/ code that imports rich doesn't crash here
 # (the real src files use rich; here we just run them in subprocess or mock them)
@@ -44,8 +50,6 @@ def check(stage: str, label: str, condition: bool, detail: str = "") -> None:
 # Mock rich so src modules can import without error
 # ---------------------------------------------------------------------------
 
-import types
-
 def _make_rich_mock() -> None:
     """Inject stub rich modules so src imports don't blow up."""
     for mod in [
@@ -68,11 +72,11 @@ def _make_rich_mock() -> None:
 
     class _Tree:
         def __init__(self, *a: Any, **kw: Any): pass
-        def add(self, *a: Any, **kw: Any) -> "_Tree": return self
+        def add(self, *a: Any, **kw: Any) -> _Tree: return self
 
     class _Progress:
         def __init__(self, *a: Any, **kw: Any): pass
-        def __enter__(self) -> "_Progress": return self
+        def __enter__(self) -> _Progress: return self
         def __exit__(self, *a: Any) -> None: pass
         def add_task(self, *a: Any, **kw: Any) -> int: return 0
         def update(self, *a: Any, **kw: Any) -> None: pass
@@ -226,7 +230,7 @@ def main() -> None:
         # STAGE 1 — Memory System
         # ----------------------------------------------------------
         print("\n--- Stage 1: Memory System ---")
-        from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem, ToolResult
+        from src.core.memory import DatasetMetadata, MemorySystem
         mem = MemorySystem()
         metadata = DatasetMetadata(**meta_dict)
         mem.store_dataset_metadata(metadata)
@@ -340,8 +344,8 @@ def main() -> None:
         # STAGES 2/4/5 — RLM Engine & Prompt Manager
         # ----------------------------------------------------------
         print("\n--- Stages 2/4/5: RLM Engine & Prompt Manager ---")
-        from src.core.prompt_manager import PromptManager
         from src.core.controller import ToolRegistry
+        from src.core.prompt_manager import PromptManager
         from src.rlm.engine import RLMEngine
 
         mock_llm = MockLLMClient(cleaned_path=cleaned_path)
@@ -435,10 +439,9 @@ def main() -> None:
         # RLM Trace
         # ----------------------------------------------------------
         print("\n--- Reasoning Trace ---")
-        check("Trace", "Call log has entries", engine.repl_env.total_calls() > 0)
-        check("Trace", "All calls recorded",
-              engine.repl_env.total_calls() >= 4,
-              f"got {engine.repl_env.total_calls()}")
+        n_calls = len(engine.trace)
+        check("Trace", "Call log has entries", n_calls > 0)
+        check("Trace", "All calls recorded", n_calls >= 4, f"got {n_calls}")
 
         # ----------------------------------------------------------
         # Memory System integrity
