@@ -21,6 +21,7 @@ import sys
 import tempfile
 import traceback
 import types
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +127,8 @@ section[data-testid="stSidebar"] { background: #0d0f18; }
 # ── Session-state initialisation ──────────────────────────────────────────────
 _DEFAULTS: dict[str, Any] = {
     "preview_df":     None,   # pd.DataFrame
-    "preview_name":   "",
+    "preview_name":   "",     # sanitised filename (safe for filesystem)
+    "orig_name":      "",     # exact name as uploaded (change detection)
     "preview_bytes":  None,   # raw bytes
     "stage_log":      [],
     "analysis_done":  False,
@@ -134,6 +136,8 @@ _DEFAULTS: dict[str, Any] = {
     "final_report":   None,
     "tool_results":   [],
     "metadata":       None,
+    "profile":        None,   # DatasetProfile.to_dict()
+    "dashboard":      None,   # list of ChartSpec dicts
     "tmp_dir":        None,
     "progress_lines": [],
     "llm_warning":    None,
@@ -184,8 +188,8 @@ OR_MODELS = [
 
 def _reset_pipeline() -> None:
     for k in ("stage_log", "analysis_done", "analysis_error",
-              "final_report", "tool_results", "metadata", "tmp_dir",
-              "progress_lines", "llm_warning"):
+              "final_report", "tool_results", "metadata", "profile",
+              "dashboard", "tmp_dir", "progress_lines", "llm_warning"):
         st.session_state[k] = _DEFAULTS[k]  # type: ignore[assignment]
 
 
@@ -260,38 +264,55 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    # Persist to session_state immediately on upload / clear on removal
+    # Persist to session_state immediately on upload / clear on removal.
+    # Every upload passes through src.core.security before touching disk:
+    # extension allowlist, size ceiling, magic-byte sniffing, safe filename.
     if uploaded is not None:
-        if uploaded.name != st.session_state.get("preview_name", ""):
+        if uploaded.name != st.session_state.get("orig_name", ""):
             _reset_pipeline()
             raw_bytes = uploaded.read()
-            st.session_state["preview_bytes"] = raw_bytes
-            st.session_state["preview_name"]  = uploaded.name
-            _fname = uploaded.name.lower()
+            st.session_state["orig_name"] = uploaded.name
+            from src.core.security import UploadValidationError, validate_upload
             try:
-                buf = pd.io.common.BytesIO(raw_bytes)
-                if _fname.endswith(".csv"):
-                    st.session_state["preview_df"] = pd.read_csv(buf)
-                elif _fname.endswith(".xlsx"):
-                    st.session_state["preview_df"] = pd.read_excel(
-                        pd.io.common.BytesIO(raw_bytes), engine="openpyxl")
-                elif _fname.endswith(".xls"):
-                    st.session_state["preview_df"] = pd.read_excel(
-                        pd.io.common.BytesIO(raw_bytes), engine="xlrd")
-                else:
-                    st.error(f"Unsupported file type: {uploaded.name}")
+                safe_name = validate_upload(uploaded.name, raw_bytes)
+            except UploadValidationError as _ve:
+                st.session_state["preview_df"]    = None
+                st.session_state["preview_bytes"] = None
+                st.session_state["preview_name"]  = ""
+                st.error(f"🛡️ Upload rejected: {_ve}")
+            else:
+                st.session_state["preview_bytes"] = raw_bytes
+                st.session_state["preview_name"]  = safe_name
+                _fname = safe_name.lower()
+                try:
+                    if _fname.endswith(".csv"):
+                        st.session_state["preview_df"] = pd.read_csv(BytesIO(raw_bytes))
+                    elif _fname.endswith(".xlsx"):
+                        st.session_state["preview_df"] = pd.read_excel(
+                            BytesIO(raw_bytes), engine="openpyxl")
+                    elif _fname.endswith(".xls"):
+                        st.session_state["preview_df"] = pd.read_excel(
+                            BytesIO(raw_bytes), engine="xlrd")
+                except Exception as _e:
                     st.session_state["preview_df"] = None
-            except Exception as _e:
-                st.session_state["preview_df"] = None
-                st.error(f"Could not read file: {_e}")
+                    st.error(f"Could not read file: {_e}")
     else:
-        if st.session_state.get("preview_name"):
+        if st.session_state.get("orig_name"):
             for _k2, _v2 in _DEFAULTS.items():
                 st.session_state[_k2] = _v2
 
     target_col = st.text_input(
         "Target column",
         placeholder="e.g. churn, price, label  (blank = clustering)",
+    )
+
+    objective = st.text_area(
+        "🎯 Analysis objective (optional, plain English)",
+        placeholder="e.g. What drives customer churn? Which customers should "
+                    "we focus retention efforts on?",
+        height=90,
+        help="The agents will prioritise analyses that answer this question "
+             "and address it directly in the final report.",
     )
 
     # ── LLM Provider ──────────────────────────────────────────────────────────
@@ -432,6 +453,10 @@ if run_clicked:
     os.environ["MAX_ITERATIONS"]        = str(max_iter)
     os.environ["ENABLE_RLM_INFERENCE"]  = "true" if enable_rlm else "false"
     os.environ["OUTPUT_DIR"]            = outdir
+    if objective.strip():
+        os.environ["USER_OBJECTIVE"] = objective.strip()
+    else:
+        os.environ.pop("USER_OBJECTIVE", None)
     {
         "openai":     lambda: os.environ.__setitem__("OPENAI_API_KEY",    api_key.strip()),
         "anthropic":  lambda: os.environ.__setitem__("ANTHROPIC_API_KEY", api_key.strip()),
@@ -509,6 +534,15 @@ if run_clicked:
 
         st.session_state["tool_results"]  = [r.to_dict() for r in agent.memory.tool_results]
         st.session_state["final_report"]  = final
+        if agent.last_profile is not None:
+            st.session_state["profile"] = agent.last_profile.to_dict()
+        _dash_path = Path(outdir) / "reports" / "dashboard.json"
+        if _dash_path.exists():
+            try:
+                st.session_state["dashboard"] = json.loads(
+                    _dash_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                st.session_state["dashboard"] = None
         st.session_state["analysis_done"] = True
         st.session_state["progress_lines"] = _progress_lines
         llm_err = agent.memory.get_context("llm_error")
@@ -563,9 +597,9 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
     st.divider()
     st.markdown("## ✅ Analysis Complete")
 
-    (tab_ov, tab_ds, tab_ml, tab_ins,
+    (tab_ov, tab_dash, tab_prof, tab_ds, tab_ml, tab_ins,
      tab_log, tab_rep, tab_dl) = st.tabs([
-        "📈 Overview", "🗂 Dataset", "🤖 Models",
+        "📈 Overview", "📊 Dashboard", "🔬 Profile", "🗂 Dataset", "🤖 Models",
         "💡 Insights", "🔧 Tool Log", "📄 Report", "⬇ Downloads",
     ])
 
@@ -703,6 +737,72 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                     },
                     use_container_width=True,
                 )
+
+    # ── Dashboard — dynamic, data-aware charts from the Dashboard Agent ──────
+    with tab_dash:
+        dashboard: list[dict[str, Any]] | None = st.session_state.get("dashboard")
+        if dashboard:
+            st.caption(
+                "Charts selected automatically by the Dashboard Agent to fit "
+                "this dataset's nature and the analysis results."
+            )
+            _full_width_ids = {"model_comparison", "top_correlations",
+                               "scatter_top_pair", "time_series"}
+            _grid_charts: list[dict[str, Any]] = []
+
+            def _render_chart(_ch: dict[str, Any]) -> None:
+                st.markdown(f"**{_ch.get('title', '')}**")
+                _spec = dict(_ch.get("spec", {}))
+                _spec.setdefault("background", "#0f1117")
+                _spec.setdefault("config", VEGA_DARK_CONFIG)
+                st.vega_lite_chart(_spec, use_container_width=True)
+                if _ch.get("description"):
+                    st.caption(_ch["description"])
+
+            for _ch in dashboard:
+                if _ch.get("chart_id") in _full_width_ids:
+                    _render_chart(_ch)
+                else:
+                    _grid_charts.append(_ch)
+            if _grid_charts:
+                _dcols = st.columns(2)
+                for _i, _ch in enumerate(_grid_charts):
+                    with _dcols[_i % 2]:
+                        _render_chart(_ch)
+        else:
+            st.info("No dashboard was generated for this run.")
+
+    # ── Profile — automated data-quality first look ──────────────────────────
+    with tab_prof:
+        prof: dict[str, Any] | None = st.session_state.get("profile")
+        if prof:
+            _q = int(prof.get("quality_score", 0))
+            _qc = "#2ecc71" if _q >= 80 else "#e67e22" if _q >= 60 else "#e74c3c"
+            p1, p2, p3, p4 = st.columns(4)
+            p1.markdown(_mt("Quality score", f"{_q}/100", "0–100", _qc),
+                        unsafe_allow_html=True)
+            p2.markdown(_mt("Duplicate rows", f"{prof.get('duplicate_rows', 0):,}"),
+                        unsafe_allow_html=True)
+            p3.markdown(_mt("Memory", f"{prof.get('memory_mb', 0)} MB"),
+                        unsafe_allow_html=True)
+            p4.markdown(_mt("Columns profiled", str(prof.get('column_count', 0))),
+                        unsafe_allow_html=True)
+
+            for _w in prof.get("warnings", []):
+                st.markdown(f'<div class="wc">⚠ {_w}</div>', unsafe_allow_html=True)
+
+            st.markdown("#### Column Semantics")
+            _prows = [{
+                "Column":    c.get("name"),
+                "Kind":      c.get("kind"),
+                "Dtype":     c.get("dtype"),
+                "Missing %": c.get("missing_pct"),
+                "Unique":    c.get("nunique"),
+                "Flags":     ", ".join(c.get("flags", [])),
+            } for c in prof.get("columns", [])]
+            st.dataframe(_safe_df(pd.DataFrame(_prows)), width='stretch')
+        else:
+            st.info("No profile available for this run.")
 
     # ── Dataset ───────────────────────────────────────────────────────────────
     with tab_ds:
@@ -947,7 +1047,8 @@ if (preview_df is None
         '<p style="max-width:460px;margin:.4rem auto;line-height:1.8;color:#555">'
         'Drop a <b style="color:#777">CSV</b> or '
         '<b style="color:#777">Excel</b> file in the sidebar, '
-        'enter your API key, configure settings, then click '
+        'optionally describe <b style="color:#777">what you want to learn</b> '
+        'in plain English, enter your API key, then click '
         '<b style="color:#777">▶ Run Analysis</b>.'
         '</p>'
         '<p style="color:#3b5bdb;font-size:.82rem;margin-top:1.2rem">'
