@@ -429,6 +429,9 @@ Key contributions:
 
 ### Intelligent Analysis Capabilities
 
+- **Natural-Language Objectives**: Tell the system what you want to learn in plain English (`--objective` / UI text box) — agents prioritise analyses that answer it and the final report addresses it directly
+- **Automated Data Profiling**: Every dataset gets a data scientist's "first look" at ingestion — column semantics (numeric / categorical / datetime / boolean / identifier / constant), skew detection, missingness, duplicates, class imbalance, and a 0–100 quality score that also informs the planning LLM
+- **Dynamic Dashboard Agent**: Charts are *selected to fit the data*, not templated — class balance, distribution histograms ranked by target relevance, box plots of the most separating feature, scatter of the strongest relationship, time-series trends, model comparison, and correlation bars, all as interactive Vega-Lite specs
 - **Automatic Dataset Schema Detection**: Intelligent type inference, encoding detection, and metadata extraction
 - **Missing Value Analysis**: Comprehensive gap identification with imputation strategy recommendations
 - **Outlier Detection**: Multi-method anomaly identification (Z-score, IQR, Isolation Forest)
@@ -539,11 +542,16 @@ Key contributions:
 # Run on the bundled sample dataset
 python main.py --dataset data/sample_customer_churn.csv --target churn
 
+# With a natural-language objective
+python main.py --dataset data/sample_customer_churn.csv --target churn \
+    --objective "What drives customer churn and who should we retain?"
+
 # All options
 python main.py --dataset path/to/data.csv \
     --provider openai            # openai | anthropic (default: openai)
     --model gpt-4o               # override the LLM model name
     --target churn               # target column (auto-detected when omitted)
+    --objective "..."            # plain-English analysis goal
     --max-iterations 15          # reasoning-execution cycles
     --no-rlm                     # disable Stage 6 RLM decomposition
     --output-dir output          # root directory for all artifacts
@@ -560,15 +568,25 @@ and synthesises the final report directly from tool outputs.
 streamlit run app.py
 ```
 
-Upload a CSV/Excel file in the sidebar, paste your API key (OpenAI, Anthropic,
-or OpenRouter), tune the anti-overfitting controls, and click **Run Analysis**.
-Results render as an interactive dashboard (Vega-Lite charts, model comparison,
-insights, and downloadable artifacts).
+Upload a CSV/Excel file in the sidebar, optionally describe **what you want to
+learn** in plain English, paste your API key (OpenAI, Anthropic, or OpenRouter),
+tune the anti-overfitting controls, and click **Run Analysis**.
+
+Results render across dedicated tabs:
+- **📊 Dashboard** — charts chosen dynamically by the Dashboard Agent to fit the data
+- **🔬 Profile** — quality score, column semantics, and data-health warnings
+- **📈 Overview / 🤖 Models / 💡 Insights / 📄 Report / ⬇ Downloads** — metrics, comparisons, and artifacts
+
+Every upload is security-checked before it touches disk: extension allowlist,
+size ceiling (`MAX_UPLOAD_MB`, default 200), filename sanitisation
+(path-traversal safe), and magic-byte content sniffing that rejects binaries
+disguised as CSV.
 
 ### Access Results
 
 - Final report (Markdown): `output/reports/<dataset>_report.md`
 - Raw report data (JSON): `output/reports/<dataset>_raw.json` and `output/reports/final_report.json`
+- Dynamic dashboard (Vega-Lite JSON): `output/reports/dashboard.json`
 - Visualizations: `output/visualizations/*.png`
 - Trained models: `output/models/*.pkl`
 
@@ -587,6 +605,8 @@ All behaviour is configured through `.env` (see `.env.example`):
 | `RLM_MAX_DEPTH` | `5` | Max recursion depth for sub-calls |
 | `OUTPUT_DIR` | `output` | Root output directory |
 | `TARGET_COLUMN_HINT` | — | Optional target column override |
+| `USER_OBJECTIVE` | — | Plain-English analysis goal injected into all agent prompts |
+| `MAX_UPLOAD_MB` | `200` | Upload size ceiling enforced by the security layer |
 
 ### Programmatic Usage
 
