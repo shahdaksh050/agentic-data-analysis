@@ -125,3 +125,73 @@ class TestEvaluateModelTool:
         )
         assert eval_result.status == "success"
         assert "accuracy" in eval_result.output
+
+
+@pytest.fixture
+def string_target_csv(tmp_path: pytest.TempPathFactory) -> str:
+    """String labels — regression test for XGBoost/pandas-3 target encoding."""
+    import numpy as np
+    rng = np.random.default_rng(7)
+    n = 150
+    f1 = rng.normal(0, 1, n)
+    df = pd.DataFrame(
+        {
+            "f1": f1,
+            "f2": rng.normal(0, 1, n),
+            "segment": rng.choice(["gold", "silver"], n),  # categorical feature
+            "churn": np.where(f1 > 0, "yes", "no"),        # string target
+        }
+    )
+    p = tmp_path / "str_target.csv"
+    df.to_csv(p, index=False)
+    return str(p)
+
+
+class TestStringTargetSupport:
+    def test_random_forest_trains_on_string_target(self, string_target_csv: str) -> None:
+        result = TrainModelTool().run(
+            file_path=string_target_csv,
+            target_column="churn",
+            task_type="classification",
+            models=["random_forest"],
+            n_cv_folds=3,
+        )
+        assert result.status == "success"
+        assert result.output["class_labels"] == ["no", "yes"]
+
+    def test_task_type_auto_detects_classification(self, string_target_csv: str) -> None:
+        result = TrainModelTool().run(
+            file_path=string_target_csv,
+            target_column="churn",
+            task_type="auto",
+            models=["logistic_regression"],
+            n_cv_folds=3,
+        )
+        assert result.status == "success"
+        assert result.output["task_type"] == "classification"
+
+    def test_evaluate_maps_class_keys_back_to_labels(
+        self, string_target_csv: str, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        models_dir = str(tmp_path / "models")
+        train = TrainModelTool().run(
+            file_path=string_target_csv,
+            target_column="churn",
+            task_type="classification",
+            models=["logistic_regression"],
+            n_cv_folds=3,
+            output_dir=models_dir,
+        )
+        assert train.status == "success"
+        model_path = train.output["models_trained"]["logistic_regression"]["model_path"]
+
+        result = EvaluateModelTool().run(
+            model_path=model_path,
+            file_path=string_target_csv,
+            target_column="churn",
+            task_type="classification",
+        )
+        assert result.status == "success"
+        assert "train_test_gap" in result.output
+        report_keys = set(result.output["classification_report"].keys())
+        assert {"no", "yes"} <= report_keys
