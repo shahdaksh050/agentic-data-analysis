@@ -25,3 +25,7 @@ output/
 # OS / IDE
 .DS_Store
 Thumbs.db
+
+# Generated data artifacts
+data/*_cleaned.csv
+data/*_outliers_flagged.csv
