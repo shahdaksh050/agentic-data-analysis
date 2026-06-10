@@ -17,14 +17,13 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from scipy import stats  # type: ignore[import-untyped]
+from scipy import stats
 
 from src.tools.base import BaseTool, ToolExecutionError
 
 
-def _read_df(file_path: str) -> "pd.DataFrame":
-    from pathlib import Path as _P
-    path = _P(file_path)
+def _read_df(file_path: str) -> pd.DataFrame:
+    path = Path(file_path)
     suffix = path.suffix.lower()
     if suffix in {".csv", ".tsv"}:
         return pd.read_csv(path)
@@ -51,7 +50,7 @@ class SelectStatisticalTestTool(BaseTool):
         "Returns test name, statistic, p-value, and interpretation."
     )
 
-    def execute(
+    def execute(  # type: ignore[override]
         self,
         file_path: str,
         feature_column: str,
@@ -59,7 +58,6 @@ class SelectStatisticalTestTool(BaseTool):
         alpha: float = 0.05,
         **_: Any,
     ) -> dict[str, Any]:
-        path = Path(file_path)
         df = _read_df(file_path)
 
         if feature_column not in df.columns:
@@ -88,7 +86,7 @@ class SelectStatisticalTestTool(BaseTool):
                                               duplicates="drop")
 
         groups = df_clean.groupby(group_column)[feature_column].apply(list)
-        group_arrays = [pd.array(g) for g in groups]  # type: ignore[attr-defined]
+        group_arrays = [pd.array(g) for g in groups]
         n_groups = len(group_arrays)
 
         if n_groups < 2:
@@ -100,7 +98,8 @@ class SelectStatisticalTestTool(BaseTool):
             )
 
         # Categorical feature → Chi-Square
-        if df[feature_column].dtype == object:
+        # (is_numeric_dtype, not `dtype == object`: pandas 3 strings are `str` dtype)
+        if not pd.api.types.is_numeric_dtype(df_clean[feature_column]):
             return self._chi_square(df_clean, feature_column, group_column, alpha)
 
         # Normality (Shapiro-Wilk, sub-sampled for large groups)
