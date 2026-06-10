@@ -1,0 +1,163 @@
+"""
+Security utilities for the Agentic Data Analysis System.
+
+Centralises every check applied to user-supplied input before it touches
+the filesystem or the analysis pipeline:
+
+  - Filename sanitisation (path-traversal, reserved names, unsafe chars)
+  - Upload validation (extension allowlist, size limits, content sniffing)
+  - Safe output-path resolution (no writes outside the output root)
+
+Design rules:
+  - Pure functions, no I/O side effects except where documented.
+  - Fail closed: anything suspicious raises UploadValidationError.
+  - Limits are environment-configurable but have safe defaults.
+"""
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+
+#: File extensions the pipeline knows how to ingest.
+ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".csv", ".xlsx", ".xls"})
+
+#: Default upload ceiling in megabytes (override with MAX_UPLOAD_MB env var).
+DEFAULT_MAX_UPLOAD_MB = 200
+
+#: Windows reserved device names — writing to these can hang or misbehave.
+_RESERVED_NAMES: frozenset[str] = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+
+#: Characters allowed in a sanitised filename stem.
+_SAFE_STEM_RE = re.compile(r"[^A-Za-z0-9._ -]+")
+
+#: Magic bytes that identify formats we must reject inside a ".csv".
+_BINARY_SIGNATURES: tuple[bytes, ...] = (
+    b"\x7fELF",        # ELF executable
+    b"MZ",             # Windows PE executable
+    b"\x89PNG",        # PNG
+    b"\xff\xd8\xff",   # JPEG
+    b"%PDF",           # PDF
+)
+
+#: Magic bytes for legitimate Excel containers.
+_XLSX_SIGNATURE = b"PK\x03\x04"   # xlsx = zip container
+_XLS_SIGNATURE = b"\xd0\xcf\x11\xe0"  # legacy OLE2 compound file
+
+
+class UploadValidationError(Exception):
+    """Raised when an uploaded file fails any security or format check."""
+
+
+def max_upload_bytes() -> int:
+    """Return the configured upload size ceiling in bytes."""
+    try:
+        mb = int(os.getenv("MAX_UPLOAD_MB", str(DEFAULT_MAX_UPLOAD_MB)))
+    except ValueError:
+        mb = DEFAULT_MAX_UPLOAD_MB
+    return max(1, mb) * 1024 * 1024
+
+
+def sanitize_filename(name: str) -> str:
+    """
+    Reduce a user-supplied filename to a safe basename.
+
+    - Strips any directory components (defeats ../ traversal).
+    - Removes characters outside [A-Za-z0-9._ -].
+    - Renames Windows reserved device names.
+    - Guarantees a non-empty stem.
+
+    Returns:
+        A safe filename preserving the original extension (lower-cased).
+    """
+    # Take only the final path component, regardless of separator style
+    base = Path(name.replace("\\", "/")).name
+    stem = Path(base).stem
+    suffix = Path(base).suffix.lower()
+    # Extension-only names like ".csv": pathlib treats them as a hidden file
+    # with no suffix — reinterpret as an empty stem plus the extension.
+    if not suffix and stem.startswith("."):
+        suffix = stem.lower()
+        stem = ""
+
+    stem = _SAFE_STEM_RE.sub("_", stem).strip(" .")
+    if not stem or stem.lower() in _RESERVED_NAMES:
+        stem = f"upload_{stem}" if stem else "upload"
+    return f"{stem}{suffix}"
+
+
+def validate_upload(filename: str, raw_bytes: bytes) -> str:
+    """
+    Validate an uploaded dataset before it is written to disk.
+
+    Checks, in order:
+      1. Extension is in the allowlist.
+      2. File is non-empty and under the configured size ceiling.
+      3. Content matches the claimed format (magic-byte sniffing).
+
+    Args:
+        filename:  The name supplied by the client (untrusted).
+        raw_bytes: The full file payload.
+
+    Returns:
+        The sanitised filename safe to use on the local filesystem.
+
+    Raises:
+        UploadValidationError: On any failed check.
+    """
+    safe_name = sanitize_filename(filename)
+    suffix = Path(safe_name).suffix
+
+    if suffix not in ALLOWED_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
+        raise UploadValidationError(
+            f"Unsupported file type '{suffix or '(none)'}'. Allowed: {allowed}."
+        )
+
+    if not raw_bytes:
+        raise UploadValidationError("Uploaded file is empty.")
+
+    limit = max_upload_bytes()
+    if len(raw_bytes) > limit:
+        raise UploadValidationError(
+            f"File is {len(raw_bytes) / 1_048_576:.1f} MB — exceeds the "
+            f"{limit // 1_048_576} MB limit. Sample or split the dataset first."
+        )
+
+    head = raw_bytes[:8]
+    if suffix == ".csv":
+        for sig in (*_BINARY_SIGNATURES, _XLSX_SIGNATURE, _XLS_SIGNATURE):
+            if head.startswith(sig):
+                raise UploadValidationError(
+                    "File claims to be CSV but contains binary content."
+                )
+        if b"\x00" in raw_bytes[:4096]:
+            raise UploadValidationError(
+                "File claims to be CSV but contains null bytes (binary data)."
+            )
+    elif suffix == ".xlsx" and not head.startswith(_XLSX_SIGNATURE):
+        raise UploadValidationError("File claims to be .xlsx but is not a valid Excel container.")
+    elif suffix == ".xls" and not head.startswith(_XLS_SIGNATURE):
+        raise UploadValidationError("File claims to be .xls but is not a valid Excel container.")
+
+    return safe_name
+
+
+def resolve_output_path(output_root: str | Path, *parts: str) -> Path:
+    """
+    Join path parts under output_root, refusing any escape from the root.
+
+    Raises:
+        UploadValidationError: If the resolved path falls outside output_root.
+    """
+    root = Path(output_root).resolve()
+    candidate = root.joinpath(*parts).resolve()
+    if root != candidate and root not in candidate.parents:
+        raise UploadValidationError(
+            f"Refusing to write outside the output directory: {candidate}"
+        )
+    return candidate
