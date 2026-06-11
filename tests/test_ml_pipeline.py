@@ -91,6 +91,9 @@ class TestTrainModelTool:
             target_column="label",
             models=["random_forest"],
             max_depth=2,
+            # Isolate the depth cap: tuning (tested separately) adds CV-selection
+            # noise on this zero-signal dataset.
+            tune_hyperparameters=False,
         )
         assert result.status == "success"
         gap = result.output["models_trained"]["random_forest"]["train_test_gap"]

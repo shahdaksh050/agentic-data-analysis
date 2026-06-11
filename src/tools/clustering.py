@@ -1,0 +1,216 @@
+"""
+Clustering Tool — Execution Layer.
+
+Stage 3: Unsupervised segmentation (ClusterDataTool).
+
+Implements the path the rest of the system only promised: when no target
+column exists (or the user asks about segments), the agent can discover
+natural groups in the data:
+
+  - KMeans with automatic k selection via silhouette score (k = 2..max_k)
+  - Standard-scaled numeric features; identifiers/constants/datetimes excluded
+  - Per-cluster profiles (feature means) so clusters are interpretable
+  - 2-D PCA coordinates (sampled) for the dashboard scatter
+  - Deterministic throughout (random_state=42)
+"""
+from __future__ import annotations
+
+import pickle
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from src.tools.base import BaseTool, ToolExecutionError
+from src.tools.ml_pipeline import _read_df
+
+#: Default upper bound for the automatic k search.
+DEFAULT_MAX_K = 8
+
+#: Rows sampled for silhouette scoring and PCA scatter (keeps big data fast).
+SILHOUETTE_SAMPLE = 2_000
+PCA_POINT_CAP = 1_000
+
+#: Cluster profiles report at most this many features (highest variance first).
+MAX_PROFILE_FEATURES = 8
+
+
+def _select_cluster_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Numeric feature matrix suitable for distance-based clustering.
+
+    Excludes datetimes, constants, and identifier-like columns (near-unique
+    integers — cluster geometry on row IDs is meaningless).
+    """
+    keep: list[str] = []
+    n = max(len(df), 1)
+    for col in df.columns:
+        series = df[col]
+        if pd.api.types.is_datetime64_any_dtype(series):
+            continue
+        if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+            continue
+        nunique = series.nunique(dropna=True)
+        if nunique <= 1:
+            continue
+        if pd.api.types.is_integer_dtype(series) and nunique / n >= 0.98:
+            continue  # identifier-like
+        keep.append(str(col))
+    return df[keep]
+
+
+class ClusterDataTool(BaseTool):
+    """Discover natural segments in the data with auto-tuned KMeans."""
+
+    name = "cluster_data"
+    description = (
+        "Segment the dataset into natural groups using KMeans clustering. "
+        "Automatically selects the number of clusters (k) by silhouette score "
+        "unless n_clusters is given. Returns cluster sizes, per-cluster feature "
+        "profiles, the silhouette quality score, and 2-D PCA coordinates for "
+        "visualisation. Use when there is no target column or when the user "
+        "asks about segments/groups/personas."
+    )
+
+    def execute(  # type: ignore[override]
+        self,
+        file_path: str,
+        n_clusters: int | None = None,
+        max_k: int = DEFAULT_MAX_K,
+        output_dir: str = "output/models",
+        **_: Any,
+    ) -> dict[str, Any]:
+        import numpy as np
+        from sklearn.cluster import KMeans
+        from sklearn.decomposition import PCA
+        from sklearn.metrics import silhouette_score
+        from sklearn.preprocessing import StandardScaler
+
+        df = _read_df(file_path)
+        features = _select_cluster_features(df)
+
+        if features.shape[1] < 2:
+            raise ToolExecutionError(
+                "Clustering needs at least 2 usable numeric features; "
+                f"found {features.shape[1]}. Identifier, constant, datetime and "
+                "non-numeric columns are excluded."
+            )
+        if len(features) < 20:
+            raise ToolExecutionError(
+                f"Clustering needs at least 20 rows; dataset has {len(features)}."
+            )
+
+        # Median-impute then standardise — KMeans is distance-based
+        filled = features.fillna(features.median(numeric_only=True))
+        scaler = StandardScaler()
+        X = scaler.fit_transform(filled)
+
+        rng = np.random.default_rng(42)
+        sil_idx = (
+            rng.choice(len(X), size=SILHOUETTE_SAMPLE, replace=False)
+            if len(X) > SILHOUETTE_SAMPLE
+            else np.arange(len(X))
+        )
+
+        # ---- k selection ----
+        k_scores: dict[int, float] = {}
+        if n_clusters is not None:
+            if n_clusters < 2:
+                raise ToolExecutionError("n_clusters must be >= 2.")
+            candidates = [int(n_clusters)]
+        else:
+            upper = min(max(2, int(max_k)), len(features) - 1)
+            candidates = list(range(2, upper + 1))
+
+        best_k, best_score, best_model = -1, -2.0, None
+        for k in candidates:
+            model = KMeans(n_clusters=k, random_state=42, n_init="auto")
+            labels = model.fit_predict(X)
+            if len(set(labels[sil_idx])) < 2:
+                continue
+            score = float(silhouette_score(X[sil_idx], labels[sil_idx]))
+            k_scores[k] = round(score, 4)
+            if score > best_score:
+                best_k, best_score, best_model = k, score, model
+
+        if best_model is None:
+            raise ToolExecutionError("KMeans failed to produce 2+ distinct clusters.")
+
+        labels = best_model.predict(X)
+        sizes = pd.Series(labels).value_counts().sort_index()
+        cluster_sizes = {f"cluster_{int(c)}": int(v) for c, v in sizes.items()}
+
+        # ---- per-cluster profiles on the most variable features ----
+        profile_cols = (
+            filled.var().sort_values(ascending=False).head(MAX_PROFILE_FEATURES).index
+        )
+        profiled = filled[profile_cols].assign(_cluster=labels)
+        cluster_profiles: dict[str, dict[str, float]] = {}
+        for c, group in profiled.groupby("_cluster"):
+            cluster_profiles[f"cluster_{int(c)}"] = {
+                str(col): round(float(group[col].mean()), 4) for col in profile_cols
+            }
+
+        # ---- 2-D PCA coordinates for the dashboard scatter ----
+        pca = PCA(n_components=2, random_state=42)
+        coords = pca.fit_transform(X)
+        point_idx = (
+            rng.choice(len(coords), size=PCA_POINT_CAP, replace=False)
+            if len(coords) > PCA_POINT_CAP
+            else np.arange(len(coords))
+        )
+        pca_points = [
+            {
+                "x": round(float(coords[i, 0]), 4),
+                "y": round(float(coords[i, 1]), 4),
+                "cluster": f"cluster_{int(labels[i])}",
+            }
+            for i in point_idx
+        ]
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        model_path = Path(output_dir) / "kmeans.pkl"
+        with open(model_path, "wb") as f:
+            pickle.dump({"scaler": scaler, "kmeans": best_model, "features": list(features.columns)}, f)
+
+        quality = (
+            "strong" if best_score >= 0.5
+            else "moderate" if best_score >= 0.25
+            else "weak"
+        )
+        return {
+            "summary": (
+                f"Found {best_k} clusters (silhouette={best_score:.3f}, {quality} separation) "
+                f"across {len(features)} rows × {features.shape[1]} numeric features."
+            ),
+            "n_clusters": int(best_k),
+            "silhouette_score": round(best_score, 4),
+            "separation_quality": quality,
+            "k_scores": k_scores,
+            "cluster_sizes": cluster_sizes,
+            "cluster_profiles": cluster_profiles,
+            "features_used": list(features.columns),
+            "pca_points": pca_points,
+            "pca_explained_variance": [round(float(v), 4) for v in pca.explained_variance_ratio_],
+            "model_path": str(model_path),
+        }
+
+    def get_schema(self) -> dict[str, Any]:
+        return {
+            "file_path": {"type": "string", "description": "Path to the (cleaned) dataset.", "required": True},
+            "n_clusters": {
+                "type": "int",
+                "description": "Fixed number of clusters. Omit to auto-select by silhouette.",
+                "required": False,
+            },
+            "max_k": {
+                "type": "int",
+                "description": f"Upper bound for the automatic k search. Default: {DEFAULT_MAX_K}.",
+                "required": False,
+            },
+            "output_dir": {
+                "type": "string",
+                "description": "Directory for the saved clustering model.",
+                "required": False,
+            },
+        }

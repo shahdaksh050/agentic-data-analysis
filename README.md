@@ -431,7 +431,12 @@ Key contributions:
 
 - **Natural-Language Objectives**: Tell the system what you want to learn in plain English (`--objective` / UI text box) — agents prioritise analyses that answer it and the final report addresses it directly
 - **Automated Data Profiling**: Every dataset gets a data scientist's "first look" at ingestion — column semantics (numeric / categorical / datetime / boolean / identifier / constant), skew detection, missingness, duplicates, class imbalance, and a 0–100 quality score that also informs the planning LLM
-- **Dynamic Dashboard Agent**: Charts are *selected to fit the data*, not templated — class balance, distribution histograms ranked by target relevance, box plots of the most separating feature, scatter of the strongest relationship, time-series trends, model comparison, and correlation bars, all as interactive Vega-Lite specs
+- **Dynamic Dashboard Agent**: Charts are *selected to fit the data*, not templated — class balance, distribution histograms ranked by target relevance, box plots of the most separating feature, scatter of the strongest relationship, cluster maps, time-series trends, model comparison, and correlation bars, all as interactive Vega-Lite specs
+- **Autonomous Segmentation**: When no target column exists, the `cluster_data` tool discovers natural groups with KMeans, auto-selecting k by silhouette score, and reports interpretable per-cluster profiles plus a 2-D PCA cluster map
+- **Automatic Data Treatments**: The pipeline *acts* on what the profiler diagnoses — identifier columns dropped, severely skewed features log-transformed, imbalanced targets handled with class weighting — and every action is reported
+- **Hyperparameter Tuning**: Light randomized search (seeded, bounded, auto-skipped above 20k rows) with best parameters reported per model; the search never exceeds the user's `max_depth` anti-overfitting cap
+- **Explainability**: Permutation importance on the held-out split with plain-language driver sentences ("higher `support_calls` pushes predictions toward churn")
+- **Shareable HTML Report**: A single self-contained `report.html` — executive summary answering the user's objective, insights, drivers, treatments, metrics, and the full interactive dashboard
 - **Automatic Dataset Schema Detection**: Intelligent type inference, encoding detection, and metadata extraction
 - **Missing Value Analysis**: Comprehensive gap identification with imputation strategy recommendations
 - **Outlier Detection**: Multi-method anomaly identification (Z-score, IQR, Isolation Forest)
@@ -585,6 +590,7 @@ disguised as CSV.
 ### Access Results
 
 - Final report (Markdown): `output/reports/<dataset>_report.md`
+- Shareable interactive report (HTML): `output/reports/report.html`
 - Raw report data (JSON): `output/reports/<dataset>_raw.json` and `output/reports/final_report.json`
 - Dynamic dashboard (Vega-Lite JSON): `output/reports/dashboard.json`
 - Visualizations: `output/visualizations/*.png`

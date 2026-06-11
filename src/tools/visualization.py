@@ -214,7 +214,7 @@ class GenerateVisualizationsTool(BaseTool):
         # sees the exact column layout it was fitted on
         from src.tools.ml_pipeline import _encode_target, _prepare_features
 
-        X, y_raw = _prepare_features(df, target_column)
+        X, y_raw, _treatments = _prepare_features(df, target_column)
         y, _class_labels = _encode_target(y_raw)
 
         if not hasattr(model, "predict_proba"):
@@ -258,7 +258,7 @@ class GenerateVisualizationsTool(BaseTool):
         # sees the exact column layout it was fitted on
         from src.tools.ml_pipeline import _encode_target, _prepare_features
 
-        X, y_raw = _prepare_features(df, target_column)
+        X, y_raw, _treatments = _prepare_features(df, target_column)
         y, _class_labels = _encode_target(y_raw)
 
         y_pred = model.predict(X)

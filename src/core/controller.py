@@ -236,6 +236,7 @@ class ToolRegistry:
     """
 
     def __init__(self) -> None:
+        from src.tools.clustering import ClusterDataTool
         from src.tools.data_processing import (
             CleanDataTool,
             CorrelationAnalysisTool,
@@ -255,6 +256,7 @@ class ToolRegistry:
             SelectStatisticalTestTool(),
             TrainModelTool(),
             EvaluateModelTool(),
+            ClusterDataTool(),
             GenerateVisualizationsTool(),
             GenerateReportTool(),
         ]
@@ -308,6 +310,8 @@ class AgentController:
             self.memory.set_context("user_objective", self.objective)
         # Most recent dataset profile (set during load_dataset).
         self.last_profile: DatasetProfile | None = None
+        # Charts from the most recent dashboard build (for the HTML report).
+        self._last_charts: list[dict[str, Any]] = []
         self._rlm_decomposed: bool = False   # run decomposition at most once per session
         # Failures per tool across iterations — LLM-replanned steps are new
         # objects each cycle, so retry budgets must be tracked here.
@@ -564,6 +568,7 @@ class AgentController:
         # ---- Stage 7: Report Generation ----
         self._generate_final_report(final_result)
         self._generate_dashboard()
+        self._generate_html_report(final_result)
 
         # Print reasoning trace
         if self._rlm_engine:
@@ -662,14 +667,20 @@ class AgentController:
                 },
             ]
         else:
-            steps.append(
+            steps += [
                 {
                     "step_number": 4,
+                    "tool_name": "cluster_data",
+                    "parameters": {"file_path": fp},
+                    "rationale": "Fallback plan: no target — discover natural segments.",
+                },
+                {
+                    "step_number": 5,
                     "tool_name": "generate_visualizations",
                     "parameters": {"file_path": fp, "chart_type": "correlation_heatmap"},
                     "rationale": "Fallback plan: EDA visualisation without a target.",
-                }
-            )
+                },
+            ]
         return {
             "status": "in_progress",
             "reasoning": "LLM unavailable — executing deterministic fallback plan.",
@@ -698,12 +709,40 @@ class AgentController:
             out_path = Path(self._output_dir) / "reports" / "dashboard.json"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(dashboard_to_json(charts), encoding="utf-8")
+            self._last_charts = [c.to_dict() for c in charts]
             self.memory.set_context("dashboard_path", str(out_path))
             console.print(
                 f"  [green]📊 Dashboard generated: {len(charts)} chart(s) → {out_path}[/]"
             )
         except Exception as exc:
             console.print(f"  [yellow]⚠ Dashboard generation failed (non-fatal): {exc}[/]")
+
+    def _generate_html_report(self, llm_final: dict[str, Any]) -> None:
+        """
+        Write the self-contained HTML report (summary + interactive dashboard).
+        Non-fatal on any failure.
+        """
+        meta = self.memory.dataset_metadata
+        if meta is None:
+            return
+        try:
+            from src.core.html_report import build_html_report
+
+            html_doc = build_html_report(
+                dataset_name=Path(meta.file_path).stem,
+                llm_insights=llm_final,
+                tool_results=[r.to_dict() for r in self.memory.tool_results],
+                charts=self._last_charts,
+                objective=self.objective,
+                profile=self.memory.get_context("data_profile"),
+            )
+            out_path = Path(self._output_dir) / "reports" / "report.html"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(html_doc, encoding="utf-8")
+            self.memory.set_context("html_report_path", str(out_path))
+            console.print(f"  [green]🌐 HTML report generated → {out_path}[/]")
+        except Exception as exc:
+            console.print(f"  [yellow]⚠ HTML report generation failed (non-fatal): {exc}[/]")
 
     def _deterministic_final(self) -> dict[str, Any]:
         """Synthesise a final report dict from accumulated tool results, no LLM needed."""
@@ -756,6 +795,16 @@ class AgentController:
         stat = self.memory.get_last_result_for("select_statistical_test")
         if stat and stat.status == "success":
             insights.append(str(stat.output.get("summary", "")))
+
+        cluster = self.memory.get_last_result_for("cluster_data")
+        if cluster and cluster.status == "success":
+            sizes = cluster.output.get("cluster_sizes", {})
+            insights.append(
+                f"Segmentation: {cluster.output.get('n_clusters')} natural clusters "
+                f"(silhouette={cluster.output.get('silhouette_score')}, "
+                f"{cluster.output.get('separation_quality')} separation); "
+                f"sizes: {sizes}."
+            )
 
         if not insights:
             insights.append("Analysis produced no tool results to synthesise.")

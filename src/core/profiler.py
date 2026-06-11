@@ -86,7 +86,15 @@ class DatasetProfile:
         return [c for c in self.columns if c.kind in kinds]
 
     def to_prompt_string(self, max_warnings: int = 8) -> str:
-        """Compact profile summary (~150 tokens) for LLM context injection."""
+        """
+        Compact profile summary (~150 tokens) for LLM context injection.
+
+        Column names are dataset-derived (untrusted) and are sanitised before
+        they reach a prompt. Warnings embed column names too, so they pass
+        through the same sanitiser.
+        """
+        from src.core.security import sanitize_for_prompt as _sp
+
         kind_counts: dict[str, int] = {}
         for col in self.columns:
             kind_counts[col.kind] = kind_counts.get(col.kind, 0) + 1
@@ -95,14 +103,16 @@ class DatasetProfile:
             f"Data profile: quality score {self.quality_score}/100; "
             f"{self.duplicate_rows} duplicate rows; column kinds: {kinds}.",
         ]
-        skewed = [c.name for c in self.columns if "severe_skew" in c.flags]
+        skewed = [_sp(c.name) for c in self.columns if "severe_skew" in c.flags]
         if skewed:
             lines.append(f"Severely skewed numerics: {', '.join(skewed[:6])}.")
-        ids = [c.name for c in self.columns if c.kind == "identifier"]
+        ids = [_sp(c.name) for c in self.columns if c.kind == "identifier"]
         if ids:
             lines.append(f"Identifier columns (exclude from modelling): {', '.join(ids[:6])}.")
         if self.warnings:
-            lines.append("Warnings: " + " | ".join(self.warnings[:max_warnings]))
+            lines.append(
+                "Warnings: " + " | ".join(_sp(w, max_len=160) for w in self.warnings[:max_warnings])
+            )
         return "\n".join(lines)
 
 

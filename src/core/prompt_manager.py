@@ -92,10 +92,14 @@ MANDATORY RULES — follow these precisely:
 1. ALWAYS begin with clean_data (strategy: "median") passing the original file_path.
 2. ALWAYS follow with detect_outliers on the cleaned file.
 3. ALWAYS run correlation_analysis on the cleaned file.
-4. If task type is "eda" (no target column):
+4. If task type is "eda" or "clustering" (no target column):
+   - Run cluster_data on the cleaned file to discover natural segments
+     (auto-selects k by silhouette score).
    - Run generate_visualizations (chart_type: "correlation_heatmap") and
      generate_visualizations (chart_type: "distributions").
    - Do NOT run train_model, evaluate_model, or select_statistical_test.
+   - If the user objective mentions segments, groups, personas, or customer
+     types, cluster_data is the MOST important step — prioritise it.
 5. If a target column IS identified (classification or regression):
    - Run select_statistical_test with an appropriate feature_column and the target as group_column.
    - Run train_model with the cleaned file, the target_column, and the correct task_type.
