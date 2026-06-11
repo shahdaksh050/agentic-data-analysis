@@ -419,6 +419,36 @@ def _model_comparison_chart(train_output: dict[str, Any] | None) -> ChartSpec | 
     )
 
 
+def _cluster_chart(cluster_output: dict[str, Any] | None) -> ChartSpec | None:
+    if not cluster_output:
+        return None
+    points = cluster_output.get("pca_points", [])
+    if not isinstance(points, list) or len(points) < 10:
+        return None
+    n = cluster_output.get("n_clusters", "?")
+    sil = cluster_output.get("silhouette_score", "?")
+    return ChartSpec(
+        chart_id="cluster_scatter",
+        title=f"Segments — {n} clusters (silhouette {sil})",
+        description="Rows projected to 2-D (PCA), colored by discovered cluster. "
+                    "Tight, well-separated colors mean meaningful segments.",
+        spec={
+            "data": {"values": points},
+            "mark": {"type": "circle", "opacity": 0.6, "size": 40},
+            "height": 300,
+            "encoding": {
+                "x": {"field": "x", "type": "quantitative", "title": "PC 1",
+                      "scale": {"zero": False}},
+                "y": {"field": "y", "type": "quantitative", "title": "PC 2",
+                      "scale": {"zero": False}},
+                "color": {"field": "cluster", "type": "nominal",
+                          "legend": {"orient": "top", "title": None}},
+                "tooltip": [{"field": "cluster"}],
+            },
+        },
+    )
+
+
 def _correlation_chart(corr_output: dict[str, Any] | None) -> ChartSpec | None:
     if not corr_output:
         return None
@@ -482,9 +512,11 @@ def build_dashboard(
 
     train_out = _find_tool_output(results, "train_model")
     corr_out = _find_tool_output(results, "correlation_analysis")
+    cluster_out = _find_tool_output(results, "cluster_data")
 
     candidates: list[ChartSpec | None] = [
         _model_comparison_chart(train_out),
+        _cluster_chart(cluster_out),
         _correlation_chart(corr_out),
         _class_balance_chart(df, target_column, task_type),
         _box_plot_chart(df, ranked, target_column, task_type),

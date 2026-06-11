@@ -120,6 +120,37 @@ class TestChartSelection:
         )
         assert "model_comparison" not in _ids(charts)
 
+    def test_cluster_chart_from_tool_results(self, churn_df: pd.DataFrame) -> None:
+        cluster_result = {
+            "tool_name": "cluster_data",
+            "status": "success",
+            "output": {
+                "n_clusters": 3,
+                "silhouette_score": 0.61,
+                "pca_points": [
+                    {"x": float(i), "y": float(-i), "cluster": f"cluster_{i % 3}"}
+                    for i in range(30)
+                ],
+            },
+        }
+        df = churn_df.drop(columns=["churn"])
+        profile = profile_dataframe(df)
+        charts = build_dashboard(df, profile, task_type="eda",
+                                 tool_results=[cluster_result])
+        ids = _ids(charts)
+        assert "cluster_scatter" in ids
+        spec = next(c for c in charts if c.chart_id == "cluster_scatter").spec
+        assert len(spec["data"]["values"]) == 30
+
+    def test_cluster_chart_skipped_without_points(self, churn_df: pd.DataFrame) -> None:
+        cluster_result = {
+            "tool_name": "cluster_data", "status": "success",
+            "output": {"n_clusters": 2, "pca_points": []},
+        }
+        profile = profile_dataframe(churn_df)
+        charts = build_dashboard(churn_df, profile, tool_results=[cluster_result])
+        assert "cluster_scatter" not in _ids(charts)
+
     def test_time_series_chart_for_datetime_data(self) -> None:
         n = 400
         df = pd.DataFrame({

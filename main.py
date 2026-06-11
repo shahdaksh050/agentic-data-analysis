@@ -149,7 +149,13 @@ def main() -> None:
     )
 
     # ---- Stage 1: Dataset Ingestion ----
-    metadata = agent.load_dataset(str(dataset_path), target_hint=args.target)
+    # Only prompt for a target column when stdin is a real terminal —
+    # in pipes/CI the input() call would block forever.
+    metadata = agent.load_dataset(
+        str(dataset_path),
+        target_hint=args.target,
+        interactive=sys.stdin.isatty(),
+    )
     console.print(
         f"\n[bold]Dataset loaded:[/] {metadata.row_count} rows × "
         f"{metadata.column_count} cols  |  "

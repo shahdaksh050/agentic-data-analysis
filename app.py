@@ -977,6 +977,13 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
     with tab_rep:
         if tmp_dir:
             _rdir = Path(tmp_dir) / "output" / "reports"
+            _html = _rdir / "report.html"
+            if _html.exists():
+                st.download_button(
+                    "🌐 Download shareable HTML report (interactive charts)",
+                    _html.read_bytes(), "report.html", mime="text/html",
+                    key="dl_html_top", type="primary",
+                )
             _mds  = sorted(_rdir.glob("*.md")) if _rdir.exists() else []
             if _mds:
                 st.markdown(_mds[0].read_text(encoding="utf-8"))
@@ -991,11 +998,12 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
             _rdir2 = _out / "reports"
             if _rdir2.exists():
                 st.markdown("**Reports**")
+                _mimes = {".md": "text/markdown", ".html": "text/html",
+                          ".json": "application/json"}
                 for _f in sorted(_rdir2.iterdir()):
                     st.download_button(
                         f"⬇ {_f.name}", _f.read_bytes(), _f.name,
-                        mime=("text/markdown" if _f.suffix == ".md"
-                              else "application/json"),
+                        mime=_mimes.get(_f.suffix, "application/octet-stream"),
                         key=f"dlr_{_f.name}",
                     )
 

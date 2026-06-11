@@ -19,6 +19,8 @@ import os
 import re
 from pathlib import Path
 
+import pandas as pd
+
 #: File extensions the pipeline knows how to ingest.
 ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".csv", ".xlsx", ".xls"})
 
@@ -145,6 +147,51 @@ def validate_upload(filename: str, raw_bytes: bytes) -> str:
         raise UploadValidationError("File claims to be .xls but is not a valid Excel container.")
 
     return safe_name
+
+
+#: Characters that make a spreadsheet treat a CSV cell as a formula.
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+#: Control characters and zero-width/bidi unicode stripped from prompt text.
+_PROMPT_UNSAFE_RE = re.compile(r"[\x00-\x1f\x7f​-‏  ‪-‮]")
+
+
+def sanitize_for_prompt(text: object, max_len: int = 80) -> str:
+    """
+    Make a dataset-derived string safe for injection into an LLM prompt.
+
+    Dataset content (column names, category values) is untrusted: a column
+    literally named "ignore previous instructions…" must ride into the
+    planner as inert data, not as a directive. This strips control and
+    zero-width/bidi characters, collapses all whitespace (no newlines means
+    no fake prompt sections), and clips the length.
+    """
+    s = str(text)
+    # Collapse whitespace FIRST so newlines become spaces (word boundaries
+    # preserved), then strip the remaining non-whitespace control characters.
+    s = " ".join(s.split())
+    s = _PROMPT_UNSAFE_RE.sub("", s)
+    if len(s) > max_len:
+        s = s[: max_len - 1] + "…"
+    return s
+
+
+def escape_csv_formulas(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Neutralise spreadsheet formula injection in a DataFrame bound for CSV export.
+
+    Cells beginning with =, +, -, @ (or tab/CR) execute as formulas when the
+    CSV is opened in Excel/Sheets. Prefixing a single quote renders them inert.
+    Only string-typed cells are touched; use ONLY on user-facing exports,
+    never on files read back by the pipeline.
+    """
+    out = df.copy()
+    for col in out.columns:
+        if not pd.api.types.is_numeric_dtype(out[col]) and not pd.api.types.is_bool_dtype(out[col]):
+            out[col] = out[col].map(
+                lambda v: f"'{v}" if isinstance(v, str) and v.startswith(_FORMULA_PREFIXES) else v
+            )
+    return out
 
 
 def resolve_output_path(output_root: str | Path, *parts: str) -> Path:

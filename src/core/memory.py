@@ -109,14 +109,18 @@ class DatasetMetadata:
             candidates.append((original, round(base, 4)))
 
         if not candidates:
-            # Positional fallback — last column is the common ML convention
+            # Positional fallback — last column is the common ML convention,
+            # but with no name hint it is weak evidence. Score non-binary
+            # guesses below the autonomy threshold so the pipeline prefers
+            # EDA + clustering over modelling an arbitrary column.
             last_col = col_names[-1]
-            pos_score = 0.55
             nunique = self.column_nunique.get(last_col, -1)
             if nunique == 2:
-                pos_score = min(0.70, pos_score + 0.15)
+                pos_score = 0.65   # binary last column is the usual label shape
             elif nunique > 100:
-                pos_score = max(0.25, pos_score - 0.15)
+                pos_score = 0.25
+            else:
+                pos_score = 0.35
             if last_col in self.high_cardinality_cols:
                 pos_score = max(0.20, pos_score - 0.20)
             candidates.append((last_col, round(pos_score, 4)))
@@ -153,24 +157,39 @@ class DatasetMetadata:
         return "classification"  # default for object/string targets
 
     def to_prompt_string(self) -> str:
-        """Render a compact, LLM-friendly metadata summary (≈200 tokens)."""
+        """
+        Render a compact, LLM-friendly metadata summary (≈200 tokens).
+
+        All dataset-derived strings (column names, class labels) pass through
+        sanitize_for_prompt so a hostile dataset cannot inject instructions
+        into the planner.
+        """
+        from src.core.security import sanitize_for_prompt as _sp
+
         missing_total = sum(self.missing_values.values())
-        target_note = self.target_column or "None (perform full EDA — describe distributions, correlations, outliers, and key patterns)"
+        target_note = (
+            _sp(self.target_column)
+            if self.target_column
+            else "None (perform full EDA — describe distributions, correlations, outliers, and key patterns)"
+        )
+        num_cols = ", ".join(_sp(c) for c in self.numerical_cols[:12])
+        cat_cols = ", ".join(_sp(c) for c in self.categorical_cols[:8])
         lines = [
-            f"Dataset: {Path(self.file_path).name}",
+            f"Dataset: {_sp(Path(self.file_path).name)}",
             f"Shape: {self.row_count:,} rows × {self.column_count} columns",
-            f"Numerical ({len(self.numerical_cols)}): {', '.join(self.numerical_cols[:12])}",
-            f"Categorical ({len(self.categorical_cols)}): {', '.join(self.categorical_cols[:8])}",
+            f"Numerical ({len(self.numerical_cols)}): {num_cols}",
+            f"Categorical ({len(self.categorical_cols)}): {cat_cols}",
             f"Missing values: {missing_total:,} total cells across "
             f"{sum(1 for v in self.missing_values.values() if v > 0)} columns",
             f"Target: {target_note}",
             f"Task type: {self.task_type or 'Not identified'}",
         ]
         if self.class_balance:
-            bal = ", ".join(f"{k}={v}" for k, v in list(self.class_balance.items())[:6])
+            bal = ", ".join(f"{_sp(k)}={v}" for k, v in list(self.class_balance.items())[:6])
             lines.append(f"Class balance: {bal}")
         if self.high_cardinality_cols:
-            lines.append(f"High-cardinality columns: {', '.join(self.high_cardinality_cols)}")
+            hc = ", ".join(_sp(c) for c in self.high_cardinality_cols)
+            lines.append(f"High-cardinality columns: {hc}")
         return "\n".join(lines)
 
 
