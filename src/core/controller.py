@@ -72,6 +72,25 @@ class LLMClient:
         self.model: str = os.getenv("LLM_MODEL", "gpt-4o")
         self.temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.2"))
         self.max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+        self.timeout: float = float(os.getenv("LLM_TIMEOUT", "120"))
+
+    def ping(self) -> tuple[bool, str]:
+        """
+        Cheap connectivity + model-validity check (a few tokens).
+
+        Returns (True, "") on success, (False, "<ExceptionType>: <detail>")
+        on any failure — so callers can fail fast with the real reason
+        instead of running a whole analysis on the deterministic fallback.
+        """
+        saved = self.max_tokens
+        self.max_tokens = 16
+        try:
+            self._dispatch("You are a connectivity check. Reply with OK.", "Reply with OK.")
+            return True, ""
+        except Exception as exc:
+            return False, f"{type(exc).__name__}: {exc}"
+        finally:
+            self.max_tokens = saved
 
     def call(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         """
@@ -89,7 +108,7 @@ class LLMClient:
         return self._call_openai_compat(system_prompt, user_prompt)
 
     def _call_openai_compat(self, system_prompt: str, user_prompt: str) -> str:
-        """OpenAI and OpenRouter both use the OpenAI-compatible SDK."""
+        """OpenAI, OpenRouter, and NVIDIA NIM all use the OpenAI-compatible SDK."""
         from openai import OpenAI
         if self.provider == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY", "")
@@ -98,11 +117,28 @@ class LLMClient:
                 "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://github.com/agentic-data-analysis"),
                 "X-Title": "Agentic Data Analysis",
             }
+        elif self.provider == "nvidia":
+            api_key = os.getenv("NVIDIA_API_KEY", "")
+            base_url = "https://integrate.api.nvidia.com/v1"
+            extra_headers = {}
         else:
             api_key = os.getenv("OPENAI_API_KEY", "")
             base_url = None
             extra_headers = {}
-        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if not api_key:
+            _key_names = {
+                "openrouter": "OPENROUTER_API_KEY",
+                "nvidia": "NVIDIA_API_KEY",
+            }
+            raise ValueError(
+                f"No API key set for provider '{self.provider}'. "
+                f"Set {_key_names.get(self.provider, 'OPENAI_API_KEY')}."
+            )
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "timeout": self.timeout,
+            "max_retries": 2,
+        }
         if base_url:
             client_kwargs["base_url"] = base_url
         if extra_headers:
@@ -119,7 +155,56 @@ class LLMClient:
         }
         if self.provider == "openai":
             create_kwargs["response_format"] = {"type": "json_object"}
+        if self.provider == "nvidia":
+            # NVIDIA NIM requires streaming; gpt-oss-120b also emits
+            # reasoning_content chunks (chain-of-thought) before the answer.
+            create_kwargs["stream"] = True
+            create_kwargs["top_p"] = 1
+            stream = client.chat.completions.create(**create_kwargs)
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            for chunk in stream:
+                if not getattr(chunk, "choices", None):
+                    err = getattr(chunk, "error", None)
+                    if err:
+                        msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                        raise ValueError(f"nvidia error for model '{self.model}': {msg}")
+                    continue
+                delta = chunk.choices[0].delta
+                # gpt-oss-120b is a reasoning model: the chain-of-thought
+                # arrives in reasoning_content; the final answer arrives in
+                # content. Collect both — content is preferred; if it ends up
+                # empty (some reasoning-only models), fall back to reasoning.
+                reasoning = getattr(delta, "reasoning_content", None)
+                if reasoning is not None:
+                    reasoning_parts.append(reasoning)
+                text = getattr(delta, "content", None)
+                if text is not None:
+                    content_parts.append(text)
+            content = "".join(content_parts).strip() or "".join(reasoning_parts).strip()
+            if not content:
+                raise ValueError(
+                    f"NVIDIA returned empty content for model '{self.model}'. "
+                    "Check that the model ID is correct and your account has access."
+                )
+            return content
+
         resp = client.chat.completions.create(**create_kwargs)
+        # OpenRouter can return HTTP 200 with an error body instead of raising
+        # (invalid model slug, moderation, no credits). The SDK then yields
+        # choices=None — surface the real message instead of a TypeError.
+        err = getattr(resp, "error", None)
+        if err:
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            raise ValueError(
+                f"{self.provider} error for model '{self.model}': {msg}"
+            )
+        if not getattr(resp, "choices", None):
+            raise ValueError(
+                f"{self.provider} returned no completion for model '{self.model}' — "
+                f"the model ID may be invalid, unavailable, or blocked by your "
+                f"account's data policy."
+            )
         content = resp.choices[0].message.content
         if content is None:
             raise ValueError("LLM returned None content")
@@ -129,7 +214,10 @@ class LLMClient:
         import anthropic
         from anthropic.types import TextBlock
 
-        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("No API key set for provider 'anthropic'. Set ANTHROPIC_API_KEY.")
+        client = anthropic.Anthropic(api_key=api_key, timeout=self.timeout, max_retries=2)
         msg = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -268,6 +356,12 @@ class ToolRegistry:
                 f"Unknown tool '{name}'. Available: {list(self._registry.keys())}"
             )
         return self._registry[name]
+
+    def has(self, name: str) -> bool:
+        return name in self._registry
+
+    def names(self) -> list[str]:
+        return list(self._registry.keys())
 
     def get_all_descriptions(self) -> str:
         return "\n\n".join(t.to_prompt_description() for t in self._registry.values())
@@ -511,7 +605,7 @@ class AgentController:
                             str(llm_response.get("error", "Unknown LLM error"))
                         )
                 except Exception as exc:
-                    self.memory.set_context("llm_error", f"{exc}")
+                    self.memory.set_context("llm_error", f"{type(exc).__name__}: {exc}")
                     console.print(
                         f"[yellow]⚠ LLM failure on iteration {iteration}: {exc}[/]"
                     )
@@ -562,7 +656,7 @@ class AgentController:
                     if final_result.get("status") == "error":
                         raise RuntimeError(str(final_result.get("error", "Unknown LLM error")))
                 except Exception as exc:
-                    self.memory.set_context("llm_error", f"{exc}")
+                    self.memory.set_context("llm_error", f"{type(exc).__name__}: {exc}")
                     final_result = self._deterministic_final()
 
         # ---- Stage 7: Report Generation ----
@@ -581,10 +675,16 @@ class AgentController:
     # Resilience helpers — plan parsing and LLM-failure fallbacks
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _parse_steps(llm_response: dict[str, Any]) -> list[AnalysisStep]:
-        """Parse LLM plan steps, skipping malformed entries instead of crashing."""
+    def _parse_steps(self, llm_response: dict[str, Any]) -> list[AnalysisStep]:
+        """
+        Parse LLM plan steps, skipping malformed entries instead of crashing.
+
+        Anti-hallucination guard: steps naming tools that do not exist in the
+        ToolRegistry are rejected here (never executed), and a planner note is
+        recorded so the next reasoning cycle sees the correction.
+        """
         steps: list[AnalysisStep] = []
+        rejected: list[str] = []
         raw_steps = llm_response.get("steps", [])
         if not isinstance(raw_steps, list):
             return steps
@@ -593,6 +693,9 @@ class AgentController:
                 continue
             tool_name = s.get("tool_name")
             if not isinstance(tool_name, str) or not tool_name:
+                continue
+            if not self.tool_registry.has(tool_name):
+                rejected.append(tool_name)
                 continue
             parameters = s.get("parameters", {})
             if not isinstance(parameters, dict):
@@ -604,6 +707,23 @@ class AgentController:
                     tool_name=tool_name,
                     parameters=parameters,
                     rationale=str(s.get("rationale", "")),
+                )
+            )
+        if rejected:
+            console.print(
+                f"  [yellow]⚠ Rejected {len(rejected)} hallucinated tool name(s): "
+                f"{', '.join(rejected)}[/]"
+            )
+            self.memory.append_tool_result(
+                ToolResult(
+                    tool_name="planner",
+                    status="skipped",
+                    output={
+                        "summary": (
+                            f"Rejected unknown tool name(s): {', '.join(sorted(set(rejected)))}. "
+                            f"Only these tools exist: {', '.join(self.tool_registry.names())}."
+                        )
+                    },
                 )
             )
         return steps
@@ -814,15 +934,19 @@ class AgentController:
                 "of these deterministic findings."
             )
 
+        llm_error = self.memory.get_context("llm_error")
         reasoning = (
-            "Deterministic synthesis: the LLM was unavailable, so findings were "
-            "compiled directly from tool outputs."
+            "Deterministic synthesis: the LLM became unreachable mid-run, so "
+            "findings were compiled directly from tool outputs."
         )
+        if llm_error:
+            reasoning += f" (LLM error: {llm_error})"
         if self.objective:
             reasoning = f"User objective: {self.objective}\n{reasoning}"
 
         return {
             "status": "complete",
+            "llm_fallback": True,
             "reasoning": reasoning,
             "insights": insights,
             "recommendations": recommendations,
@@ -922,7 +1046,20 @@ class AgentController:
                 )
                 params.setdefault("llm_insights", {})
 
-            tool = self.tool_registry.get(step.tool_name)
+            # Defense in depth: _parse_steps filters unknown tools, but never
+            # let a registry miss crash the whole pipeline.
+            try:
+                tool = self.tool_registry.get(step.tool_name)
+            except KeyError as exc:
+                result = ToolResult(
+                    tool_name=step.tool_name,
+                    status="error",
+                    output={},
+                    error_message=str(exc),
+                )
+                self.memory.append_tool_result(result)
+                self.memory.mark_step_complete(step.step_number, result)
+                continue
             result = tool.run(**params)
             self.memory.append_tool_result(result)
             self.memory.mark_step_complete(step.step_number, result)

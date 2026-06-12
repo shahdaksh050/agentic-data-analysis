@@ -86,40 +86,199 @@ def _stub_rich() -> None:
 _stub_rich()
 
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+# ── CSS — Sauce Labs design system (DESIGN.md): obsidian canvas, neon pulse ───
 st.markdown("""
 <style>
-footer { visibility: hidden; }
-.main  { background: #0f1117; }
-section[data-testid="stSidebar"] { background: #0d0f18; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Inter+Tight:wght@400;500&display=swap');
 
-/* Stage progress cards */
-.sc {
-    display: flex; align-items: center; gap: 10px;
-    padding: .65rem 1rem; margin-bottom: .4rem;
-    border-radius: 8px; border: 1px solid #2a2d3e;
-    background: #1a1d27; font-size: .88rem; color: #ccc;
+:root {
+    --obsidian: #132322;
+    --abyss:    #0e1a19;
+    --charcoal: #070f0f;
+    --neon:     #3ddc91;
+    --mint:     #97ddbc;
+    --yellow:   #ffcd48;
+    --slate:    #828786;
+    --danger:   #ff5c5c;   /* functional exception: failure states only */
+    --line:        rgba(255,255,255,.07);
+    --line-strong: rgba(255,255,255,.22);
+    --dim:   rgba(255,255,255,.55);
+    --faint: rgba(255,255,255,.38);
+    --font-body:    'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
-.sc.done   { border-color: #1a7a4a; background: #0c1c14; color: #7ed9a5; }
-.sc.active { border-color: #3b5bdb; background: #0c1228; color: #93b4f7; }
-.sc.skip   { border-color: #444;    background: #181a22; color: #555; }
-.sc.err    { border-color: #a33;    background: #1e0c0c; color: #f08080; }
-.sc .detail { margin-left: auto; font-size: .78rem; opacity: .7; }
 
-/* Metric tiles */
-.mt { background:#1a1d27; border:1px solid #2a2d3e; border-radius:8px;
-      padding:.9rem 1rem; text-align:center; }
-.mt .lbl { font-size:.75rem; color:#888; margin-bottom:3px; }
-.mt .val { font-size:1.5rem; font-weight:700; color:#e0e0e0; }
-.mt .sub { font-size:.72rem; color:#666; margin-top:2px; }
+/* ── Chrome ── */
+#MainMenu, footer, .stAppDeployButton { visibility: hidden; }
+header[data-testid="stHeader"] { background: transparent; }
+.stApp { background: var(--obsidian); }
+section[data-testid="stSidebar"] { background: var(--abyss); border-right: 1px solid var(--line); }
+.block-container { max-width: 1200px; }
+hr { border-color: var(--line) !important; }
+a { color: var(--neon) !important; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #2c403d; border-radius: 8px;
+                            border: 2px solid var(--obsidian); }
+::-webkit-scrollbar-track { background: transparent; }
 
-/* Card variants */
-.ic { background:#141820; border-left:3px solid #3b5bdb; border-radius:0 6px 6px 0;
-      padding:.55rem .9rem; margin-bottom:.35rem; font-size:.88rem; color:#c0cce0; }
-.rc { background:#141820; border-left:3px solid #1a7a4a; border-radius:0 6px 6px 0;
-      padding:.55rem .9rem; margin-bottom:.35rem; font-size:.88rem; color:#a8ddb8; }
-.wc { background:#1f1a0d; border-left:3px solid #e67e22; border-radius:0 6px 6px 0;
-      padding:.55rem .9rem; margin-bottom:.35rem; font-size:.85rem; color:#f0c080; }
+/* ── Typography ── */
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-display) !important;
+                         font-weight: 500 !important; letter-spacing: -0.01em; }
+.stMarkdown p { letter-spacing: -0.08px; }
+
+/* Eyebrow — small tracked-out caps above headlines */
+.eyebrow { font-family: var(--font-display); font-size: 10px; font-weight: 500;
+           letter-spacing: 1.6px; text-transform: uppercase;
+           color: var(--neon); margin: 0 0 .45rem; }
+.eyebrow.side { margin: 1.15rem 0 .45rem; }
+.sect { margin: .3rem 0 1rem; }
+.sect h2, .sect h3 { margin: 0; padding: 0; }
+
+/* Live-signal pulse dot */
+.pulse-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+             background: var(--neon); flex: none;
+             animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(61,220,145,.45); }
+    50%      { box-shadow: 0 0 0 8px rgba(61,220,145,0); }
+}
+
+/* ── Hero header ── */
+.hero { display: flex; align-items: flex-start; gap: 14px;
+        padding: .2rem 0 1.6rem; border-bottom: 1px solid var(--line);
+        margin-bottom: 1.6rem; }
+.hero .pulse-dot { margin-top: 8px; }
+.hero h1 { font-size: 34px; line-height: 1.1; margin: .25rem 0 0; color: #fff; }
+.hero .hero-sub { color: var(--dim); font-size: 15px; margin: .5rem 0 0; max-width: 640px; }
+
+/* ── Sidebar brand ── */
+.side-brand { display: flex; align-items: center; gap: 11px; margin: .2rem 0 .5rem; }
+.side-title { font-family: var(--font-display); font-weight: 500; font-size: 16px;
+              color: #fff; line-height: 1.25; }
+.side-sub { font-family: var(--font-display); font-size: 9px; letter-spacing: 1.4px;
+            text-transform: uppercase; color: var(--faint); margin-top: 3px; }
+
+/* ── Buttons — pill language ── */
+.stButton button, .stDownloadButton button {
+    font-weight: 400; letter-spacing: -0.08px;
+    transition: filter .15s ease, border-color .15s ease, color .15s ease;
+}
+.stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {
+    background: var(--neon); color: var(--obsidian); border: none;
+}
+.stButton button[kind="primary"]:hover:enabled,
+.stDownloadButton button[kind="primary"]:hover:enabled {
+    background: var(--neon); color: var(--obsidian); filter: brightness(1.12);
+}
+.stButton button[kind="primary"]:disabled {
+    background: rgba(61,220,145,.14); color: rgba(255,255,255,.32); border: none;
+}
+.stButton button[kind="secondary"], .stDownloadButton button[kind="secondary"] {
+    background: transparent; border: 1.5px solid var(--line-strong); color: #fff;
+}
+.stButton button[kind="secondary"]:hover:enabled,
+.stDownloadButton button[kind="secondary"]:hover:enabled {
+    border-color: var(--neon); color: var(--neon); background: transparent;
+}
+
+/* ── Tabs — pill switcher ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px; background: var(--abyss); border: 1px solid var(--line);
+    border-radius: 56px; padding: 5px; width: max-content; max-width: 100%;
+}
+.stTabs [data-baseweb="tab"] { border-radius: 56px; padding: 4px 16px;
+                               background: transparent; }
+.stTabs [data-baseweb="tab"] p { font-size: 14.5px; color: var(--slate); }
+.stTabs [data-baseweb="tab"]:hover p { color: #fff; }
+.stTabs [aria-selected="true"] { background: var(--neon) !important; }
+.stTabs [aria-selected="true"] p { color: var(--obsidian) !important; font-weight: 500; }
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
+.stTabs [data-baseweb="tab-panel"] { padding-top: 1.1rem; }
+
+/* ── File uploader ── */
+[data-testid="stFileUploaderDropzone"] {
+    background: var(--obsidian); border: 1.5px dashed rgba(61,220,145,.35);
+    border-radius: 20px;
+}
+[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--neon); }
+
+/* ── st.metric — stat block ── */
+[data-testid="stMetric"] { background: var(--abyss); border: 1px solid var(--line);
+                           border-radius: 20px; padding: 14px 18px; }
+[data-testid="stMetricValue"] { font-family: var(--font-display);
+                                font-weight: 500; color: var(--neon); }
+[data-testid="stMetricLabel"] p { font-family: var(--font-display); font-size: 10px;
+                                  letter-spacing: 1.4px; text-transform: uppercase;
+                                  color: var(--faint); }
+
+/* ── Expanders / code / alerts ── */
+[data-testid="stExpander"] details { background: var(--abyss);
+    border: 1px solid var(--line) !important; border-radius: 20px; }
+[data-testid="stExpander"] summary:hover { color: var(--neon); }
+[data-testid="stCode"] pre { background: var(--charcoal) !important;
+    border: 1px solid var(--line); border-radius: 16px; }
+[data-testid="stAlert"] { border-radius: 16px; }
+
+/* ── Stage progress cards ── */
+.sc { display: flex; align-items: center; gap: 12px;
+      padding: .8rem 1.1rem; margin-bottom: .5rem;
+      border-radius: 16px; border: 1px solid var(--line);
+      background: var(--abyss); font-size: .88rem; color: rgba(255,255,255,.85); }
+.sc .dot { width: 8px; height: 8px; border-radius: 50%; flex: none;
+           background: transparent; border: 1.5px solid rgba(255,255,255,.25); }
+.sc .sc-num { font-family: var(--font-display); font-size: 10px;
+              letter-spacing: 1.2px; color: var(--faint); }
+.sc .detail { margin-left: auto; font-size: .76rem; color: var(--faint);
+              text-align: right; }
+.sc.done   { border-color: rgba(61,220,145,.28); }
+.sc.done .dot   { background: var(--neon); border-color: var(--neon); }
+.sc.active { border-color: var(--neon); background: rgba(61,220,145,.06); color: #fff; }
+.sc.active .dot { background: var(--neon); border-color: var(--neon);
+                  animation: pulse 1.6s ease-in-out infinite; }
+.sc.skip   { color: var(--faint); }
+.sc.skip .dot   { background: rgba(255,255,255,.18); border-color: transparent; }
+.sc.err    { border-color: rgba(255,92,92,.5); }
+.sc.err .dot    { background: var(--danger); border-color: var(--danger); }
+
+/* ── Metric tiles (custom) — stat block pattern ── */
+.mt { background: var(--abyss); border: 1px solid var(--line); border-radius: 20px;
+      padding: 1.05rem .9rem .95rem; text-align: center; }
+.mt .lbl { font-family: var(--font-display); font-size: 10px; letter-spacing: 1.3px;
+           text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+.mt .val { font-family: var(--font-display); font-size: 1.55rem; font-weight: 500;
+           line-height: 1.15; overflow-wrap: anywhere; }
+.mt .sub { font-size: .7rem; color: var(--faint); margin-top: 4px; }
+
+/* ── Content cards: insight / recommendation / warning ── */
+.ic, .rc, .wc { background: var(--abyss); border: 1px solid var(--line);
+                border-left-width: 3px; border-radius: 12px;
+                padding: .7rem 1rem; margin-bottom: .5rem;
+                font-size: .9rem; line-height: 1.55; }
+.ic { border-left-color: var(--mint);   color: #e6f3ee; }
+.rc { border-left-color: var(--neon);   color: #dff5ea; }
+.wc { border-left-color: var(--yellow); color: #f5e8c8; }
+
+/* Agent reasoning panel */
+.reason { background: var(--abyss); border: 1px solid var(--line);
+          border-radius: 20px; padding: 1.1rem 1.3rem;
+          font-size: .92rem; color: rgba(255,255,255,.82); line-height: 1.75; }
+
+/* Run-in-progress banner — mint whisper wash */
+.run-banner { display: flex; align-items: center; gap: 12px;
+              background: rgba(151,221,188,.08); border: 1px solid rgba(151,221,188,.3);
+              border-radius: 16px; padding: .85rem 1.2rem;
+              color: #d9efe6; font-size: .92rem; margin: .4rem 0 1rem; }
+
+/* ── Empty state ── */
+.empty { text-align: center; padding: 5rem 2rem 4rem; }
+.empty .pulse-dot { width: 12px; height: 12px; margin-bottom: 1.5rem; }
+.empty h2 { font-size: 30px; color: #fff; margin: .4rem 0; }
+.empty p { color: var(--dim); max-width: 500px; margin: .6rem auto 0;
+           line-height: 1.8; font-size: 15px; }
+.empty b { color: #fff; font-weight: 500; }
+.empty .stages { margin-top: 2rem; font-family: var(--font-display); font-size: 10px;
+                 letter-spacing: 1.6px; text-transform: uppercase; color: var(--faint); }
+.empty .stages span { color: var(--mint); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,29 +317,42 @@ STAGE_DEFS = [
     ("7", "Report Generation",     "📄"),
 ]
 
-# Shared Vega-Lite config so dashboard charts match the app's dark theme
+# Shared Vega-Lite config so dashboard charts match the obsidian theme (DESIGN.md)
 VEGA_DARK_CONFIG = {
+    "font": "Inter, sans-serif",
     "axis": {
-        "labelColor": "#bbb",
-        "titleColor": "#bbb",
-        "gridColor": "#2a2d3e",
-        "domainColor": "#333",
-        "tickColor": "#333",
+        "labelColor": "rgba(255,255,255,0.62)",
+        "titleColor": "rgba(255,255,255,0.62)",
+        "gridColor": "rgba(255,255,255,0.07)",
+        "domainColor": "rgba(255,255,255,0.18)",
+        "tickColor": "rgba(255,255,255,0.18)",
+        "labelFont": "Inter, sans-serif",
+        "titleFont": "Inter, sans-serif",
     },
-    "legend": {"labelColor": "#bbb", "titleColor": "#bbb"},
-    "view": {"stroke": "#2a2d3e"},
+    "legend": {
+        "labelColor": "rgba(255,255,255,0.72)",
+        "titleColor": "rgba(255,255,255,0.72)",
+        "labelFont": "Inter, sans-serif",
+        "titleFont": "Inter, sans-serif",
+    },
+    "view": {"stroke": "transparent"},
+    "range": {"category": ["#3ddc91", "#ffcd48", "#97ddbc",
+                           "#1c8f5c", "#d6f0b2", "#62b5a4"]},
 }
 
+# OpenRouter slugs use DOT version notation for Claude (claude-sonnet-4.6,
+# not claude-sonnet-4-6). Every entry below is verified against the live
+# /api/v1/models catalog — an invalid slug makes every call fail with 404.
 OR_MODELS = [
     "openai/gpt-4o",
-    "openai/gpt-4-turbo",
-    "anthropic/claude-sonnet-4-6",
-    "anthropic/claude-opus-4-6",
+    "openai/gpt-4.1",
+    "anthropic/claude-sonnet-4.6",
+    "anthropic/claude-opus-4.8",
     "meta-llama/llama-3.3-70b-instruct",
-    "google/gemini-2.0-flash-001",
+    "google/gemini-2.5-flash",
     "mistralai/mistral-large",
     "deepseek/deepseek-chat",
-    "cohere/command-r-plus",
+    "cohere/command-r-plus-08-2024",
 ]
 
 
@@ -201,27 +373,34 @@ def _set_stage(num: str, status: str, detail: str = "") -> None:
     st.session_state["stage_log"] = log
 
 
-def _stage_card(num: str, name: str, icon: str,
+def _stage_card(num: str, name: str,
                 status: str, detail: str = "") -> str:
     cls = {"done": "done", "active": "active",
            "skipped": "skip", "error": "err"}.get(status, "")
-    ico = {"done": "✅", "active": "⏳", "error": "❌",
-           "skipped": "⏭️", "pending": "⬜"}.get(status, "⬜")
     det = f'<span class="detail">{detail}</span>' if detail else ""
-    return (f'<div class="sc {cls}">'
-            f'<span>{ico}</span><span>{icon}</span>'
-            f'<b>Stage {num}</b>&nbsp;—&nbsp;{name}{det}</div>')
+    return (f'<div class="sc {cls}"><span class="dot"></span>'
+            f'<span class="sc-num">{num.zfill(2)}</span>'
+            f'{name}{det}</div>')
 
 
 def _mt(label: str, value: str, sub: str = "",
-        color: str = "#e0e0e0") -> str:
+        color: str = "#3ddc91") -> str:
     return (f'<div class="mt"><div class="lbl">{label}</div>'
             f'<div class="val" style="color:{color}">{value}</div>'
             f'<div class="sub">{sub}</div></div>')
 
 
 def _gap_color(g: float) -> str:
-    return "#2ecc71" if g < 0.05 else "#e67e22" if g < 0.10 else "#e74c3c"
+    return "#3ddc91" if g < 0.05 else "#ffcd48" if g < 0.10 else "#ff5c5c"
+
+
+def _section(eyebrow: str, title: str, level: str = "h3") -> None:
+    """Eyebrow label + headline — the DESIGN.md section-header pattern."""
+    st.markdown(
+        f'<div class="sect"><div class="eyebrow">{eyebrow}</div>'
+        f'<{level}>{title}</{level}></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _safe_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -252,12 +431,16 @@ def _find_tool(tool_results: list[dict[str, Any]],
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("## 🧠 Agentic Data Analysis")
-    st.caption("RLM-Powered Autonomous Pipeline")
+    st.markdown(
+        '<div class="side-brand"><span class="pulse-dot"></span>'
+        '<div><div class="side-title">Agentic Data Analysis</div>'
+        '<div class="side-sub">RLM-powered autonomous pipeline</div></div></div>',
+        unsafe_allow_html=True,
+    )
     st.divider()
 
     # ── Upload ────────────────────────────────────────────────────────────────
-    st.markdown("### 📂 Dataset")
+    st.markdown('<div class="eyebrow side">Dataset</div>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
         "CSV or Excel",
         type=["csv", "xlsx", "xls"],
@@ -307,7 +490,7 @@ with st.sidebar:
     )
 
     objective = st.text_area(
-        "🎯 Analysis objective (optional, plain English)",
+        "Analysis objective (optional, plain English)",
         placeholder="e.g. What drives customer churn? Which customers should "
                     "we focus retention efforts on?",
         height=90,
@@ -316,44 +499,65 @@ with st.sidebar:
     )
 
     # ── LLM Provider ──────────────────────────────────────────────────────────
-    st.markdown("### 🤖 LLM Provider")
-    provider = st.selectbox("Provider", ["openai", "anthropic", "openrouter"])
+    st.markdown('<div class="eyebrow side">LLM Provider</div>', unsafe_allow_html=True)
+    provider = st.selectbox("Provider", ["openai", "anthropic", "openrouter", "nvidia"])
+
+    NVIDIA_MODELS = [
+        "openai/gpt-oss-120b",
+        "meta/llama-3.1-70b-instruct",
+        "meta/llama-3.3-70b-instruct",
+        "mistralai/mistral-large-2-instruct",
+        "microsoft/phi-3-medium-128k-instruct",
+        "google/gemma-2-27b-it",
+        "deepseek-ai/deepseek-r1",
+    ]
 
     if provider == "openai":
         model_list = ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
         key_ph     = "sk-..."
     elif provider == "anthropic":
-        model_list = ["claude-sonnet-4-6", "claude-opus-4-6",
+        model_list = ["claude-sonnet-4-6", "claude-opus-4-8",
                       "claude-haiku-4-5-20251001"]
         key_ph     = "sk-ant-..."
+    elif provider == "nvidia":
+        model_list = NVIDIA_MODELS
+        key_ph     = "nvapi-..."
     else:
         model_list = OR_MODELS
         key_ph     = "sk-or-..."
 
     model_sel = st.selectbox("Model", model_list)
-    if provider == "openrouter":
+    if provider in ("openrouter", "nvidia"):
         custom_m = st.text_input(
             "Custom model string (overrides above)",
-            placeholder="e.g. cohere/command-r-plus",
+            placeholder=(
+                "e.g. cohere/command-r-plus"
+                if provider == "openrouter"
+                else "e.g. nvidia/llama-3.1-nemotron-70b-instruct"
+            ),
         )
         final_model = custom_m.strip() if custom_m.strip() else model_sel
     else:
         final_model = model_sel
 
+    _key_label = {
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "openrouter": "OpenRouter",
+        "nvidia": "NVIDIA",
+    }.get(provider, provider)
     api_key = st.text_input(
-        ("OpenAI" if provider == "openai"
-         else "Anthropic" if provider == "anthropic"
-         else "OpenRouter") + " API Key",
+        f"{_key_label} API Key",
         type="password",
         placeholder=key_ph,
     )
 
     # ── Analysis Settings ─────────────────────────────────────────────────────
-    st.markdown("### ⚙️ Analysis Settings")
+    st.markdown('<div class="eyebrow side">Analysis Settings</div>', unsafe_allow_html=True)
     max_iter   = st.slider("Max iterations", 3, 25, 10)
     enable_rlm = st.toggle("Enable RLM decomposition (Stage 6)", value=True)
 
-    st.markdown("### 🛡️ Anti-Overfitting")
+    st.markdown('<div class="eyebrow side">Anti-Overfitting</div>', unsafe_allow_html=True)
     max_depth = st.slider("Max tree depth", 2, 15, 6,
                           help="Lower = less overfitting for tree-based models")
     test_pct  = st.slider("Test split %", 10, 40, 20, step=5)
@@ -367,32 +571,31 @@ with st.sidebar:
     can_run  = has_file and has_key and not st.session_state["analysis_done"]
 
     run_clicked = st.button(
-        "▶ Run Analysis",
+        "Run Analysis",
         disabled=not can_run,
         width='stretch',
         type="primary",
     )
     if st.session_state["analysis_done"] or st.session_state["analysis_error"]:
-        if st.button("🔄 New Analysis", width='stretch'):
+        if st.button("New Analysis", width='stretch'):
             _reset_pipeline()
             st.rerun()
 
     if not has_file:
-        st.caption("⬆ Upload a CSV or Excel file first.")
+        st.caption("Upload a CSV or Excel file first.")
     elif not has_key:
-        st.caption("⬆ Enter your API key to continue.")
+        st.caption("Enter your API key to continue.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN AREA — header
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown(
-    '<div style="display:flex;align-items:center;gap:12px;'
-    'padding-bottom:1rem;border-bottom:1px solid #2a2d3e;margin-bottom:1.4rem">'
-    '<span style="font-size:2rem">🧠</span>'
-    '<div><h2 style="margin:0;color:#e0e0e0">Agentic Data Analysis System</h2>'
-    '<p style="margin:0;font-size:.82rem;color:#555">'
-    'Autonomous · RLM-Powered · Anti-Overfitting Built-in</p></div></div>',
+    '<div class="hero"><span class="pulse-dot"></span>'
+    '<div><div class="eyebrow">Autonomous · RLM-powered · Anti-overfitting built-in</div>'
+    '<h1>Agentic Data Analysis</h1>'
+    '<p class="hero-sub">An engineering console that profiles, models and explains '
+    'your dataset — end to end, on its own.</p></div></div>',
     unsafe_allow_html=True,
 )
 
@@ -403,9 +606,7 @@ st.markdown(
 preview_df: pd.DataFrame | None = st.session_state["preview_df"]
 
 if preview_df is not None and not st.session_state["analysis_done"]:
-    st.markdown(
-        f"### 📊 Dataset Preview — `{st.session_state['preview_name']}`"
-    )
+    _section("Dataset preview", st.session_state["preview_name"])
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Rows",          f"{len(preview_df):,}")
     c2.metric("Columns",       len(preview_df.columns))
@@ -458,14 +659,20 @@ if run_clicked:
     else:
         os.environ.pop("USER_OBJECTIVE", None)
     {
-        "openai":     lambda: os.environ.__setitem__("OPENAI_API_KEY",    api_key.strip()),
-        "anthropic":  lambda: os.environ.__setitem__("ANTHROPIC_API_KEY", api_key.strip()),
+        "openai":     lambda: os.environ.__setitem__("OPENAI_API_KEY",     api_key.strip()),
+        "anthropic":  lambda: os.environ.__setitem__("ANTHROPIC_API_KEY",  api_key.strip()),
         "openrouter": lambda: os.environ.__setitem__("OPENROUTER_API_KEY", api_key.strip()),
+        "nvidia":     lambda: os.environ.__setitem__("NVIDIA_API_KEY",     api_key.strip()),
     }[provider]()
 
     # ── Spinner placeholder — replaced after run completes ───────────────
     _spinner_ph = st.empty()
-    _spinner_ph.info("🚀 Running analysis… this may take 1–3 minutes depending on dataset size and model.")
+    _spinner_ph.markdown(
+        '<div class="run-banner"><span class="pulse-dot"></span>'
+        'Running analysis — this may take 1–3 minutes depending on dataset '
+        'size and model.</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── Collect progress lines into session state (no st.write during run) ─
     _progress_lines: list[str] = []
@@ -476,9 +683,27 @@ if run_clicked:
         _nm  = next(n for no, n, _ in STAGE_DEFS if no == num)
         _progress_lines.append(f"{_ico} Stage {num}: {_nm}" + (f" — {detail}" if detail else ""))
 
-    try:
-        from src.core.controller import AgentController
+    # ── LLM preflight — fail fast with the REAL error instead of running
+    #    the whole pipeline on the deterministic fallback ──────────────────
+    from src.core.controller import AgentController, LLMClient
 
+    _ok, _ping_err = LLMClient().ping()
+    if not _ok:
+        _spinner_ph.empty()
+        _set_stage("2", "error", "LLM unreachable")
+        st.session_state["analysis_error"] = _ping_err
+        st.error(
+            f"🛑 LLM connection check failed — analysis was not started.\n\n"
+            f"Provider: `{provider}` · Model: `{final_model}`"
+        )
+        st.code(_ping_err, language=None)
+        st.info(
+            "Check that the model ID exists on the provider, the API key is "
+            "valid, and your account has credits. Then click Run Analysis again."
+        )
+        st.stop()
+
+    try:
         _upd("1", "active", "ingesting…")
         agent = AgentController(
             max_iterations=max_iter,
@@ -567,21 +792,21 @@ if run_clicked:
 # STAGE PROGRESS CARDS — shown once pipeline has started or finished
 # ══════════════════════════════════════════════════════════════════════════════
 if st.session_state["stage_log"]:
-    st.markdown("### 🔄 Pipeline Stages")
+    _section("Live progress", "Pipeline stages")
     log_map = {n: (s, d) for n, s, d in st.session_state["stage_log"]}
     cols = st.columns(2)
-    for i, (num, name, icon) in enumerate(STAGE_DEFS):
+    for i, (num, name, _icon) in enumerate(STAGE_DEFS):
         s, d = log_map.get(num, ("pending", ""))
         with cols[i % 2]:
             st.markdown(
-                _stage_card(num, name, icon, s, d),
+                _stage_card(num, name, s, d),
                 unsafe_allow_html=True,
             )
 
 
 # ── Progress log ─────────────────────────────────────────────────────────────
 if st.session_state.get("progress_lines"):
-    with st.expander("📋 Execution log", expanded=False):
+    with st.expander("Execution log", expanded=False):
         st.code("\n".join(st.session_state["progress_lines"]), language=None)
 
 
@@ -595,12 +820,15 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
     tmp_dir: str                       = st.session_state.get("tmp_dir", "")
 
     st.divider()
-    st.markdown("## ✅ Analysis Complete")
+    _section("Results", "Analysis complete", "h2")
+
+    if st.session_state.get("llm_warning"):
+        st.warning(f"⚠️ {st.session_state['llm_warning']}")
 
     (tab_ov, tab_dash, tab_prof, tab_ds, tab_ml, tab_ins,
      tab_log, tab_rep, tab_dl) = st.tabs([
-        "📈 Overview", "📊 Dashboard", "🔬 Profile", "🗂 Dataset", "🤖 Models",
-        "💡 Insights", "🔧 Tool Log", "📄 Report", "⬇ Downloads",
+        "Overview", "Dashboard", "Profile", "Dataset", "Models",
+        "Insights", "Tool Log", "Report", "Downloads",
     ])
 
     train_out   = _find_tool(tool_results, "train_model")
@@ -642,7 +870,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                     unsafe_allow_html=True)
         m3.markdown(
             _mt("Train–test gap", best_gap_str, "overfit signal",
-                _gap_color(gap_val) if gap_val is not None else "#e0e0e0"),
+                _gap_color(gap_val) if gap_val is not None else "#ffffff"),
             unsafe_allow_html=True,
         )
         m4.markdown(_mt("Outliers", outlier_pct, "of dataset"),
@@ -675,7 +903,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                     {
                         "mark": {"type": "bar", "cornerRadiusEnd": 2},
                         "height": 300,
-                        "background": "#0f1117",
+                        "background": "transparent",
                         "config": VEGA_DARK_CONFIG,
                         "encoding": {
                             "x": {"field": "model", "type": "nominal",
@@ -688,7 +916,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                                 "field": "metric",
                                 "scale": {
                                     "domain": ["Train", "Test", "CV mean"],
-                                    "range": ["#5b8dee", "#2ecc71", "#e67e22"],
+                                    "range": ["#97ddbc", "#3ddc91", "#ffcd48"],
                                 },
                                 "legend": {"orient": "top", "title": None},
                             },
@@ -716,7 +944,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                     {
                         "mark": {"type": "bar", "cornerRadiusEnd": 2},
                         "height": max(160, len(_top) * 30),
-                        "background": "#0f1117",
+                        "background": "transparent",
                         "config": VEGA_DARK_CONFIG,
                         "encoding": {
                             "y": {"field": "pair", "type": "nominal",
@@ -726,8 +954,8 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                                   "title": "Correlation coefficient"},
                             "color": {
                                 "condition": {"test": "datum.correlation >= 0",
-                                              "value": "#2ecc71"},
-                                "value": "#e74c3c",
+                                              "value": "#3ddc91"},
+                                "value": "#ffcd48",
                             },
                             "tooltip": [
                                 {"field": "pair"},
@@ -753,7 +981,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
             def _render_chart(_ch: dict[str, Any]) -> None:
                 st.markdown(f"**{_ch.get('title', '')}**")
                 _spec = dict(_ch.get("spec", {}))
-                _spec.setdefault("background", "#0f1117")
+                _spec.setdefault("background", "transparent")
                 _spec.setdefault("config", VEGA_DARK_CONFIG)
                 st.vega_lite_chart(_spec, use_container_width=True)
                 if _ch.get("description"):
@@ -777,7 +1005,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
         prof: dict[str, Any] | None = st.session_state.get("profile")
         if prof:
             _q = int(prof.get("quality_score", 0))
-            _qc = "#2ecc71" if _q >= 80 else "#e67e22" if _q >= 60 else "#e74c3c"
+            _qc = "#3ddc91" if _q >= 80 else "#ffcd48" if _q >= 60 else "#ff5c5c"
             p1, p2, p3, p4 = st.columns(4)
             p1.markdown(_mt("Quality score", f"{_q}/100", "0–100", _qc),
                         unsafe_allow_html=True)
@@ -930,12 +1158,16 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
 
     # ── Insights ──────────────────────────────────────────────────────────────
     with tab_ins:
+        if report.get("llm_fallback"):
+            st.warning(
+                "⚠️ The LLM became unreachable mid-run, so these insights were "
+                "synthesised deterministically from tool outputs. The error is "
+                "shown above — fix it and re-run for narrative interpretation."
+            )
         if report.get("reasoning"):
             st.markdown("#### Agent Reasoning")
             st.markdown(
-                f'<div style="background:#1a1d27;border-radius:8px;padding:1rem;'
-                f'font-size:.9rem;color:#c0cce0;line-height:1.75">'
-                f'{report["reasoning"]}</div>',
+                f'<div class="reason">{report["reasoning"]}</div>',
                 unsafe_allow_html=True,
             )
         for _ins in report.get("insights", []):
@@ -980,7 +1212,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
             _html = _rdir / "report.html"
             if _html.exists():
                 st.download_button(
-                    "🌐 Download shareable HTML report (interactive charts)",
+                    "Download shareable HTML report (interactive charts)",
                     _html.read_bytes(), "report.html", mime="text/html",
                     key="dl_html_top", type="primary",
                 )
@@ -1048,20 +1280,16 @@ if (preview_df is None
         and not st.session_state["analysis_done"]
         and not st.session_state["stage_log"]):
     st.markdown(
-        '<div style="text-align:center;padding:4rem 2rem;color:#444">'
-        '<div style="font-size:3.5rem">🧠</div>'
-        '<h2 style="color:#666;font-weight:400;margin:.6rem 0">'
-        'Upload a dataset to get started</h2>'
-        '<p style="max-width:460px;margin:.4rem auto;line-height:1.8;color:#555">'
-        'Drop a <b style="color:#777">CSV</b> or '
-        '<b style="color:#777">Excel</b> file in the sidebar, '
-        'optionally describe <b style="color:#777">what you want to learn</b> '
-        'in plain English, enter your API key, then click '
-        '<b style="color:#777">▶ Run Analysis</b>.'
-        '</p>'
-        '<p style="color:#3b5bdb;font-size:.82rem;margin-top:1.2rem">'
-        'Stage 1: Ingest → 2: Reason → 3: Execute → '
-        '4: Interpret → 5: Refine → 6: RLM → 7: Report'
-        '</p></div>',
+        '<div class="empty">'
+        '<span class="pulse-dot"></span>'
+        '<div class="eyebrow">Awaiting dataset</div>'
+        '<h2>Upload a dataset to get started</h2>'
+        '<p>Drop a <b>CSV</b> or <b>Excel</b> file in the sidebar, '
+        'optionally describe <b>what you want to learn</b> in plain English, '
+        'enter your API key, then click <b>Run Analysis</b>.</p>'
+        '<div class="stages">Ingest <span>→</span> Reason <span>→</span> '
+        'Execute <span>→</span> Interpret <span>→</span> Refine '
+        '<span>→</span> RLM <span>→</span> Report</div>'
+        '</div>',
         unsafe_allow_html=True,
     )

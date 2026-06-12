@@ -18,37 +18,61 @@ import json
 import time
 from typing import Any
 
+# Sauce Labs style reference (DESIGN.md): obsidian canvas, single neon-green
+# accent, mint-frost light card as the executive-summary counterpoint.
 _CSS = """
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
-body { background:#0f1117; color:#d6d9e0; font-family:'Segoe UI',system-ui,sans-serif;
-       margin:0; padding:2.5rem 1.5rem; line-height:1.65; }
+body { background:#132322; color:rgba(255,255,255,.86);
+       font-family:'Inter','Segoe UI',system-ui,sans-serif;
+       margin:0; padding:3rem 1.5rem; line-height:1.65; letter-spacing:-.08px; }
 .wrap { max-width: 980px; margin: 0 auto; }
-h1 { color:#fff; font-size:1.7rem; margin:0 0 .2rem; }
-h2 { color:#93b4f7; font-size:1.15rem; margin:2.2rem 0 .8rem;
-     border-bottom:1px solid #2a2d3e; padding-bottom:.4rem; }
-.sub { color:#777; font-size:.85rem; margin-bottom:1.6rem; }
-.objective { background:#0c1228; border:1px solid #3b5bdb; border-radius:8px;
-             padding:.9rem 1.1rem; margin:1rem 0; color:#b9ccf5; }
-.card { background:#1a1d27; border:1px solid #2a2d3e; border-radius:8px;
-        padding:1rem 1.2rem; margin:.5rem 0; }
-.insight { border-left:3px solid #3b5bdb; }
-.rec { border-left:3px solid #1a7a4a; }
-.driver { border-left:3px solid #e67e22; font-size:.92rem; }
-.treat { border-left:3px solid #8e6fd8; font-size:.88rem; color:#b9a8e8; }
+h1 { color:#fff; font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
+     font-size:2.1rem; line-height:1.12; margin:.55rem 0 .25rem; }
+h2 { font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
+     font-size:11px; letter-spacing:1.6px; text-transform:uppercase;
+     color:#3ddc91; margin:2.8rem 0 .9rem; }
+.eyebrow { font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
+           font-size:10px; letter-spacing:1.6px; text-transform:uppercase;
+           color:#3ddc91; }
+.sub { color:rgba(255,255,255,.45); font-size:.85rem; margin-bottom:1.5rem; }
+.objective { background:rgba(151,221,188,.10); border:1px solid rgba(151,221,188,.35);
+             border-radius:16px; padding:1rem 1.2rem; margin:1.2rem 0; color:#d9efe6; }
+.card { background:#0e1a19; border:1px solid rgba(255,255,255,.07);
+        border-radius:16px; padding:1rem 1.2rem; margin:.55rem 0; }
+.card.exec { background:#edf7f5; color:#132322; border:none; border-radius:20px;
+             padding:1.6rem 1.8rem; box-shadow:rgba(0,0,0,.04) 1px 0 9px 2px; }
+.insight { border-left:3px solid #97ddbc; }
+.rec { border-left:3px solid #3ddc91; }
+.driver { border-left:3px solid #ffcd48; font-size:.92rem; }
+.treat { border-left:3px solid rgba(255,255,255,.25); font-size:.88rem;
+         color:rgba(255,255,255,.6); }
 table { border-collapse:collapse; width:100%; font-size:.88rem; }
-th, td { border:1px solid #2a2d3e; padding:.45rem .7rem; text-align:left; }
-th { background:#161924; color:#9aa3b5; }
-.chart { background:#12141d; border:1px solid #2a2d3e; border-radius:8px;
-         padding:1rem; margin:1.2rem 0; }
-.chart h3 { margin:.1rem 0 .2rem; color:#e0e0e0; font-size:1rem; }
-.chart p { margin:.1rem 0 .8rem; color:#888; font-size:.82rem; }
+th, td { border:1px solid rgba(255,255,255,.10); padding:.5rem .75rem; text-align:left; }
+th { background:#0e1a19; color:rgba(255,255,255,.55);
+     font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
+     font-size:10px; letter-spacing:1.2px; text-transform:uppercase; }
+.chart { background:#0e1a19; border:1px solid rgba(255,255,255,.07);
+         border-radius:20px; padding:1.2rem 1.3rem 1rem; margin:1.3rem 0; }
+.chart h3 { margin:.1rem 0 .2rem; color:#fff;
+            font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
+            font-size:1.02rem; }
+.chart p { margin:.15rem 0 .9rem; color:rgba(255,255,255,.45); font-size:.82rem; }
 .vega-holder { width:100%; }
-.badge { display:inline-block; background:#0c1c14; border:1px solid #1a7a4a;
-         color:#7ed9a5; border-radius:99px; padding:.15rem .8rem;
-         font-size:.78rem; margin-right:.4rem; }
-.footer { margin-top:3rem; color:#555; font-size:.78rem; text-align:center; }
+.badge { display:inline-block; background:rgba(61,220,145,.10);
+         border:1px solid rgba(61,220,145,.45); color:#3ddc91;
+         border-radius:99px; padding:.2rem .9rem; font-size:.78rem;
+         margin:0 .4rem .4rem 0; }
+.footer { margin-top:3.5rem; color:rgba(255,255,255,.3); font-size:.78rem;
+          text-align:center; }
 """
+
+_FONTS_CDN = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500'
+    '&family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">'
+)
 
 _VEGA_CDN = (
     '<script src="https://cdn.jsdelivr.net/npm/vega@5"></script>'
@@ -57,11 +81,22 @@ _VEGA_CDN = (
 )
 
 _VEGA_DARK_CONFIG: dict[str, Any] = {
-    "background": "#12141d",
-    "axis": {"labelColor": "#bbb", "titleColor": "#bbb", "gridColor": "#2a2d3e",
-             "domainColor": "#333", "tickColor": "#333"},
-    "legend": {"labelColor": "#bbb", "titleColor": "#bbb"},
-    "view": {"stroke": "#2a2d3e"},
+    "background": "#0e1a19",
+    "font": "Inter, sans-serif",
+    "axis": {"labelColor": "rgba(255,255,255,0.62)",
+             "titleColor": "rgba(255,255,255,0.62)",
+             "gridColor": "rgba(255,255,255,0.07)",
+             "domainColor": "rgba(255,255,255,0.18)",
+             "tickColor": "rgba(255,255,255,0.18)",
+             "labelFont": "Inter, sans-serif",
+             "titleFont": "Inter, sans-serif"},
+    "legend": {"labelColor": "rgba(255,255,255,0.72)",
+               "titleColor": "rgba(255,255,255,0.72)",
+               "labelFont": "Inter, sans-serif",
+               "titleFont": "Inter, sans-serif"},
+    "view": {"stroke": "transparent"},
+    "range": {"category": ["#3ddc91", "#ffcd48", "#97ddbc",
+                           "#1c8f5c", "#d6f0b2", "#62b5a4"]},
 }
 
 
@@ -117,6 +152,7 @@ def build_html_report(
         badges += f'<span class="badge">best model: {_esc(best_model)}</span>'
 
     sections.append(
+        '<div class="eyebrow">Agentic Data Analysis · Report</div>'
         f"<h1>Analysis Report — {_esc(dataset_name)}</h1>"
         f'<div class="sub">Generated {timestamp} · Agentic Data Analysis System</div>'
         f"<div>{badges}</div>"
@@ -129,7 +165,9 @@ def build_html_report(
         )
     reasoning = llm_insights.get("reasoning", "")
     if reasoning:
-        sections.append(f"<h2>Executive Summary</h2><div class='card'>{_esc(reasoning)}</div>")
+        sections.append(
+            f"<h2>Executive Summary</h2><div class='card exec'>{_esc(reasoning)}</div>"
+        )
 
     # ---- insights & recommendations ----
     insights = llm_insights.get("insights") or []
@@ -205,6 +243,6 @@ def build_html_report(
     return (
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
         f"<title>Analysis Report — {_esc(dataset_name)}</title>"
-        f"{_VEGA_CDN}<style>{_CSS}</style></head>"
+        f"{_FONTS_CDN}{_VEGA_CDN}<style>{_CSS}</style></head>"
         f"<body><div class='wrap'>{body}</div></body></html>"
     )
