@@ -104,6 +104,11 @@ class GenerateVisualizationsTool(BaseTool):
 
     def _heatmap(self, df: pd.DataFrame, output_dir: str, plt: Any, sns: Any, **_: Any) -> list[str]:
         num_df = df.select_dtypes(include="number")
+        if num_df.shape[1] < 2:
+            raise ToolExecutionError(
+                f"correlation_heatmap needs at least 2 numeric columns; this "
+                f"dataset has {num_df.shape[1]}. Use 'distributions' instead."
+            )
         corr = num_df.corr()
         fig, ax = plt.subplots(figsize=(max(8, len(corr) * 0.7), max(6, len(corr) * 0.6)))
         sns.heatmap(
@@ -135,7 +140,15 @@ class GenerateVisualizationsTool(BaseTool):
         with open(model_path, "rb") as f:
             model = pickle.load(f)
 
-        feature_cols = [c for c in df.columns if c != target_column]
+        # The model was trained on _prepare_features output (ID/datetime
+        # columns dropped, categoricals encoded) — NOT on raw df.columns.
+        # Prefer the names sklearn recorded at fit time; otherwise recreate
+        # the training-time feature matrix to get the exact column layout.
+        feature_cols = [str(c) for c in getattr(model, "feature_names_in_", [])]
+        if not feature_cols:
+            from src.tools.ml_pipeline import _prepare_features
+            X, _y, _t = _prepare_features(df, target_column)
+            feature_cols = [str(c) for c in X.columns]
 
         if hasattr(model, "feature_importances_"):
             # Tree-based models (RandomForest, XGBoost)
@@ -153,6 +166,14 @@ class GenerateVisualizationsTool(BaseTool):
             raise ToolExecutionError(
                 "Model does not expose feature_importances_ or coef_. "
                 "Feature importance chart requires a tree-based or linear model."
+            )
+
+        if len(raw) != len(feature_cols):
+            raise ToolExecutionError(
+                f"Model expects {len(raw)} features but {len(feature_cols)} "
+                f"column names were derived — the dataset passed to "
+                f"feature_importance does not match the one the model was "
+                f"trained on. Pass the same (cleaned) file used by train_model."
             )
 
         importances = pd.Series(raw, index=feature_cols)
@@ -174,13 +195,19 @@ class GenerateVisualizationsTool(BaseTool):
     def _distributions(
         self, df: pd.DataFrame, output_dir: str, plt: Any, sns: Any, **_: Any
     ) -> list[str]:
+        import re
+
         num_cols = df.select_dtypes(include="number").columns.tolist()[:12]
         saved: list[str] = []
-        for col in num_cols:
+        for i, col in enumerate(num_cols):
             fig, ax = plt.subplots(figsize=(6, 4))
             sns.histplot(df[col].dropna(), kde=True, ax=ax, color="steelblue")
             ax.set_title(f"Distribution: {col}")
-            out = str(Path(output_dir) / f"dist_{col}.png")
+            # Column names can contain characters illegal in filenames
+            # (slashes, colons, spaces) — sanitise; index prefix keeps
+            # collided names unique.
+            safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(col))[:60] or "col"
+            out = str(Path(output_dir) / f"dist_{i:02d}_{safe}.png")
             fig.tight_layout()
             fig.savefig(out, dpi=120)
             plt.close(fig)

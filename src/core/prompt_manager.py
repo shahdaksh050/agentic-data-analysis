@@ -67,7 +67,13 @@ You must produce valid, parseable JSON every time.
 
 ## Hard Rules
 - NEVER include raw data rows, arrays, or full DataFrames in your response.
-- Reference tools by their EXACT `tool_name`.
+- Reference tools by their EXACT `tool_name`. Use ONLY tool names from the \
+  Available Tools list above — any invented tool name is rejected unexecuted.
+- Use ONLY column names that appear in the Dataset Overview. Never invent, \
+  guess, or "correct" column names.
+- In Form 2, cite ONLY metric values that appear verbatim in the results \
+  provided to you. If a number is not in the results, do not state it — \
+  never estimate, extrapolate, or invent values.
 - Provide a `rationale` for EVERY step — this is a research-grade system.
 - If a tool failed in the previous iteration, adapt the plan. \
   Do not repeat the identical call that already errored.
@@ -188,8 +194,20 @@ RLM_SUBTASK_PROMPT = """\
 {results_summary}
 
 ## Your Task
-Analyse ONLY the sub-task above. Return Form 1 with a focused 1-3 step plan \
-for this sub-task, or Form 2 if the sub-task is already resolved by existing results.
+You are a focused sub-analyst (Stage 6 RLM decomposition). Analyse ONLY the \
+feature group above using the results already available — do NOT propose new \
+tool calls; the tools for this data have already run.
+
+Respond with ONLY this JSON shape:
+{{
+  "status": "complete",
+  "task_id": "{task_id}",
+  "insights": ["Concrete finding about this feature group.", "..."],
+  "recommendations": ["Optional recommendation tied to these features."]
+}}
+
+Cite only values that appear in the results above. If the results contain \
+nothing about these features, return an empty insights list — do not invent findings.
 """
 
 
@@ -225,6 +243,32 @@ class PromptManager:
         if not summary:
             return ""
         return f"\n## Data Profile (automated first look)\n{summary}\n"
+
+    def _rlm_block(self) -> str:
+        """
+        Stage 6 sub-task findings, fed back into later reasoning cycles so the
+        decomposed analyses actually inform the final synthesis.
+        """
+        sub_results = self.memory.get_context("rlm_sub_results")
+        if not isinstance(sub_results, dict) or not sub_results:
+            return ""
+        lines: list[str] = []
+        for task_id, res in sub_results.items():
+            if not isinstance(res, dict):
+                continue
+            insights = res.get("insights") or res.get("reasoning") or ""
+            if isinstance(insights, list):
+                insights = " ".join(str(i) for i in insights[:3])
+            insights = str(insights).strip()
+            if insights:
+                lines.append(f"- [{task_id}] {insights[:300]}")
+        if not lines:
+            return ""
+        return (
+            "\n## RLM Sub-Analysis Findings (Stage 6 feature-group deep dives)\n"
+            + "\n".join(lines)
+            + "\n"
+        )
 
     def get_initial_user_prompt(self) -> str:
         meta = self.memory.dataset_metadata
@@ -292,15 +336,20 @@ class PromptManager:
                 pending_steps=pending_str,
                 failed_steps=failed_str,
             )
+            + self._rlm_block()
             + self._objective_block()
             + concrete
         )
 
     def get_final_interpretation_prompt(self) -> str:
-        return FINAL_INTERPRETATION_PROMPT.format(
-            dataset_metadata=self.memory.get_metadata_prompt(),
-            results_summary=self.memory.get_results_summary(),
-        ) + self._objective_block()
+        return (
+            FINAL_INTERPRETATION_PROMPT.format(
+                dataset_metadata=self.memory.get_metadata_prompt(),
+                results_summary=self.memory.get_results_summary(),
+            )
+            + self._rlm_block()
+            + self._objective_block()
+        )
 
     def get_rlm_subtask_prompt(
         self,

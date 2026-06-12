@@ -1,0 +1,20 @@
+# Theme — Sauce Labs style reference (see DESIGN.md)
+# Obsidian canvas, single neon-green accent, pill-shaped interactive language.
+
+[theme]
+base = "dark"
+primaryColor = "#3ddc91"                      # Neon Pulse — the only action color
+backgroundColor = "#132322"                   # Obsidian Shell
+secondaryBackgroundColor = "#0e1a19"          # Deep Abyss — nested surfaces
+textColor = "#ffffff"
+linkColor = "#3ddc91"
+borderColor = "#263534"                       # ~white @ 8% over obsidian
+codeBackgroundColor = "#070f0f"               # Charcoal
+font = "Inter, 'Segoe UI', sans-serif"
+headingFont = "'Inter Tight', Inter, 'Segoe UI', sans-serif"
+codeFont = "'Cascadia Code', 'SF Mono', Consolas, monospace"
+baseRadius = "12px"
+buttonRadius = "full"                         # 56px pill — non-negotiable per DESIGN.md
+dataframeBorderColor = "#263534"
+dataframeHeaderBackgroundColor = "#0e1a19"
+chartCategoricalColors = ["#3ddc91", "#ffcd48", "#97ddbc", "#1c8f5c", "#d6f0b2", "#62b5a4"]

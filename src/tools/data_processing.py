@@ -176,6 +176,8 @@ class CleanDataTool(BaseTool):
 
         path = Path(file_path)
         df = _read_df(file_path)
+        if df.empty:
+            raise ToolExecutionError("Dataset has no rows — nothing to clean.")
         original_shape = df.shape
         missing_before = int(df.isnull().sum().sum())
 
@@ -188,9 +190,17 @@ class CleanDataTool(BaseTool):
         elif strategy == "median":
             subset = subset.fillna(subset.median(numeric_only=True))
         elif strategy == "mode":
-            subset = subset.fillna(subset.mode().iloc[0])
+            modes = subset.mode()
+            if not modes.empty:
+                subset = subset.fillna(modes.iloc[0])
         elif strategy == "drop_rows":
             df = df.dropna()
+            if df.empty:
+                raise ToolExecutionError(
+                    "drop_rows removed every row (every row has at least one "
+                    "missing value). Re-run clean_data with strategy 'median' "
+                    "or 'mode' instead."
+                )
         elif strategy == "forward_fill":
             subset = subset.ffill()
 
@@ -402,12 +412,33 @@ class CorrelationAnalysisTool(BaseTool):
 
         # Target correlations
         target_corrs: dict[str, float] = {}
+        target_encoded = False
         if target_column and target_column in corr.columns:
             target_corrs = {
                 c: round(float(corr.loc[c, target_column]), 4)
                 for c in corr.columns
                 if c != target_column and not np.isnan(corr.loc[c, target_column])
             }
+            target_corrs = dict(
+                sorted(target_corrs.items(), key=lambda x: abs(x[1]), reverse=True)
+            )
+        elif (
+            target_column
+            and target_column in df.columns
+            and df[target_column].nunique(dropna=True) == 2
+        ):
+            # Non-numeric binary target (e.g. churn yes/no): encode to 0/1 so
+            # feature↔target correlation still works (point-biserial).
+            raw_target = df[target_column]
+            encoded = pd.Series(
+                pd.factorize(raw_target)[0], index=df.index, dtype="float64"
+            ).where(raw_target.notna())
+            aligned = encoded.loc[num_df.index]
+            target_encoded = True
+            for c in num_df.columns:
+                val = float(num_df[c].corr(aligned))
+                if not np.isnan(val):
+                    target_corrs[c] = round(val, 4)
             target_corrs = dict(
                 sorted(target_corrs.items(), key=lambda x: abs(x[1]), reverse=True)
             )
@@ -426,6 +457,7 @@ class CorrelationAnalysisTool(BaseTool):
             "method": method,
             "top_correlations": top_pairs,
             "target_correlations": target_corrs,
+            "target_encoded_binary": target_encoded,
             "features_analyzed": cols,
             "n_features": len(cols),
         }

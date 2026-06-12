@@ -409,7 +409,7 @@ def _model_comparison_chart(train_output: dict[str, Any] | None) -> ChartSpec | 
                 "color": {
                     "field": "metric",
                     "scale": {"domain": ["Train", "Test", "CV mean"],
-                              "range": ["#5b8dee", "#2ecc71", "#e67e22"]},
+                              "range": ["#97ddbc", "#3ddc91", "#ffcd48"]},
                     "legend": {"orient": "top", "title": None},
                 },
                 "tooltip": [{"field": "model"}, {"field": "metric"},
@@ -463,7 +463,7 @@ def _correlation_chart(corr_output: dict[str, Any] | None) -> ChartSpec | None:
     return ChartSpec(
         chart_id="top_correlations",
         title="Top Feature Correlations",
-        description="Strongest pairwise relationships. Green = positive, red = negative.",
+        description="Strongest pairwise relationships. Green = positive, amber = negative.",
         spec={
             "data": {"values": values},
             "mark": {"type": "bar", "cornerRadiusEnd": 2},
@@ -473,8 +473,8 @@ def _correlation_chart(corr_output: dict[str, Any] | None) -> ChartSpec | None:
                 "x": {"field": "correlation", "type": "quantitative",
                       "scale": {"domain": [-1.1, 1.1]}, "title": "correlation coefficient"},
                 "color": {
-                    "condition": {"test": "datum.correlation >= 0", "value": "#2ecc71"},
-                    "value": "#e74c3c",
+                    "condition": {"test": "datum.correlation >= 0", "value": "#3ddc91"},
+                    "value": "#ffcd48",
                 },
                 "tooltip": [{"field": "pair"}, {"field": "correlation"}],
             },
