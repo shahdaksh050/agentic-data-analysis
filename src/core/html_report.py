@@ -18,60 +18,66 @@ import json
 import time
 from typing import Any
 
-# Sauce Labs style reference (DESIGN.md): obsidian canvas, single neon-green
-# accent, mint-frost light card as the executive-summary counterpoint.
+# "Drafting Table" (DESIGN.md): mineral stock, ink linework, two plotter pens.
+# The shared report is the same sheet as the console, printed.
 _CSS = """
-:root { color-scheme: dark; }
+:root { color-scheme: light; }
 * { box-sizing: border-box; }
-body { background:#132322; color:rgba(255,255,255,.86);
-       font-family:'Inter','Segoe UI',system-ui,sans-serif;
-       margin:0; padding:3rem 1.5rem; line-height:1.65; letter-spacing:-.08px; }
-.wrap { max-width: 980px; margin: 0 auto; }
-h1 { color:#fff; font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
-     font-size:2.1rem; line-height:1.12; margin:.55rem 0 .25rem; }
-h2 { font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
-     font-size:11px; letter-spacing:1.6px; text-transform:uppercase;
-     color:#3ddc91; margin:2.8rem 0 .9rem; }
-.eyebrow { font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
-           font-size:10px; letter-spacing:1.6px; text-transform:uppercase;
-           color:#3ddc91; }
-.sub { color:rgba(255,255,255,.45); font-size:.85rem; margin-bottom:1.5rem; }
-.objective { background:rgba(151,221,188,.10); border:1px solid rgba(151,221,188,.35);
-             border-radius:16px; padding:1rem 1.2rem; margin:1.2rem 0; color:#d9efe6; }
-.card { background:#0e1a19; border:1px solid rgba(255,255,255,.07);
-        border-radius:16px; padding:1rem 1.2rem; margin:.55rem 0; }
-.card.exec { background:#edf7f5; color:#132322; border:none; border-radius:20px;
-             padding:1.6rem 1.8rem; box-shadow:rgba(0,0,0,.04) 1px 0 9px 2px; }
-.insight { border-left:3px solid #97ddbc; }
-.rec { border-left:3px solid #3ddc91; }
-.driver { border-left:3px solid #ffcd48; font-size:.92rem; }
-.treat { border-left:3px solid rgba(255,255,255,.25); font-size:.88rem;
-         color:rgba(255,255,255,.6); }
-table { border-collapse:collapse; width:100%; font-size:.88rem; }
-th, td { border:1px solid rgba(255,255,255,.10); padding:.5rem .75rem; text-align:left; }
-th { background:#0e1a19; color:rgba(255,255,255,.55);
-     font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
-     font-size:10px; letter-spacing:1.2px; text-transform:uppercase; }
-.chart { background:#0e1a19; border:1px solid rgba(255,255,255,.07);
-         border-radius:20px; padding:1.2rem 1.3rem 1rem; margin:1.3rem 0; }
-.chart h3 { margin:.1rem 0 .2rem; color:#fff;
-            font-family:'Inter Tight','Inter',sans-serif; font-weight:500;
-            font-size:1.02rem; }
-.chart p { margin:.15rem 0 .9rem; color:rgba(255,255,255,.45); font-size:.82rem; }
-.vega-holder { width:100%; }
-.badge { display:inline-block; background:rgba(61,220,145,.10);
-         border:1px solid rgba(61,220,145,.45); color:#3ddc91;
-         border-radius:99px; padding:.2rem .9rem; font-size:.78rem;
-         margin:0 .4rem .4rem 0; }
-.footer { margin-top:3.5rem; color:rgba(255,255,255,.3); font-size:.78rem;
-          text-align:center; }
+body {
+  background: #dcdbd3;
+  background-image:
+    repeating-linear-gradient(to right,  rgba(23,28,31,.045) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(to bottom, rgba(23,28,31,.045) 0 1px, transparent 1px 28px);
+  color: #171c1f;
+  font-family: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+  margin: 0; padding: 3.5rem 1.5rem; line-height: 1.62;
+}
+.wrap { max-width: 940px; margin: 0 auto; }
+h1 { font-variation-settings: 'wdth' 118; font-weight: 800;
+     font-size: clamp(34px, 5.4vw, 58px); line-height: .95; letter-spacing: -.038em;
+     margin: .3rem 0 .2rem; max-width: 18ch; }
+h2 { font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 27px;
+     letter-spacing: -.028em; line-height: 1.05; color: #171c1f;
+     border-bottom: 1px solid #171c1f; padding-bottom: .35rem; margin: 3rem 0 1rem; }
+.sub { color: #54585b; font-family: 'IBM Plex Mono', monospace; font-size: .78rem;
+       margin-bottom: 2rem; }
+.objective { border-left: 3px solid #12467e; padding: .3rem 0 .3rem 1rem;
+             margin: 1.4rem 0; max-width: 72ch; }
+.card { padding: .35rem 0 .35rem 1rem; margin: .1rem 0 .8rem;
+        border-left: 3px solid #c8c6bc; max-width: 74ch; }
+.card.exec { background: #efeee8; border: 1px solid #171c1f;
+             box-shadow: 3px 3px 0 rgba(23,28,31,.09);
+             padding: 1.4rem 1.6rem; max-width: 72ch; }
+.insight { border-left-color: #54585b; }
+.rec { border-left-color: #12467e; }
+.driver { border-left-color: #54585b; font-size: .93rem; }
+.treat { border-left-color: #c8c6bc; font-size: .88rem; color: #54585b; }
+.warn { border-left-color: #b5271a; color: #b5271a; }
+table { border-collapse: collapse; width: 100%; font-size: .86rem;
+        background: #efeee8; box-shadow: 3px 3px 0 rgba(23,28,31,.09); }
+th, td { border: 1px solid #c8c6bc; padding: .45rem .7rem; text-align: left; }
+td { font-family: 'IBM Plex Mono', monospace; font-size: .8rem; }
+th { background: #e4e3dc; color: #171c1f; font-weight: 700; font-size: .78rem;
+     border-color: #171c1f; }
+.chart { background: #efeee8; border: 1px solid #171c1f;
+         box-shadow: 3px 3px 0 rgba(23,28,31,.09);
+         padding: 1.1rem 1.2rem 1rem; margin: 1.4rem 0; }
+.chart h3 { margin: .1rem 0 .2rem; font-weight: 700; font-size: 1rem;
+            letter-spacing: -.02em; }
+.chart p { margin: .15rem 0 .9rem; color: #54585b; font-size: .82rem; max-width: 68ch; }
+.vega-holder { width: 100%; }
+.badge { display: inline-block; border: 1px solid #12467e; color: #12467e;
+         font-family: 'IBM Plex Mono', monospace; padding: .18rem .7rem;
+         font-size: .74rem; margin: 0 .35rem .35rem 0; }
+.footer { margin-top: 4rem; border-top: 1px solid #171c1f; padding-top: .7rem;
+          color: #54585b; font-family: 'IBM Plex Mono', monospace; font-size: .74rem; }
 """
 
 _FONTS_CDN = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500'
-    '&family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">'
+    '<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800'
+    '&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">'
 )
 
 _VEGA_CDN = (
@@ -80,23 +86,27 @@ _VEGA_CDN = (
     '<script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>'
 )
 
-_VEGA_DARK_CONFIG: dict[str, Any] = {
-    "background": "#0e1a19",
-    "font": "Inter, sans-serif",
-    "axis": {"labelColor": "rgba(255,255,255,0.62)",
-             "titleColor": "rgba(255,255,255,0.62)",
-             "gridColor": "rgba(255,255,255,0.07)",
-             "domainColor": "rgba(255,255,255,0.18)",
-             "tickColor": "rgba(255,255,255,0.18)",
-             "labelFont": "Inter, sans-serif",
-             "titleFont": "Inter, sans-serif"},
-    "legend": {"labelColor": "rgba(255,255,255,0.72)",
-               "titleColor": "rgba(255,255,255,0.72)",
-               "labelFont": "Inter, sans-serif",
-               "titleFont": "Inter, sans-serif"},
+_VEGA_PLOT_CONFIG: dict[str, Any] = {
+    "background": "#efeee8",
+    "font": "Archivo, 'Segoe UI', sans-serif",
+    "axis": {"labelColor": "#54585b",
+             "titleColor": "#54585b",
+             "gridColor": "#c8c6bc",
+             "gridDash": [2, 3],
+             "domainColor": "#171c1f",
+             "tickColor": "#171c1f",
+             "labelFont": "IBM Plex Mono, monospace",
+             "labelFontSize": 11,
+             "titleFont": "Archivo, sans-serif",
+             "titleFontWeight": 600},
+    "legend": {"labelColor": "#171c1f",
+               "titleColor": "#54585b",
+               "labelFont": "Archivo, sans-serif",
+               "titleFont": "Archivo, sans-serif",
+               "symbolType": "square"},
     "view": {"stroke": "transparent"},
-    "range": {"category": ["#3ddc91", "#ffcd48", "#97ddbc",
-                           "#1c8f5c", "#d6f0b2", "#62b5a4"]},
+    "range": {"category": ["#12467e", "#b5271a", "#7a8b99",
+                           "#c08a2e", "#3f6f5b", "#8e6e9e"]},
 }
 
 
@@ -152,43 +162,44 @@ def build_html_report(
         badges += f'<span class="badge">best model: {_esc(best_model)}</span>'
 
     sections.append(
-        '<div class="eyebrow">Agentic Data Analysis · Report</div>'
-        f"<h1>Analysis Report — {_esc(dataset_name)}</h1>"
-        f'<div class="sub">Generated {timestamp} · Agentic Data Analysis System</div>'
+        f"<h1>What we found in {_esc(dataset_name)}</h1>"
+        f'<div class="sub">Drawn up {timestamp} by the Agentic Data Analysis '
+        f"System</div>"
         f"<div>{badges}</div>"
     )
 
     # ---- objective + executive summary ----
     if objective:
         sections.append(
-            f'<div class="objective"><b>Your question:</b> {_esc(objective)}</div>'
+            f'<div class="objective">You asked: {_esc(objective)}</div>'
         )
     reasoning = llm_insights.get("reasoning", "")
     if reasoning:
         sections.append(
-            f"<h2>Executive Summary</h2><div class='card exec'>{_esc(reasoning)}</div>"
+            f"<h2>The short version</h2><div class='card exec'>{_esc(reasoning)}</div>"
         )
 
     # ---- insights & recommendations ----
     insights = llm_insights.get("insights") or []
     if insights:
-        sections.append("<h2>Key Insights</h2>" + _cards(insights, "insight", "💡 "))
+        sections.append("<h2>What the data shows</h2>" + _cards(insights, "insight"))
     recs = llm_insights.get("recommendations") or []
     if recs:
-        sections.append("<h2>Recommendations</h2>" + _cards(recs, "rec", "→ "))
+        sections.append("<h2>What to do next</h2>" + _cards(recs, "rec"))
 
     # ---- drivers (explainability) ----
     eval_out = _find_tool_output(tool_results, "evaluate_model")
     narrative = eval_out.get("driver_narrative") or []
     if narrative:
-        sections.append("<h2>What Drives the Predictions</h2>" + _cards(narrative, "driver"))
+        sections.append("<h2>What drives the predictions</h2>" + _cards(narrative, "driver"))
 
     # ---- automatic treatments ----
     train_out = _find_tool_output(tool_results, "train_model")
     treatments = train_out.get("treatments_applied") or []
     if treatments:
         sections.append(
-            "<h2>Automatic Data Treatments</h2>" + _cards(treatments, "treat", "🛠 ")
+            "<h2>What the agent changed before modelling</h2>"
+            + _cards(treatments, "treat")
         )
 
     # ---- key metrics ----
@@ -198,7 +209,7 @@ def build_html_report(
             f"<tr><td>{_esc(k)}</td><td>{_esc(v)}</td></tr>" for k, v in key_metrics.items()
         )
         sections.append(
-            "<h2>Key Metrics</h2><table><tr><th>Metric</th><th>Value</th></tr>"
+            "<h2>Key numbers</h2><table><tr><th>Metric</th><th>Value</th></tr>"
             + rows + "</table>"
         )
 
@@ -210,11 +221,11 @@ def build_html_report(
             f'<div class="vega-holder" id="chart_{i}"></div></div>'
             for i, c in enumerate(charts)
         )
-        specs = [dict(c.get("spec", {}), config=_VEGA_DARK_CONFIG, width="container")
+        specs = [dict(c.get("spec", {}), config=_VEGA_PLOT_CONFIG, width="container")
                  for c in charts]
         specs_json = json.dumps(specs, default=str).replace("</", "<\\/")
         sections.append(
-            "<h2>Interactive Dashboard</h2>"
+            "<h2>The charts</h2>"
             + chart_divs
             + f"<script>const SPECS = {specs_json};"
             + "SPECS.forEach((s, i) => vegaEmbed('#chart_' + i, s, {actions: false}));"
@@ -230,7 +241,7 @@ def build_html_report(
             for r in tool_results
         )
         sections.append(
-            "<h2>Analysis Steps</h2><table><tr><th>Tool</th><th>Status</th>"
+            "<h2>Every step it ran</h2><table><tr><th>Tool</th><th>Status</th>"
             "<th>Summary</th></tr>" + rows + "</table>"
         )
 

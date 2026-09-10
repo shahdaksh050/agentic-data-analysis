@@ -1,0 +1,144 @@
+"""Tests for the 3D pipeline hero component (ui/pipeline_3d.py)."""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from ui.pipeline_3d import PALETTE, Stage, _asset, render  # noqa: E402
+
+
+@pytest.fixture
+def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Capture the document render() hands to Streamlit, without a browser."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_iframe(src: str, **kwargs: Any) -> None:
+        calls.append({"document": src, **kwargs})
+
+    monkeypatch.setattr("ui.pipeline_3d.st.iframe", fake_iframe)
+    return calls
+
+
+STAGES = [
+    Stage("1", "Dataset Ingestion", "done", "1,000 rows"),
+    Stage("2", "Initial Reasoning", "done"),
+    Stage("3", "Tool Execution", "active", "running"),
+    Stage("4", "Result Interpretation"),
+]
+
+
+def _state_of(document: str) -> dict[str, Any]:
+    """Pull the injected state object back out of the rendered document."""
+    match = re.search(r"window\.__PIPELINE_STATE__ = (\{.*?\});", document, re.S)
+    assert match, "state payload not found in document"
+    return json.loads(match.group(1))  # type: ignore[no-any-return]
+
+
+# ── Assets ───────────────────────────────────────────────────────────────────
+def test_assets_exist() -> None:
+    assert _asset("pipeline_3d.html").lstrip().startswith("<!doctype html>")
+    assert "THREE" in _asset("pipeline_3d.js")
+
+
+def test_no_placeholders_left_in_document(captured: list[dict[str, Any]]) -> None:
+    render(STAGES)
+    document = captured[0]["document"]
+    assert "__STATE_JSON__" not in document
+    assert "__SCENE_SCRIPT__" not in document
+
+
+def test_scene_and_libraries_are_inlined(captured: list[dict[str, Any]]) -> None:
+    render(STAGES)
+    document = captured[0]["document"]
+    assert "three.module.js" in document, "three.js not loaded"
+    assert "gsap.min.js" in document, "gsap not loaded"
+    assert "setAnimationLoop" in document, "scene script not inlined"
+
+
+# ── State contract ───────────────────────────────────────────────────────────
+def test_stage_state_round_trips(captured: list[dict[str, Any]]) -> None:
+    render(STAGES)
+    state = _state_of(captured[0]["document"])
+
+    assert state["palette"] == PALETTE
+    assert [s["num"] for s in state["stages"]] == ["1", "2", "3", "4"]
+    assert state["stages"][2] == {
+        "num": "3",
+        "name": "Tool Execution",
+        "status": "active",
+        "detail": "running",
+    }
+    assert state["stages"][3]["status"] == "pending", "default status"
+
+
+def test_empty_stage_list_is_allowed(captured: list[dict[str, Any]]) -> None:
+    render([])
+    assert _state_of(captured[0]["document"])["stages"] == []
+
+
+def test_height_is_forwarded(captured: list[dict[str, Any]]) -> None:
+    render(STAGES, height=512)
+    assert captured[0]["height"] == 512
+
+
+def test_falls_back_to_components_html_without_st_iframe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """requirements.txt still allows streamlit versions that predate st.iframe."""
+    import ui.pipeline_3d as mod
+
+    calls: list[dict[str, Any]] = []
+    monkeypatch.delattr(mod.st, "iframe", raising=False)
+    monkeypatch.setattr(
+        "ui.pipeline_3d.components.html",
+        lambda document, **kw: calls.append({"document": document, **kw}),
+    )
+
+    render(STAGES)
+    assert len(calls) == 1
+    assert calls[0]["scrolling"] is False
+    assert "__PIPELINE_STATE__" in calls[0]["document"]
+
+
+# ── Injection safety ─────────────────────────────────────────────────────────
+def test_stage_detail_cannot_break_out_of_the_script_tag(
+    captured: list[dict[str, Any]],
+) -> None:
+    """Tool output reaches `detail`, so it must not be able to inject markup."""
+    hostile = "</script><script>window.pwned=1</script>"
+    render([Stage("1", "Dataset Ingestion", "done", hostile)])
+    document = captured[0]["document"]
+
+    assert "</script><script>" not in document, "script tag was not neutralised"
+
+    # …and the escaped form still parses back to the original text.
+    assert _state_of(document)["stages"][0]["detail"] == hostile
+
+
+def test_hostile_stage_name_is_escaped(captured: list[dict[str, Any]]) -> None:
+    render([Stage("1", "<img src=x onerror=alert(1)>", "done")])
+    document = captured[0]["document"]
+    assert "<img src=x" not in document
+
+
+# ── Design system ────────────────────────────────────────────────────────────
+def test_palette_matches_design_tokens() -> None:
+    """DESIGN.md rations these inks; the scene may not invent others."""
+    assert PALETTE["ink"] == "#171c1f"
+    assert PALETTE["pen"] == "#12467e"
+    assert PALETTE["risk"] == "#b5271a"
+    assert set(PALETTE) == {"stock", "sheet", "ink", "graphite", "pen", "risk"}
+
+
+def test_stage_is_immutable() -> None:
+    stage = Stage("1", "Dataset Ingestion")
+    with pytest.raises(AttributeError):
+        stage.status = "done"  # type: ignore[misc]

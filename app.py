@@ -23,7 +23,7 @@ import traceback
 import types
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
@@ -35,7 +35,7 @@ sys.path.insert(0, str(ROOT))
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(
     page_title="Agentic Data Analysis",
-    page_icon="🧠",
+    page_icon="📐",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -86,199 +86,311 @@ def _stub_rich() -> None:
 _stub_rich()
 
 
-# ── CSS — Sauce Labs design system (DESIGN.md): obsidian canvas, neon pulse ───
+# ── CSS — "Drafting Table" design system (DESIGN.md) ─────────────────────────
+# Mineral drafting stock, ink linework, two plotter pens. Nothing that carries
+# data is rounded; structure comes from ruled hairlines, not from radius.
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Inter+Tight:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
-    --obsidian: #132322;
-    --abyss:    #0e1a19;
-    --charcoal: #070f0f;
-    --neon:     #3ddc91;
-    --mint:     #97ddbc;
-    --yellow:   #ffcd48;
-    --slate:    #828786;
-    --danger:   #ff5c5c;   /* functional exception: failure states only */
-    --line:        rgba(255,255,255,.07);
-    --line-strong: rgba(255,255,255,.22);
-    --dim:   rgba(255,255,255,.55);
-    --faint: rgba(255,255,255,.38);
-    --font-body:    'Inter', ui-sans-serif, system-ui, sans-serif;
-    --font-display: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --stock:    #dcdbd3;   /* mineral drafting stock — the page itself */
+    --sheet:    #efeee8;   /* the lifted sheet — plates, tables, panels */
+    --ink:      #171c1f;   /* drawing ink — type, rules, linework */
+    --graphite: #54585b;   /* soft pencil — secondary type */
+    --pen:      #12467e;   /* measurement pen — what the agent measured */
+    --risk:     #b5271a;   /* risk pen — overfit, failure, warning. Nothing else. */
+
+    --rule:        #b6b4a9;   /* ruled hairline */
+    --rule-faint:  #c8c6bc;
+    --quadrille:   rgba(23,28,31,.045);
+    --lift: 3px 3px 0 rgba(23,28,31,.09);   /* a sheet lying on the table */
+
+    --sans: 'Archivo', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', 'Cascadia Code', ui-monospace, Consolas, monospace;
 }
 
-/* ── Chrome ── */
+/* ── The drafting sheet ── */
 #MainMenu, footer, .stAppDeployButton { visibility: hidden; }
 header[data-testid="stHeader"] { background: transparent; }
-.stApp { background: var(--obsidian); }
-section[data-testid="stSidebar"] { background: var(--abyss); border-right: 1px solid var(--line); }
-.block-container { max-width: 1200px; }
-hr { border-color: var(--line) !important; }
-a { color: var(--neon) !important; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #2c403d; border-radius: 8px;
-                            border: 2px solid var(--obsidian); }
+.stApp {
+    background-color: var(--stock);
+    background-image:
+        repeating-linear-gradient(to right,  var(--quadrille) 0 1px, transparent 1px 28px),
+        repeating-linear-gradient(to bottom, var(--quadrille) 0 1px, transparent 1px 28px);
+}
+.block-container { max-width: 1240px; padding-top: 2.4rem; }
+html, body, .stApp, [class*="css"] { font-family: var(--sans); color: var(--ink); }
+hr { border: none; border-top: 1px solid var(--rule) !important; }
+a { color: var(--pen) !important; text-underline-offset: 3px; }
+
+section[data-testid="stSidebar"] {
+    background: var(--sheet);
+    border-right: 1px solid var(--rule);
+    background-image: none;
+}
+section[data-testid="stSidebar"] .stSlider label,
+section[data-testid="stSidebar"] label p { font-size: 13px; color: var(--graphite); }
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-thumb { background: var(--rule); border: 3px solid var(--stock); }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* ── Typography ── */
-h1, h2, h3, h4, h5, h6 { font-family: var(--font-display) !important;
-                         font-weight: 500 !important; letter-spacing: -0.01em; }
-.stMarkdown p { letter-spacing: -0.08px; }
-
-/* Eyebrow — small tracked-out caps above headlines */
-.eyebrow { font-family: var(--font-display); font-size: 10px; font-weight: 500;
-           letter-spacing: 1.6px; text-transform: uppercase;
-           color: var(--neon); margin: 0 0 .45rem; }
-.eyebrow.side { margin: 1.15rem 0 .45rem; }
-.sect { margin: .3rem 0 1rem; }
-.sect h2, .sect h3 { margin: 0; padding: 0; }
-
-/* Live-signal pulse dot */
-.pulse-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
-             background: var(--neon); flex: none;
-             animation: pulse 2.4s ease-in-out infinite; }
-@keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(61,220,145,.45); }
-    50%      { box-shadow: 0 0 0 8px rgba(61,220,145,0); }
+/* ── Type: an expanded grotesque against a mono for every measured number ── */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--sans) !important;
+    font-variation-settings: 'wdth' 112;
+    letter-spacing: -.025em;
+    color: var(--ink);
 }
+h1 { font-weight: 800 !important; }
+h2 { font-weight: 700 !important; font-size: 30px !important; line-height: 1.05; }
+h3 { font-weight: 700 !important; font-size: 19px !important; }
+h4 { font-weight: 600 !important; font-size: 15.5px !important;
+     font-variation-settings: 'wdth' 100; letter-spacing: -.01em; }
+.stMarkdown p, .stMarkdown li { font-size: 15px; line-height: 1.62; max-width: 72ch; }
+code, kbd, pre, .stCode, [data-testid="stMetricValue"] { font-family: var(--mono) !important; }
 
-/* ── Hero header ── */
-.hero { display: flex; align-items: flex-start; gap: 14px;
-        padding: .2rem 0 1.6rem; border-bottom: 1px solid var(--line);
-        margin-bottom: 1.6rem; }
-.hero .pulse-dot { margin-top: 8px; }
-.hero h1 { font-size: 34px; line-height: 1.1; margin: .25rem 0 0; color: #fff; }
-.hero .hero-sub { color: var(--dim); font-size: 15px; margin: .5rem 0 0; max-width: 640px; }
+/* Datum line — a ruled measurement bar, cells divided by hairlines.
+   Replaces the tracked-caps eyebrow: the rule carries the label, not a label
+   floating above a heading. */
+.datum { display: flex; align-items: stretch; flex-wrap: wrap;
+         border-top: 1px solid var(--ink); border-bottom: 1px solid var(--rule);
+         margin: 0 0 1.5rem; }
+.datum .cell { padding: .5rem 1.1rem .5rem 0; margin-right: 1.1rem;
+               border-right: 1px solid var(--rule-faint); }
+.datum .cell:last-child { border-right: none; margin-right: 0; }
+.datum .k { font-size: 12px; color: var(--graphite); }
+.datum .v { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); }
 
-/* ── Sidebar brand ── */
-.side-brand { display: flex; align-items: center; gap: 11px; margin: .2rem 0 .5rem; }
-.side-title { font-family: var(--font-display); font-weight: 500; font-size: 16px;
-              color: #fff; line-height: 1.25; }
-.side-sub { font-family: var(--font-display); font-size: 9px; letter-spacing: 1.4px;
-            text-transform: uppercase; color: var(--faint); margin-top: 3px; }
+/* Section head — the title sits on its own rule, sentence case, no eyebrow. */
+.sect { margin: 2.2rem 0 1rem; border-bottom: 1px solid var(--ink);
+        padding-bottom: .4rem; }
+.sect:first-child { margin-top: .4rem; }
+.sect h2, .sect h3 { margin: 0; padding: 0; }
+.sect .note { font-size: 12.5px; color: var(--graphite); font-family: var(--mono);
+              margin-top: .25rem; }
 
-/* ── Buttons — pill language ── */
+/* ── Hero — asymmetric: the headline holds the left, the plate bleeds right ── */
+.hero { padding: .2rem 0 1.1rem; }
+.hero h1 {
+    font-size: clamp(40px, 6.6vw, 78px);
+    font-variation-settings: 'wdth' 118;
+    font-weight: 800;
+    line-height: .93;
+    letter-spacing: -.038em;
+    margin: 0;
+    max-width: 14ch;
+    /* The one page-load moment: the headline is struck onto the sheet. */
+    animation: strike 900ms cubic-bezier(.16,.84,.34,1) both;
+}
+@keyframes strike {
+    from { clip-path: inset(0 100% 0 0); }
+    to   { clip-path: inset(0 0 0 0); }
+}
+.hero .hero-sub {
+    color: var(--graphite); font-size: 16px; line-height: 1.55;
+    margin: 1.1rem 0 0; max-width: 54ch;
+}
+@media (prefers-reduced-motion: reduce) { .hero h1 { animation: none; } }
+
+/* The 3D plate sits in the right column and runs past the container edge. */
+.st-key-plate { border-left: 1px solid var(--ink); padding-left: 16px;
+                margin-right: -3.4rem; }
+@media (max-width: 900px) { .st-key-plate { margin-right: 0; border-left: none;
+                                            padding-left: 0; } }
+
+/* ── Sidebar masthead ── */
+.side-brand { margin: .1rem 0 .2rem; }
+.side-title { font-family: var(--sans); font-variation-settings: 'wdth' 118;
+              font-weight: 800; font-size: 17px; line-height: 1.05;
+              letter-spacing: -.03em; color: var(--ink); }
+.side-sub { font-size: 12px; color: var(--graphite); margin-top: 4px;
+            max-width: 26ch; line-height: 1.4; }
+.side-head { font-family: var(--sans); font-weight: 700; font-size: 13px;
+             color: var(--ink); border-bottom: 1px solid var(--ink);
+             padding-bottom: .3rem; margin: 1.5rem 0 .7rem; }
+.side-head:first-of-type { margin-top: .6rem; }
+
+/* ── Buttons — struck rectangles, not pills ── */
 .stButton button, .stDownloadButton button {
-    font-weight: 400; letter-spacing: -0.08px;
-    transition: filter .15s ease, border-color .15s ease, color .15s ease;
+    font-family: var(--sans); font-weight: 600; font-size: 14px;
+    border-radius: 0 !important; letter-spacing: -.01em;
+    transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
 }
 .stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {
-    background: var(--neon); color: var(--obsidian); border: none;
+    background: var(--pen); color: var(--sheet); border: 1px solid var(--pen);
+    box-shadow: var(--lift);
 }
 .stButton button[kind="primary"]:hover:enabled,
 .stDownloadButton button[kind="primary"]:hover:enabled {
-    background: var(--neon); color: var(--obsidian); filter: brightness(1.12);
+    background: #0d3660; border-color: #0d3660; color: var(--sheet);
+    transform: translate(1px, 1px); box-shadow: 2px 2px 0 rgba(23,28,31,.09);
 }
 .stButton button[kind="primary"]:disabled {
-    background: rgba(61,220,145,.14); color: rgba(255,255,255,.32); border: none;
+    background: transparent; color: var(--graphite);
+    border: 1px dashed var(--rule); box-shadow: none;
 }
 .stButton button[kind="secondary"], .stDownloadButton button[kind="secondary"] {
-    background: transparent; border: 1.5px solid var(--line-strong); color: #fff;
+    background: var(--sheet); border: 1px solid var(--ink); color: var(--ink);
+    box-shadow: var(--lift);
 }
 .stButton button[kind="secondary"]:hover:enabled,
 .stDownloadButton button[kind="secondary"]:hover:enabled {
-    border-color: var(--neon); color: var(--neon); background: transparent;
+    background: var(--stock); color: var(--ink); border-color: var(--ink);
+    transform: translate(1px, 1px); box-shadow: 2px 2px 0 rgba(23,28,31,.09);
+}
+:focus-visible { outline: 2px solid var(--pen) !important; outline-offset: 2px; }
+.stButton button:focus-visible, .stDownloadButton button:focus-visible {
+    outline: 2px solid var(--pen) !important; outline-offset: 3px;
 }
 
-/* ── Tabs — pill switcher ── */
+/* ── Tabs — an index strip ruled off the content below it ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 4px; background: var(--abyss); border: 1px solid var(--line);
-    border-radius: 56px; padding: 5px; width: max-content; max-width: 100%;
+    gap: 0; background: transparent; border-bottom: 1px solid var(--ink);
+    padding: 0; overflow-x: auto;
 }
-.stTabs [data-baseweb="tab"] { border-radius: 56px; padding: 4px 16px;
-                               background: transparent; }
-.stTabs [data-baseweb="tab"] p { font-size: 14.5px; color: var(--slate); }
-.stTabs [data-baseweb="tab"]:hover p { color: #fff; }
-.stTabs [aria-selected="true"] { background: var(--neon) !important; }
-.stTabs [aria-selected="true"] p { color: var(--obsidian) !important; font-weight: 500; }
+.stTabs [data-baseweb="tab"] {
+    border-radius: 0; padding: 5px 15px; background: transparent;
+    border-right: 1px solid var(--rule-faint);
+}
+.stTabs [data-baseweb="tab"] p { font-size: 14px; font-weight: 600;
+                                 color: var(--graphite); letter-spacing: -.01em; }
+.stTabs [data-baseweb="tab"]:hover p { color: var(--ink); }
+.stTabs [aria-selected="true"] { background: var(--ink) !important; }
+.stTabs [aria-selected="true"] p { color: var(--sheet) !important; }
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
-.stTabs [data-baseweb="tab-panel"] { padding-top: 1.1rem; }
+.stTabs [data-baseweb="tab-panel"] { padding-top: 1.3rem; }
 
-/* ── File uploader ── */
+/* ── Inputs ── */
 [data-testid="stFileUploaderDropzone"] {
-    background: var(--obsidian); border: 1.5px dashed rgba(61,220,145,.35);
-    border-radius: 20px;
+    background: var(--stock); border: 1px dashed var(--graphite); border-radius: 0;
 }
-[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--neon); }
+[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--pen);
+                                               background: var(--sheet); }
+.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {
+    border-radius: 0 !important; border-color: var(--rule) !important;
+    background: var(--stock) !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus { border-color: var(--pen) !important; }
 
-/* ── st.metric — stat block ── */
-[data-testid="stMetric"] { background: var(--abyss); border: 1px solid var(--line);
-                           border-radius: 20px; padding: 14px 18px; }
-[data-testid="stMetricValue"] { font-family: var(--font-display);
-                                font-weight: 500; color: var(--neon); }
-[data-testid="stMetricLabel"] p { font-family: var(--font-display); font-size: 10px;
-                                  letter-spacing: 1.4px; text-transform: uppercase;
-                                  color: var(--faint); }
+/* ── Gauge strip — one ruled band, not a row of identical cards ── */
+.gauge { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--ink);
+         padding: .75rem 0 .7rem; height: 100%;
+         /* A cell with no sub-label must still rule out on the same line as
+            one that has it, or the strip stops reading as a single band. */
+         min-height: 96px; }
+.gauge .v { font-family: var(--mono); font-size: 27px; font-weight: 500;
+            line-height: 1.05; letter-spacing: -.03em; color: var(--ink);
+            overflow-wrap: anywhere; }
+.gauge.long .v   { font-size: 19px; letter-spacing: -.02em; }
+.gauge.longer .v { font-size: 14.5px; letter-spacing: -.01em; line-height: 1.2; }
+.gauge .k { font-size: 12.5px; color: var(--graphite); margin-top: .4rem; }
+.gauge .s { font-family: var(--mono); font-size: 11px; color: var(--graphite);
+            margin-top: 2px; }
+.gauge.flag { border-top-color: var(--risk); }
+.gauge.flag .v { color: var(--risk); }
 
-/* ── Expanders / code / alerts ── */
-[data-testid="stExpander"] details { background: var(--abyss);
-    border: 1px solid var(--line) !important; border-radius: 20px; }
-[data-testid="stExpander"] summary:hover { color: var(--neon); }
-[data-testid="stCode"] pre { background: var(--charcoal) !important;
-    border: 1px solid var(--line); border-radius: 16px; }
-[data-testid="stAlert"] { border-radius: 16px; }
+/* st.metric picks up the same instrument readout */
+[data-testid="stMetric"] { background: transparent; border: none;
+                           border-top: 2px solid var(--ink);
+                           border-bottom: 1px solid var(--ink);
+                           border-radius: 0; padding: .7rem 0; }
+[data-testid="stMetricValue"] { font-family: var(--mono) !important; font-weight: 500;
+                                color: var(--ink); letter-spacing: -.03em; }
+[data-testid="stMetricLabel"] p { font-size: 12.5px; color: var(--graphite);
+                                  text-transform: none; letter-spacing: 0; }
 
-/* ── Stage progress cards ── */
-.sc { display: flex; align-items: center; gap: 12px;
-      padding: .8rem 1.1rem; margin-bottom: .5rem;
-      border-radius: 16px; border: 1px solid var(--line);
-      background: var(--abyss); font-size: .88rem; color: rgba(255,255,255,.85); }
-.sc .dot { width: 8px; height: 8px; border-radius: 50%; flex: none;
-           background: transparent; border: 1.5px solid rgba(255,255,255,.25); }
-.sc .sc-num { font-family: var(--font-display); font-size: 10px;
-              letter-spacing: 1.2px; color: var(--faint); }
-.sc .detail { margin-left: auto; font-size: .76rem; color: var(--faint);
-              text-align: right; }
-.sc.done   { border-color: rgba(61,220,145,.28); }
-.sc.done .dot   { background: var(--neon); border-color: var(--neon); }
-.sc.active { border-color: var(--neon); background: rgba(61,220,145,.06); color: #fff; }
-.sc.active .dot { background: var(--neon); border-color: var(--neon);
-                  animation: pulse 1.6s ease-in-out infinite; }
-.sc.skip   { color: var(--faint); }
-.sc.skip .dot   { background: rgba(255,255,255,.18); border-color: transparent; }
-.sc.err    { border-color: rgba(255,92,92,.5); }
-.sc.err .dot    { background: var(--danger); border-color: var(--danger); }
+/* ── Plates — sheets laid on the table, square, hard-shadowed ── */
+[data-testid="stExpander"] details {
+    background: var(--sheet); border: 1px solid var(--ink) !important;
+    border-radius: 0; box-shadow: var(--lift);
+}
+[data-testid="stExpander"] summary { font-weight: 600; font-size: 14px; }
+[data-testid="stExpander"] summary:hover { color: var(--pen); }
+[data-testid="stCode"] pre, pre {
+    background: #e4e3dc !important; border: 1px solid var(--rule);
+    border-radius: 0; font-size: 12.5px;
+}
+[data-testid="stAlert"] { border-radius: 0; }
+[data-testid="stAlertContainer"] {
+    background: transparent !important; border-radius: 0;
+    border-left: 3px solid var(--graphite);
+    padding: .4rem .5rem .4rem 1rem; color: var(--ink) !important;
+}
+[data-testid="stAlertContainer"] p { color: inherit !important; font-size: 14.5px; }
+[data-testid="stAlertContainer"] svg { fill: currentColor; }
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
+    border-left-color: var(--pen); color: var(--pen) !important;
+}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]),
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
+    border-left-color: var(--risk); color: var(--risk) !important;
+}
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+    border-radius: 0; box-shadow: var(--lift);
+}
 
-/* ── Metric tiles (custom) — stat block pattern ── */
-.mt { background: var(--abyss); border: 1px solid var(--line); border-radius: 20px;
-      padding: 1.05rem .9rem .95rem; text-align: center; }
-.mt .lbl { font-family: var(--font-display); font-size: 10px; letter-spacing: 1.3px;
-           text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
-.mt .val { font-family: var(--font-display); font-size: 1.55rem; font-weight: 500;
-           line-height: 1.15; overflow-wrap: anywhere; }
-.mt .sub { font-size: .7rem; color: var(--faint); margin-top: 4px; }
+/* ── Stage ledger — the pipeline as numbered rows, because it IS a sequence ── */
+.sc { display: flex; align-items: baseline; gap: 12px;
+      padding: .5rem 0; border-bottom: 1px solid var(--rule-faint);
+      font-size: 14px; color: var(--graphite); }
+.sc .sc-num { font-family: var(--mono); font-size: 12px; color: var(--graphite);
+              flex: none; width: 2.2em; }
+.sc .nm { color: var(--ink); font-weight: 600; }
+.sc .detail { margin-left: auto; font-family: var(--mono); font-size: 11.5px;
+              color: var(--graphite); text-align: right; padding-left: 1rem; }
+.sc.done  { border-left: 3px solid var(--pen); padding-left: .6rem; }
+.sc.active { border-left: 3px solid var(--pen); padding-left: .6rem;
+             background: rgba(18,70,126,.07); }
+.sc.active .nm::after { content: " — running"; font-weight: 400;
+                        color: var(--pen); font-size: 12.5px; }
+.sc.skip  { border-left: 3px solid var(--rule); padding-left: .6rem; }
+.sc.skip .nm { color: var(--graphite); font-weight: 400; }
+.sc.err   { border-left: 3px solid var(--risk); padding-left: .6rem; }
+.sc.err .nm { color: var(--risk); }
 
-/* ── Content cards: insight / recommendation / warning ── */
-.ic, .rc, .wc { background: var(--abyss); border: 1px solid var(--line);
-                border-left-width: 3px; border-radius: 12px;
-                padding: .7rem 1rem; margin-bottom: .5rem;
-                font-size: .9rem; line-height: 1.55; }
-.ic { border-left-color: var(--mint);   color: #e6f3ee; }
-.rc { border-left-color: var(--neon);   color: #dff5ea; }
-.wc { border-left-color: var(--yellow); color: #f5e8c8; }
+/* ── Annotations — a reviewer's marginal note, not another rounded card ── */
+.ic, .rc, .wc {
+    border-left: 3px solid var(--rule); padding: .3rem 0 .3rem 1rem;
+    margin: 0 0 .75rem; font-size: 15px; line-height: 1.6; max-width: 74ch;
+    color: var(--ink);
+}
+.ic { border-left-color: var(--graphite); }
+.rc { border-left-color: var(--pen); }
+.wc { border-left-color: var(--risk); color: var(--risk); }
+.ic .mk, .rc .mk, .wc .mk {
+    font-family: var(--mono); font-size: 11px; color: var(--graphite);
+    display: block; margin-bottom: 1px;
+}
+.rc .mk { color: var(--pen); }
+.wc .mk { color: var(--risk); }
 
-/* Agent reasoning panel */
-.reason { background: var(--abyss); border: 1px solid var(--line);
-          border-radius: 20px; padding: 1.1rem 1.3rem;
-          font-size: .92rem; color: rgba(255,255,255,.82); line-height: 1.75; }
+/* Agent reasoning — a written finding, given room to read */
+.reason { background: var(--sheet); border: 1px solid var(--ink);
+          box-shadow: var(--lift); padding: 1.2rem 1.4rem;
+          font-size: 15px; color: var(--ink); line-height: 1.72; max-width: 72ch; }
 
-/* Run-in-progress banner — mint whisper wash */
-.run-banner { display: flex; align-items: center; gap: 12px;
-              background: rgba(151,221,188,.08); border: 1px solid rgba(151,221,188,.3);
-              border-radius: 16px; padding: .85rem 1.2rem;
-              color: #d9efe6; font-size: .92rem; margin: .4rem 0 1rem; }
+/* Run banner — a strip of tape across the sheet */
+.run-banner { border-top: 2px solid var(--pen); border-bottom: 1px solid var(--pen);
+              background: rgba(18,70,126,.07); padding: .7rem 1rem;
+              color: var(--pen); font-size: 14px; font-weight: 600;
+              margin: .4rem 0 1.2rem; }
+.run-banner .sub { display: block; font-weight: 400; color: var(--graphite);
+                   font-size: 13px; margin-top: 2px; }
 
-/* ── Empty state ── */
-.empty { text-align: center; padding: 5rem 2rem 4rem; }
-.empty .pulse-dot { width: 12px; height: 12px; margin-bottom: 1.5rem; }
-.empty h2 { font-size: 30px; color: #fff; margin: .4rem 0; }
-.empty p { color: var(--dim); max-width: 500px; margin: .6rem auto 0;
-           line-height: 1.8; font-size: 15px; }
-.empty b { color: #fff; font-weight: 500; }
-.empty .stages { margin-top: 2rem; font-family: var(--font-display); font-size: 10px;
-                 letter-spacing: 1.6px; text-transform: uppercase; color: var(--faint); }
-.empty .stages span { color: var(--mint); }
+/* ── Empty state — a blank sheet with its own instruction ── */
+.empty { padding: 3.5rem 0 4rem; max-width: 58ch; }
+.empty h2 { font-size: clamp(30px, 4.4vw, 46px); font-variation-settings: 'wdth' 118;
+            font-weight: 800; line-height: .98; letter-spacing: -.035em;
+            margin: 0 0 1rem; }
+.empty p { color: var(--graphite); font-size: 16px; line-height: 1.62; margin: 0; }
+.empty .steps { display: flex; flex-wrap: wrap; margin-top: 2rem;
+                border-top: 1px solid var(--ink); }
+.empty .steps div { font-family: var(--mono); font-size: 12px; color: var(--graphite);
+                    padding: .5rem .9rem .5rem 0; margin-right: .9rem;
+                    border-right: 1px solid var(--rule-faint); }
+.empty .steps div:last-child { border-right: none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -308,36 +420,48 @@ for _k, _v in _DEFAULTS.items():
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 STAGE_DEFS = [
-    ("1", "Dataset Ingestion",     "📥"),
-    ("2", "Initial Reasoning",     "🧠"),
-    ("3", "Tool Execution",        "⚙️"),
-    ("4", "Result Interpretation", "🔍"),
-    ("5", "Iterative Refinement",  "🔄"),
-    ("6", "RLM Decomposition",     "🔀"),
-    ("7", "Report Generation",     "📄"),
+    ("1", "Dataset Ingestion"),
+    ("2", "Initial Reasoning"),
+    ("3", "Tool Execution"),
+    ("4", "Result Interpretation"),
+    ("5", "Iterative Refinement"),
+    ("6", "RLM Decomposition"),
+    ("7", "Report Generation"),
 ]
 
-# Shared Vega-Lite config so dashboard charts match the obsidian theme (DESIGN.md)
-VEGA_DARK_CONFIG = {
-    "font": "Inter, sans-serif",
+# Shared Vega-Lite config — charts are plotted on the sheet in the same two
+# inks as the rest of the console (DESIGN.md). Blue is the measured series;
+# red is reserved for the series that carries risk.
+PLOT_INK = "#171c1f"
+PLOT_GRAPHITE = "#54585b"
+PLOT_RULE = "#c8c6bc"
+PEN_BLUE = "#12467e"
+PEN_RED = "#b5271a"
+
+VEGA_PLOT_CONFIG = {
+    "font": "Archivo, 'Segoe UI', sans-serif",
     "axis": {
-        "labelColor": "rgba(255,255,255,0.62)",
-        "titleColor": "rgba(255,255,255,0.62)",
-        "gridColor": "rgba(255,255,255,0.07)",
-        "domainColor": "rgba(255,255,255,0.18)",
-        "tickColor": "rgba(255,255,255,0.18)",
-        "labelFont": "Inter, sans-serif",
-        "titleFont": "Inter, sans-serif",
+        "labelColor": PLOT_GRAPHITE,
+        "titleColor": PLOT_GRAPHITE,
+        "gridColor": PLOT_RULE,
+        "gridDash": [2, 3],
+        "domainColor": PLOT_INK,
+        "tickColor": PLOT_INK,
+        "labelFont": "IBM Plex Mono, monospace",
+        "labelFontSize": 11,
+        "titleFont": "Archivo, sans-serif",
+        "titleFontWeight": 600,
     },
     "legend": {
-        "labelColor": "rgba(255,255,255,0.72)",
-        "titleColor": "rgba(255,255,255,0.72)",
-        "labelFont": "Inter, sans-serif",
-        "titleFont": "Inter, sans-serif",
+        "labelColor": PLOT_INK,
+        "titleColor": PLOT_GRAPHITE,
+        "labelFont": "Archivo, sans-serif",
+        "titleFont": "Archivo, sans-serif",
+        "symbolType": "square",
     },
     "view": {"stroke": "transparent"},
-    "range": {"category": ["#3ddc91", "#ffcd48", "#97ddbc",
-                           "#1c8f5c", "#d6f0b2", "#62b5a4"]},
+    "range": {"category": [PEN_BLUE, PEN_RED, "#7a8b99",
+                           "#c08a2e", "#3f6f5b", "#8e6e9e"]},
 }
 
 # OpenRouter slugs use DOT version notation for Claude (claude-sonnet-4.6,
@@ -362,7 +486,7 @@ def _reset_pipeline() -> None:
     for k in ("stage_log", "analysis_done", "analysis_error",
               "final_report", "tool_results", "metadata", "profile",
               "dashboard", "tmp_dir", "progress_lines", "llm_warning"):
-        st.session_state[k] = _DEFAULTS[k]  # type: ignore[assignment]
+        st.session_state[k] = _DEFAULTS[k]
 
 
 def _set_stage(num: str, status: str, detail: str = "") -> None:
@@ -375,30 +499,83 @@ def _set_stage(num: str, status: str, detail: str = "") -> None:
 
 def _stage_card(num: str, name: str,
                 status: str, detail: str = "") -> str:
+    """One row of the stage ledger. Numbered: the pipeline is a real sequence."""
     cls = {"done": "done", "active": "active",
            "skipped": "skip", "error": "err"}.get(status, "")
     det = f'<span class="detail">{detail}</span>' if detail else ""
-    return (f'<div class="sc {cls}"><span class="dot"></span>'
+    return (f'<div class="sc {cls}">'
             f'<span class="sc-num">{num.zfill(2)}</span>'
-            f'{name}{det}</div>')
+            f'<span class="nm">{name}</span>{det}</div>')
 
 
-def _mt(label: str, value: str, sub: str = "",
-        color: str = "#3ddc91") -> str:
-    return (f'<div class="mt"><div class="lbl">{label}</div>'
-            f'<div class="val" style="color:{color}">{value}</div>'
-            f'<div class="sub">{sub}</div></div>')
+def _datum(cells: list[tuple[str, str]]) -> str:
+    """A ruled measurement bar. Each reading gets its own cell and hairline."""
+    body = "".join(
+        f'<div class="cell"><div class="k">{k}</div><div class="v">{v}</div></div>'
+        for k, v in cells
+    )
+    return f'<div class="datum">{body}</div>'
 
 
-def _gap_color(g: float) -> str:
-    return "#3ddc91" if g < 0.05 else "#ffcd48" if g < 0.10 else "#ff5c5c"
+def _draw_pipeline_rig(slot: Any) -> list[Any]:
+    """Render the 3D pipeline rig into `slot`; return the stages it drew.
+
+    Called from two places — the normal position at the end of the script, and
+    just before `st.stop()` on an aborted run, since otherwise the hero would
+    keep a blank gap where the rig should be.
+
+    Imported lazily to match how `src/` is loaded in this file: after ROOT
+    lands on sys.path.
+    """
+    from ui.pipeline_3d import Stage, StageStatus
+    from ui.pipeline_3d import render as render_pipeline
+
+    log = {n: (s, d) for n, s, d in st.session_state["stage_log"]}
+    stages = [
+        Stage(
+            num=num,
+            name=name,
+            # session_state is untyped; _set_stage only writes StageStatus values.
+            status=cast(StageStatus, log.get(num, ("pending", ""))[0]),
+            detail=log.get(num, ("pending", ""))[1],
+        )
+        for num, name in STAGE_DEFS
+    ]
+    with slot.container():
+        render_pipeline(stages)
+    return stages
 
 
-def _section(eyebrow: str, title: str, level: str = "h3") -> None:
-    """Eyebrow label + headline — the DESIGN.md section-header pattern."""
+def _gauge(label: str, value: str, sub: str = "", *, flag: bool = False) -> str:
+    """One cell of the instrument readout: the number leads, the label follows.
+
+    `flag` switches the cell to the risk pen — reserved for a measurement the
+    reader should not trust, never used for emphasis.
+
+    Values arrive at any length (a percentage, or a model name), so the type
+    steps down rather than wrapping mid-word and pulling the strip's rules out
+    of alignment.
+    """
+    fit = "" if len(value) <= 11 else " long" if len(value) <= 18 else " longer"
+    sub_html = f'<div class="s">{sub}</div>' if sub else ""
+    return (f'<div class="gauge{fit}{" flag" if flag else ""}">'
+            f'<div class="v">{value}</div>'
+            f'<div class="k">{label}</div>{sub_html}</div>')
+
+
+def _gap_is_risky(gap: float) -> bool:
+    """A train-test gap above 10 points means the model memorised the split."""
+    return gap >= 0.10
+
+
+def _section(title: str, note: str = "", level: str = "h3") -> None:
+    """Section head: the title sits on its own rule, with an optional mono note.
+
+    No tracked-caps label floats above it — the rule is the structure.
+    """
+    note_html = f'<div class="note">{note}</div>' if note else ""
     st.markdown(
-        f'<div class="sect"><div class="eyebrow">{eyebrow}</div>'
-        f'<{level}>{title}</{level}></div>',
+        f'<div class="sect"><{level}>{title}</{level}>{note_html}</div>',
         unsafe_allow_html=True,
     )
 
@@ -423,7 +600,8 @@ def _find_tool(tool_results: list[dict[str, Any]],
                name: str) -> dict[str, Any] | None:
     for r in tool_results:
         if r.get("tool_name") == name and r.get("status") == "success":
-            return r.get("output", {})
+            out = r.get("output")
+            return out if isinstance(out, dict) else {}
     return None
 
 
@@ -432,15 +610,15 @@ def _find_tool(tool_results: list[dict[str, Any]],
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown(
-        '<div class="side-brand"><span class="pulse-dot"></span>'
-        '<div><div class="side-title">Agentic Data Analysis</div>'
-        '<div class="side-sub">RLM-powered autonomous pipeline</div></div></div>',
+        '<div class="side-brand">'
+        '<div class="side-title">Agentic Data Analysis</div>'
+        '<div class="side-sub">Set up the run here. Results are drawn on '
+        'the sheet.</div></div>',
         unsafe_allow_html=True,
     )
-    st.divider()
 
     # ── Upload ────────────────────────────────────────────────────────────────
-    st.markdown('<div class="eyebrow side">Dataset</div>', unsafe_allow_html=True)
+    st.markdown('<div class="side-head">Dataset</div>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
         "CSV or Excel",
         type=["csv", "xlsx", "xls"],
@@ -462,7 +640,7 @@ with st.sidebar:
                 st.session_state["preview_df"]    = None
                 st.session_state["preview_bytes"] = None
                 st.session_state["preview_name"]  = ""
-                st.error(f"🛡️ Upload rejected: {_ve}")
+                st.error(f"Upload rejected. {_ve}")
             else:
                 st.session_state["preview_bytes"] = raw_bytes
                 st.session_state["preview_name"]  = safe_name
@@ -499,8 +677,12 @@ with st.sidebar:
     )
 
     # ── LLM Provider ──────────────────────────────────────────────────────────
-    st.markdown('<div class="eyebrow side">LLM Provider</div>', unsafe_allow_html=True)
-    provider = st.selectbox("Provider", ["openai", "anthropic", "openrouter", "nvidia"])
+    st.markdown('<div class="side-head">LLM Provider</div>', unsafe_allow_html=True)
+    provider = st.selectbox(
+        "Provider",
+        ["openai", "anthropic", "gemini", "openrouter", "nvidia", "local"],
+        format_func=lambda p: "Local / offline" if p == "local" else p,
+    )
 
     NVIDIA_MODELS = [
         "openai/gpt-oss-120b",
@@ -511,6 +693,8 @@ with st.sidebar:
         "google/gemma-2-27b-it",
         "deepseek-ai/deepseek-r1",
     ]
+    GEMINI_MODELS = ["gemini-flash-latest", "gemini-pro-latest", "gemini-2.5-flash", "gemini-2.5-pro"]
+    LOCAL_MODELS = ["llama3.1", "llama3.2", "mistral", "qwen2.5", "deepseek-r1", "phi4"]
 
     if provider == "openai":
         model_list = ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
@@ -519,45 +703,63 @@ with st.sidebar:
         model_list = ["claude-sonnet-4-6", "claude-opus-4-8",
                       "claude-haiku-4-5-20251001"]
         key_ph     = "sk-ant-..."
+    elif provider == "gemini":
+        model_list = GEMINI_MODELS
+        key_ph     = "from aistudio.google.com/apikey"
     elif provider == "nvidia":
         model_list = NVIDIA_MODELS
         key_ph     = "nvapi-..."
+    elif provider == "local":
+        model_list = LOCAL_MODELS
+        key_ph     = "usually not required"
     else:
         model_list = OR_MODELS
         key_ph     = "sk-or-..."
 
     model_sel = st.selectbox("Model", model_list)
-    if provider in ("openrouter", "nvidia"):
+    if provider in ("openrouter", "nvidia", "local"):
         custom_m = st.text_input(
             "Custom model string (overrides above)",
-            placeholder=(
-                "e.g. cohere/command-r-plus"
-                if provider == "openrouter"
-                else "e.g. nvidia/llama-3.1-nemotron-70b-instruct"
-            ),
+            placeholder={
+                "openrouter": "e.g. cohere/command-r-plus",
+                "nvidia": "e.g. nvidia/llama-3.1-nemotron-70b-instruct",
+                "local": "e.g. the exact tag your server has pulled/loaded",
+            }[provider],
         )
         final_model = custom_m.strip() if custom_m.strip() else model_sel
     else:
         final_model = model_sel
 
+    local_base_url = ""
+    if provider == "local":
+        local_base_url = st.text_input(
+            "Server URL (OpenAI-compatible)",
+            value="http://localhost:11434/v1",
+            help="Works with Ollama, LM Studio, vLLM, llama.cpp server, "
+                 "text-generation-webui, etc. Must be reachable from this "
+                 "machine — no data leaves it.",
+        )
+
     _key_label = {
         "openai": "OpenAI",
         "anthropic": "Anthropic",
+        "gemini": "Gemini",
         "openrouter": "OpenRouter",
         "nvidia": "NVIDIA",
+        "local": "Local server",
     }.get(provider, provider)
     api_key = st.text_input(
-        f"{_key_label} API Key",
+        f"{_key_label} API Key" + (" (optional)" if provider == "local" else ""),
         type="password",
         placeholder=key_ph,
     )
 
     # ── Analysis Settings ─────────────────────────────────────────────────────
-    st.markdown('<div class="eyebrow side">Analysis Settings</div>', unsafe_allow_html=True)
+    st.markdown('<div class="side-head">Analysis Settings</div>', unsafe_allow_html=True)
     max_iter   = st.slider("Max iterations", 3, 25, 10)
     enable_rlm = st.toggle("Enable RLM decomposition (Stage 6)", value=True)
 
-    st.markdown('<div class="eyebrow side">Anti-Overfitting</div>', unsafe_allow_html=True)
+    st.markdown('<div class="side-head">Anti-Overfitting</div>', unsafe_allow_html=True)
     max_depth = st.slider("Max tree depth", 2, 15, 6,
                           help="Lower = less overfitting for tree-based models")
     test_pct  = st.slider("Test split %", 10, 40, 20, step=5)
@@ -567,7 +769,7 @@ with st.sidebar:
 
     # ── Buttons ───────────────────────────────────────────────────────────────
     has_file = st.session_state["preview_df"] is not None
-    has_key  = bool(api_key.strip())
+    has_key  = bool(api_key.strip()) or provider == "local"
     can_run  = has_file and has_key and not st.session_state["analysis_done"]
 
     run_clicked = st.button(
@@ -582,22 +784,37 @@ with st.sidebar:
             st.rerun()
 
     if not has_file:
-        st.caption("Upload a CSV or Excel file first.")
+        st.caption("Upload a CSV or Excel file to enable the run.")
     elif not has_key:
-        st.caption("Enter your API key to continue.")
+        st.caption("Add your API key to enable the run.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN AREA — header
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown(
-    '<div class="hero"><span class="pulse-dot"></span>'
-    '<div><div class="eyebrow">Autonomous · RLM-powered · Anti-overfitting built-in</div>'
-    '<h1>Agentic Data Analysis</h1>'
-    '<p class="hero-sub">An engineering console that profiles, models and explains '
-    'your dataset — end to end, on its own.</p></div></div>',
-    unsafe_allow_html=True,
-)
+hero_text, hero_plate = st.columns([0.46, 0.54], gap="large",
+                                   vertical_alignment="center")
+
+with hero_text:
+    st.markdown(
+        '<div class="hero">'
+        '<h1>Every finding, measured twice.</h1>'
+        '<p class="hero-sub">Upload a dataset. The agent plans the analysis, '
+        'runs the tests, trains the models, then reports what generalises — '
+        'and what only fits.</p></div>',
+        unsafe_allow_html=True,
+    )
+
+# The plate: a live technical drawing of the run, ruled off the headline and
+# running past the container edge. The pipeline executes further down this same
+# script pass, so the drawing is filled into this placeholder afterwards — that
+# way it shows the state of the run that just happened.
+with hero_plate.container(key="plate"):
+    pipeline_slot = st.empty()
+
+# The datum line under the hero carries the run's readings, filled at the same
+# time as the plate.
+datum_slot = st.empty()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -607,19 +824,25 @@ preview_df: pd.DataFrame | None = st.session_state["preview_df"]
 
 if preview_df is not None and not st.session_state["analysis_done"]:
     _section("Dataset preview", st.session_state["preview_name"])
+    _miss_cells = int(preview_df.isnull().sum().sum())
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rows",          f"{len(preview_df):,}")
-    c2.metric("Columns",       len(preview_df.columns))
-    c3.metric("Missing cells", int(preview_df.isnull().sum().sum()))
-    c4.metric("Numeric cols",
-              len(preview_df.select_dtypes(include="number").columns))
+    c1.markdown(_gauge("Rows", f"{len(preview_df):,}"), unsafe_allow_html=True)
+    c2.markdown(_gauge("Columns", str(len(preview_df.columns))),
+                unsafe_allow_html=True)
+    c3.markdown(_gauge("Missing cells", f"{_miss_cells:,}",
+                       flag=_miss_cells > 0), unsafe_allow_html=True)
+    c4.markdown(
+        _gauge("Numeric columns",
+               str(len(preview_df.select_dtypes(include="number").columns))),
+        unsafe_allow_html=True,
+    )
 
     with st.expander("First 10 rows", expanded=True):
         st.dataframe(_safe_df(preview_df.head(10)), width='stretch')
 
     col_l, col_r = st.columns(2)
     with col_l:
-        st.markdown("**Column types & missing**")
+        st.markdown("#### Column types and missing values")
         dtype_df = pd.DataFrame(
             [(c, str(t), int(preview_df[c].isnull().sum()))
              for c, t in preview_df.dtypes.items()],
@@ -627,7 +850,7 @@ if preview_df is not None and not st.session_state["analysis_done"]:
         )
         st.dataframe(_safe_df(dtype_df), width='stretch', height=200)
     with col_r:
-        st.markdown("**Descriptive statistics**")
+        st.markdown("#### Descriptive statistics")
         st.dataframe(_safe_df(preview_df.describe()), width='stretch', height=200)
     st.divider()
 
@@ -637,7 +860,7 @@ if preview_df is not None and not st.session_state["analysis_done"]:
 # ══════════════════════════════════════════════════════════════════════════════
 if run_clicked:
     _reset_pipeline()
-    for num, _, _ in STAGE_DEFS:
+    for num, _ in STAGE_DEFS:
         _set_stage(num, "pending")
 
     # Save dataset to a temp file
@@ -661,16 +884,21 @@ if run_clicked:
     {
         "openai":     lambda: os.environ.__setitem__("OPENAI_API_KEY",     api_key.strip()),
         "anthropic":  lambda: os.environ.__setitem__("ANTHROPIC_API_KEY",  api_key.strip()),
+        "gemini":     lambda: os.environ.__setitem__("GEMINI_API_KEY",     api_key.strip()),
         "openrouter": lambda: os.environ.__setitem__("OPENROUTER_API_KEY", api_key.strip()),
         "nvidia":     lambda: os.environ.__setitem__("NVIDIA_API_KEY",     api_key.strip()),
+        "local":      lambda: (
+            os.environ.__setitem__("LOCAL_LLM_API_KEY", api_key.strip() or "not-needed"),
+            os.environ.__setitem__("LOCAL_LLM_BASE_URL", local_base_url.strip() or "http://localhost:11434/v1"),
+        ),
     }[provider]()
 
     # ── Spinner placeholder — replaced after run completes ───────────────
     _spinner_ph = st.empty()
     _spinner_ph.markdown(
-        '<div class="run-banner"><span class="pulse-dot"></span>'
-        'Running analysis — this may take 1–3 minutes depending on dataset '
-        'size and model.</div>',
+        '<div class="run-banner">Running the analysis'
+        '<span class="sub">Usually 1–3 minutes, depending on the dataset and '
+        'the model.</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -679,9 +907,10 @@ if run_clicked:
 
     def _upd(num: str, s: str, detail: str = "") -> None:
         _set_stage(num, s, detail)
-        _ico = {"done": "✅", "active": "⏳", "error": "❌", "skipped": "⏭️"}.get(s, "⬜")
-        _nm  = next(n for no, n, _ in STAGE_DEFS if no == num)
-        _progress_lines.append(f"{_ico} Stage {num}: {_nm}" + (f" — {detail}" if detail else ""))
+        _ico = {"done": "[done]", "active": "[run ]", "error": "[fail]",
+                "skipped": "[skip]"}.get(s, "[    ]")
+        _nm  = next(n for no, n in STAGE_DEFS if no == num)
+        _progress_lines.append(f"{_ico} Stage {num}: {_nm}" + (f"  {detail}" if detail else ""))
 
     # ── LLM preflight — fail fast with the REAL error instead of running
     #    the whole pipeline on the deterministic fallback ──────────────────
@@ -693,14 +922,15 @@ if run_clicked:
         _set_stage("2", "error", "LLM unreachable")
         st.session_state["analysis_error"] = _ping_err
         st.error(
-            f"🛑 LLM connection check failed — analysis was not started.\n\n"
-            f"Provider: `{provider}` · Model: `{final_model}`"
+            f"Could not reach the model, so the analysis did not start. "
+            f"Provider `{provider}`, model `{final_model}`."
         )
         st.code(_ping_err, language=None)
         st.info(
-            "Check that the model ID exists on the provider, the API key is "
-            "valid, and your account has credits. Then click Run Analysis again."
+            "Check that the model ID exists on this provider, that the API key "
+            "is valid, and that the account has credits. Then run it again."
         )
+        _draw_pipeline_rig(pipeline_slot)  # the hero slot must not stay empty
         st.stop()
 
     try:
@@ -729,19 +959,19 @@ if run_clicked:
         # ── Lightweight callbacks — only update stage_log, no st.write ────
         def _on_step(tool_name: str, status: str, detail: str) -> None:
             _set_stage("3", "active", detail)
-            _progress_lines.append(f"  {'✓' if status=='success' else '→'} {detail}")
+            _progress_lines.append(f"       {'ok  ' if status=='success' else '... '}{detail}")
 
         def _on_iter(iteration: int, stage: str) -> None:
             if "stage2" in stage:
                 _set_stage("2", "active", f"iter {iteration} — LLM reasoning…")
-                _progress_lines.append(f"⏳ Iteration {iteration}: LLM reasoning…")
+                _progress_lines.append(f"[run ] Iteration {iteration}: model reasoning")
             elif "stage4" in stage or "stage5" in stage:
                 _set_stage("4", "active", f"iter {iteration} — interpreting results…")
                 _set_stage("5", "active", f"iter {iteration} — refining plan…")
-                _progress_lines.append(f"⏳ Iteration {iteration}: interpreting & refining…")
+                _progress_lines.append(f"[run ] Iteration {iteration}: interpreting and refining")
 
-        agent.on_step_callback      = _on_step  # type: ignore[attr-defined]
-        agent.on_iteration_callback = _on_iter  # type: ignore[attr-defined]
+        agent.on_step_callback      = _on_step
+        agent.on_iteration_callback = _on_iter
 
         final = agent.analyze()
 
@@ -784,22 +1014,45 @@ if run_clicked:
                 _set_stage(_n, "error", "failed")
                 break
         _spinner_ph.empty()
-        st.error("❌ Pipeline error — see traceback below.")
+        st.error("The run stopped on an error. The traceback is below.")
         st.code(err, language="python")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STAGE PROGRESS CARDS — shown once pipeline has started or finished
+# PIPELINE RIG — 3D hero, plus the same stages as text
 # ══════════════════════════════════════════════════════════════════════════════
+stages_3d = _draw_pipeline_rig(pipeline_slot)
+
+# The datum line: the same run state as the drawing, in numbers.
+_done_n = sum(1 for st_ in stages_3d if st_.status == "done")
+_errored = next((st_ for st_ in stages_3d if st_.status == "error"), None)
+_running = next((st_ for st_ in stages_3d if st_.status == "active"), None)
+if _errored is not None:
+    _run_state = f"Stopped at stage {_errored.num}"
+elif _running is not None:
+    _run_state = f"Running stage {_running.num}"
+elif st.session_state["analysis_done"]:
+    _run_state = "Complete"
+else:
+    _run_state = "Not started"
+
+datum_slot.markdown(
+    _datum([
+        ("Run", _run_state),
+        ("Stages finished", f"{_done_n} of {len(stages_3d)}"),
+        ("Dataset", st.session_state["preview_name"] or "none loaded"),
+        ("Model", final_model),
+    ]),
+    unsafe_allow_html=True,
+)
+
+# Text mirror of the drawing — the accessible readout, and the fallback when a
+# browser can't do WebGL.
 if st.session_state["stage_log"]:
-    _section("Live progress", "Pipeline stages")
-    log_map = {n: (s, d) for n, s, d in st.session_state["stage_log"]}
-    cols = st.columns(2)
-    for i, (num, name, _icon) in enumerate(STAGE_DEFS):
-        s, d = log_map.get(num, ("pending", ""))
-        with cols[i % 2]:
+    with st.expander("Stage ledger", expanded=False):
+        for stage in stages_3d:
             st.markdown(
-                _stage_card(num, name, s, d),
+                _stage_card(stage.num, stage.name, stage.status, stage.detail),
                 unsafe_allow_html=True,
             )
 
@@ -820,10 +1073,10 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
     tmp_dir: str                       = st.session_state.get("tmp_dir", "")
 
     st.divider()
-    _section("Results", "Analysis complete", "h2")
+    _section("What the agent found", level="h2")
 
     if st.session_state.get("llm_warning"):
-        st.warning(f"⚠️ {st.session_state['llm_warning']}")
+        st.warning(st.session_state["llm_warning"])
 
     (tab_ov, tab_dash, tab_prof, tab_ds, tab_ml, tab_ins,
      tab_log, tab_rep, tab_dl) = st.tabs([
@@ -864,28 +1117,27 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
         )
 
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.markdown(_mt("Best model", best_model),
-                    unsafe_allow_html=True)
-        m2.markdown(_mt("CV score", best_cv, "generalisation"),
-                    unsafe_allow_html=True)
+        m1.markdown(_gauge("Best model", best_model), unsafe_allow_html=True)
+        m2.markdown(_gauge("Cross-validated score", best_cv,
+                           "mean across folds"), unsafe_allow_html=True)
         m3.markdown(
-            _mt("Train–test gap", best_gap_str, "overfit signal",
-                _gap_color(gap_val) if gap_val is not None else "#ffffff"),
+            _gauge("Train–test gap", best_gap_str, "how much it memorised",
+                   flag=gap_val is not None and _gap_is_risky(gap_val)),
             unsafe_allow_html=True,
         )
-        m4.markdown(_mt("Outliers", outlier_pct, "of dataset"),
+        m4.markdown(_gauge("Outliers", outlier_pct, "of all rows"),
                     unsafe_allow_html=True)
-        m5.markdown(_mt("Task", task_type), unsafe_allow_html=True)
+        m5.markdown(_gauge("Task", task_type), unsafe_allow_html=True)
 
         for _w in (train_out.get("overfit_warnings", []) if train_out else []):
-            st.markdown(f'<div class="wc">⚠ {_w}</div>',
+            st.markdown(f'<div class="wc"><span class="mk">Risk</span>{_w}</div>',
                         unsafe_allow_html=True)
 
         # Model comparison — interactive Vega-Lite grouped bars
         if train_out:
             _mt_map2 = train_out.get("models_trained", {})
             if _mt_map2:
-                st.markdown("#### Model Comparison")
+                st.markdown("#### How each model scored")
                 _task = train_out.get("task_type", "classification")
                 _pk   = "accuracy" if _task == "classification" else "r2"
                 _rows_v = []
@@ -901,10 +1153,10 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 st.vega_lite_chart(
                     pd.DataFrame(_rows_v),
                     {
-                        "mark": {"type": "bar", "cornerRadiusEnd": 2},
+                        "mark": {"type": "bar"},
                         "height": 300,
                         "background": "transparent",
-                        "config": VEGA_DARK_CONFIG,
+                        "config": VEGA_PLOT_CONFIG,
                         "encoding": {
                             "x": {"field": "model", "type": "nominal",
                                   "axis": {"labelAngle": 0, "title": None}},
@@ -916,7 +1168,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                                 "field": "metric",
                                 "scale": {
                                     "domain": ["Train", "Test", "CV mean"],
-                                    "range": ["#97ddbc", "#3ddc91", "#ffcd48"],
+                                    "range": ["#8aa6c2", PEN_BLUE, PLOT_INK],
                                 },
                                 "legend": {"orient": "top", "title": None},
                             },
@@ -934,7 +1186,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
         if corr_out:
             _top = corr_out.get("top_correlations", [])[:10]
             if _top:
-                st.markdown("#### Top Feature Correlations")
+                st.markdown("#### Strongest correlations")
                 _corr_df = pd.DataFrame(
                     [{"pair": f"{r['col_a']} ↔ {r['col_b']}",
                       "correlation": r["correlation"]} for r in _top]
@@ -942,10 +1194,10 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 st.vega_lite_chart(
                     _corr_df,
                     {
-                        "mark": {"type": "bar", "cornerRadiusEnd": 2},
+                        "mark": {"type": "bar"},
                         "height": max(160, len(_top) * 30),
                         "background": "transparent",
-                        "config": VEGA_DARK_CONFIG,
+                        "config": VEGA_PLOT_CONFIG,
                         "encoding": {
                             "y": {"field": "pair", "type": "nominal",
                                   "sort": "-x", "title": None},
@@ -954,8 +1206,8 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                                   "title": "Correlation coefficient"},
                             "color": {
                                 "condition": {"test": "datum.correlation >= 0",
-                                              "value": "#3ddc91"},
-                                "value": "#ffcd48",
+                                              "value": PEN_BLUE},
+                                "value": PLOT_INK,
                             },
                             "tooltip": [
                                 {"field": "pair"},
@@ -982,7 +1234,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 st.markdown(f"**{_ch.get('title', '')}**")
                 _spec = dict(_ch.get("spec", {}))
                 _spec.setdefault("background", "transparent")
-                _spec.setdefault("config", VEGA_DARK_CONFIG)
+                _spec.setdefault("config", VEGA_PLOT_CONFIG)
                 st.vega_lite_chart(_spec, use_container_width=True)
                 if _ch.get("description"):
                     st.caption(_ch["description"])
@@ -1005,21 +1257,22 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
         prof: dict[str, Any] | None = st.session_state.get("profile")
         if prof:
             _q = int(prof.get("quality_score", 0))
-            _qc = "#3ddc91" if _q >= 80 else "#ffcd48" if _q >= 60 else "#ff5c5c"
+            _dupes = int(prof.get("duplicate_rows", 0))
             p1, p2, p3, p4 = st.columns(4)
-            p1.markdown(_mt("Quality score", f"{_q}/100", "0–100", _qc),
+            p1.markdown(_gauge("Quality score", f"{_q}/100", "out of 100",
+                               flag=_q < 60), unsafe_allow_html=True)
+            p2.markdown(_gauge("Duplicate rows", f"{_dupes:,}", flag=_dupes > 0),
                         unsafe_allow_html=True)
-            p2.markdown(_mt("Duplicate rows", f"{prof.get('duplicate_rows', 0):,}"),
+            p3.markdown(_gauge("Memory", f"{prof.get('memory_mb', 0)} MB"),
                         unsafe_allow_html=True)
-            p3.markdown(_mt("Memory", f"{prof.get('memory_mb', 0)} MB"),
-                        unsafe_allow_html=True)
-            p4.markdown(_mt("Columns profiled", str(prof.get('column_count', 0))),
+            p4.markdown(_gauge("Columns profiled", str(prof.get("column_count", 0))),
                         unsafe_allow_html=True)
 
             for _w in prof.get("warnings", []):
-                st.markdown(f'<div class="wc">⚠ {_w}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="wc"><span class="mk">Risk</span>{_w}</div>',
+                            unsafe_allow_html=True)
 
-            st.markdown("#### Column Semantics")
+            st.markdown("#### What each column holds")
             _prows = [{
                 "Column":    c.get("name"),
                 "Kind":      c.get("kind"),
@@ -1046,13 +1299,14 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 "Kind":    "numerical" if col in meta.numerical_cols
                            else "categorical",
                 "Missing": meta.missing_values.get(col, 0),
-                "Note":    ("🎯 target" if col == meta.target_column else "")
-                           + (" ⚠ high card." if col in meta.high_cardinality_cols else ""),
+                "Note":    ("target" if col == meta.target_column else "")
+                           + (" high cardinality"
+                              if col in meta.high_cardinality_cols else ""),
             } for col, dtype in meta.columns.items()]
             st.dataframe(_safe_df(pd.DataFrame(_col_rows)), width='stretch')
 
             if meta.missing_values:
-                st.markdown("#### Missing Values")
+                st.markdown("#### Missing values by column")
                 _miss = pd.DataFrame(
                     [(c, v) for c, v in meta.missing_values.items()],
                     columns=["Column", "Count"],
@@ -1060,7 +1314,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 st.bar_chart(_safe_df(_miss.set_index("Column")))
 
             if meta.class_balance:
-                st.markdown("#### Class Balance")
+                st.markdown("#### Class balance")
                 _cb = pd.DataFrame(
                     [(str(k), v) for k, v in meta.class_balance.items()],
                     columns=["Class", "Count"],
@@ -1068,14 +1322,14 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 st.bar_chart(_safe_df(_cb.set_index("Class")))
 
         if clean_out:
-            st.markdown("#### Cleaning Summary")
+            st.markdown("#### What cleaning changed")
             _c1, _c2, _c3 = st.columns(3)
             _c1.metric("Strategy",       clean_out.get("strategy_used", "—"))
             _c2.metric("Missing before", clean_out.get("missing_before", "—"))
             _c3.metric("Missing after",  clean_out.get("missing_after", "—"))
 
         if outlier_out:
-            st.markdown("#### Outlier Detection")
+            st.markdown("#### Outliers found")
             _c1, _c2 = st.columns(2)
             _c1.metric("Total outliers", outlier_out.get("total_outliers", "—"))
             _c2.metric("Outlier %",
@@ -1099,7 +1353,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
             _sk2   = "f1_score" if _task2 == "classification" else "rmse"
 
             st.markdown(
-                f"**Task:** {_task2} &nbsp;|&nbsp; **Best:** 🏆 `{_best2}` "
+                f"**Task:** {_task2} &nbsp;|&nbsp; **Best:** `{_best2}` "
                 f"&nbsp;|&nbsp; **CV folds:** {train_out.get('n_cv_folds',5)} "
                 f"&nbsp;|&nbsp; **Test split:** "
                 f"{int(train_out.get('test_size', 0.2)*100)}%"
@@ -1110,12 +1364,12 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 _te2 = _m.get("test_metrics",  {})
                 _g   = _m.get("train_test_gap")
                 _rows.append({
-                    "Model": f"🏆 {_nm}" if _nm == _best2 else _nm,
+                    "Model": f"{_nm} (best)" if _nm == _best2 else _nm,
                     f"Train {_pk2}": f"{_tr2.get(_pk2,0)*100:.1f}%",
                     f"Test {_pk2}":  f"{_te2.get(_pk2,0)*100:.1f}%",
                     "CV mean":  f"{_m.get('cv_mean',0)*100:.1f}%",
                     "CV std":   f"±{_m.get('cv_std',0)*100:.1f}%",
-                    "Gap": (f"{_g*100:.1f}%" + (" ⚠" if _g and _g > .10 else "")
+                    "Gap": (f"{_g*100:.1f}%" + (" risk" if _g and _g > .10 else "")
                             if _g is not None else "—"),
                     _sk2.replace("_", " "): (
                         f"{_te2.get(_sk2,0)*100:.1f}%"
@@ -1126,15 +1380,16 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
 
             _warn2 = train_out.get("overfit_warnings", [])
             if _warn2:
-                st.markdown("#### ⚠️ Overfitting Warnings")
+                st.markdown("#### Where these models may not hold")
                 for _w2 in _warn2:
-                    st.markdown(f'<div class="wc">⚠ {_w2}</div>',
-                                unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="wc"><span class="mk">Risk</span>{_w2}</div>',
+                        unsafe_allow_html=True)
             else:
-                st.success("✅ No overfitting — gap within range for all models.")
+                st.success("Every model’s train–test gap stayed within range.")
 
         if eval_out:
-            st.markdown("#### Full Evaluation")
+            st.markdown("#### Per-class performance")
             _cr = eval_out.get("classification_report", {})
             if _cr:
                 _cr_rows = [
@@ -1148,38 +1403,42 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 st.dataframe(_safe_df(pd.DataFrame(_cr_rows)), width='stretch')
 
         if stat_out:
-            st.markdown("#### Statistical Test")
+            st.markdown("#### Statistical test")
             _c1, _c2, _c3 = st.columns(3)
             _c1.metric("Test",        stat_out.get("test_name", "—"))
             _c2.metric("p-value",     f"{stat_out.get('p_value', 0):.4f}")
             _c3.metric("Significant",
-                       "Yes ✅" if stat_out.get("significant") else "No ❌")
+                       "Yes" if stat_out.get("significant") else "No")
             st.info(stat_out.get("interpretation", ""))
 
     # ── Insights ──────────────────────────────────────────────────────────────
     with tab_ins:
         if report.get("llm_fallback"):
             st.warning(
-                "⚠️ The LLM became unreachable mid-run, so these insights were "
-                "synthesised deterministically from tool outputs. The error is "
-                "shown above — fix it and re-run for narrative interpretation."
+                "The model became unreachable mid-run, so these findings were "
+                "assembled from the tool outputs alone. The error is shown "
+                "above. Fix it and run again to get the written interpretation."
             )
         if report.get("reasoning"):
-            st.markdown("#### Agent Reasoning")
+            st.markdown("#### How the agent read the data")
             st.markdown(
                 f'<div class="reason">{report["reasoning"]}</div>',
                 unsafe_allow_html=True,
             )
-        for _ins in report.get("insights", []):
-            st.markdown(f'<div class="ic">💡 {_ins}</div>',
-                        unsafe_allow_html=True)
+        if report.get("insights"):
+            st.markdown("#### What it found")
+        for _i, _ins in enumerate(report.get("insights", []), start=1):
+            st.markdown(
+                f'<div class="ic"><span class="mk">{_i:02d}</span>{_ins}</div>',
+                unsafe_allow_html=True)
         if report.get("recommendations"):
-            st.markdown("#### Recommendations")
+            st.markdown("#### What to do next")
         for _rec in report.get("recommendations", []):
-            st.markdown(f'<div class="rc">→ {_rec}</div>',
-                        unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="rc"><span class="mk">Do</span>{_rec}</div>',
+                unsafe_allow_html=True)
         if report.get("key_metrics"):
-            st.markdown("#### Key Metrics")
+            st.markdown("#### Key numbers")
             st.dataframe(
                 _safe_df(pd.DataFrame(
                     [(k, str(v)) for k, v in report["key_metrics"].items()],
@@ -1212,7 +1471,7 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
             _html = _rdir / "report.html"
             if _html.exists():
                 st.download_button(
-                    "Download shareable HTML report (interactive charts)",
+                    "Download the shareable HTML report",
                     _html.read_bytes(), "report.html", mime="text/html",
                     key="dl_html_top", type="primary",
                 )
@@ -1232,40 +1491,40 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                 st.markdown("**Reports**")
                 _mimes = {".md": "text/markdown", ".html": "text/html",
                           ".json": "application/json"}
-                for _f in sorted(_rdir2.iterdir()):
+                for _rep_f in sorted(_rdir2.iterdir()):
                     st.download_button(
-                        f"⬇ {_f.name}", _f.read_bytes(), _f.name,
-                        mime=_mimes.get(_f.suffix, "application/octet-stream"),
-                        key=f"dlr_{_f.name}",
+                        f"Download {_rep_f.name}", _rep_f.read_bytes(), _rep_f.name,
+                        mime=_mimes.get(_rep_f.suffix, "application/octet-stream"),
+                        key=f"dlr_{_rep_f.name}",
                     )
 
             _mdir = _out / "models"
             if _mdir.exists() and any(_mdir.iterdir()):
                 st.markdown("**Trained Models (.pkl)**")
-                for _f in sorted(_mdir.iterdir()):
+                for _mdl_f in sorted(_mdir.iterdir()):
                     st.download_button(
-                        f"⬇ {_f.name}", _f.read_bytes(), _f.name,
+                        f"Download {_mdl_f.name}", _mdl_f.read_bytes(), _mdl_f.name,
                         mime="application/octet-stream",
-                        key=f"dlm_{_f.name}",
+                        key=f"dlm_{_mdl_f.name}",
                     )
 
             _vdir = _out / "visualizations"
             if _vdir.exists() and any(_vdir.iterdir()):
                 st.markdown("**Visualizations**")
                 _vcols = st.columns(2)
-                for _i, _f in enumerate(sorted(_vdir.glob("*.png"))):
+                for _i, _viz_f in enumerate(sorted(_vdir.glob("*.png"))):
                     with _vcols[_i % 2]:
-                        st.image(str(_f), caption=_f.name,
+                        st.image(str(_viz_f), caption=_viz_f.name,
                                  width='stretch')
                         st.download_button(
-                            f"⬇ {_f.name}", _f.read_bytes(), _f.name,
+                            f"Download {_viz_f.name}", _viz_f.read_bytes(), _viz_f.name,
                             mime="image/png",
-                            key=f"dlv_{_f.name}",
+                            key=f"dlv_{_viz_f.name}",
                         )
 
             st.markdown("**Full JSON report**")
             st.download_button(
-                "⬇ final_report.json",
+                "Download final_report.json",
                 json.dumps(report, indent=2, default=str),
                 "final_report.json",
                 mime="application/json",
@@ -1281,15 +1540,14 @@ if (preview_df is None
         and not st.session_state["stage_log"]):
     st.markdown(
         '<div class="empty">'
-        '<span class="pulse-dot"></span>'
-        '<div class="eyebrow">Awaiting dataset</div>'
-        '<h2>Upload a dataset to get started</h2>'
-        '<p>Drop a <b>CSV</b> or <b>Excel</b> file in the sidebar, '
-        'optionally describe <b>what you want to learn</b> in plain English, '
-        'enter your API key, then click <b>Run Analysis</b>.</p>'
-        '<div class="stages">Ingest <span>→</span> Reason <span>→</span> '
-        'Execute <span>→</span> Interpret <span>→</span> Refine '
-        '<span>→</span> RLM <span>→</span> Report</div>'
-        '</div>',
+        '<h2>Nothing on the table yet.</h2>'
+        '<p>Drop a CSV or Excel file in the sidebar, say in plain English what '
+        'you want to learn from it, and add your API key. The drawing above '
+        'fills in as the run works through its seven stages.</p>'
+        '<div class="steps">'
+        '<div>01 Ingest</div><div>02 Reason</div><div>03 Execute</div>'
+        '<div>04 Interpret</div><div>05 Refine</div><div>06 Decompose</div>'
+        '<div>07 Report</div>'
+        '</div></div>',
         unsafe_allow_html=True,
     )

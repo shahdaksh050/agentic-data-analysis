@@ -64,5 +64,5 @@ class TestBuildHtmlReport:
 
     def test_minimal_inputs_produce_valid_shell(self) -> None:
         doc = build_html_report("empty", {}, [], [])
-        assert "<h1>Analysis Report — empty</h1>" in doc
-        assert "Interactive Dashboard" not in doc  # no charts, no section
+        assert "<h1>What we found in empty</h1>" in doc
+        assert "The charts" not in doc  # no charts, no section

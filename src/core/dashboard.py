@@ -159,7 +159,7 @@ def _class_balance_chart(
         description="Distribution of the target classes. Heavy imbalance means accuracy is misleading.",
         spec={
             "data": {"values": values},
-            "mark": {"type": "bar", "cornerRadiusEnd": 3},
+            "mark": {"type": "bar"},
             "height": 220,
             "encoding": {
                 "x": {"field": "class", "type": "nominal", "axis": {"labelAngle": 0, "title": None}},
@@ -185,7 +185,7 @@ def _histogram_charts(
             description=f"Histogram of '{col}'. Watch for skew, gaps, and outlier tails.",
             spec={
                 "data": {"values": values},
-                "mark": {"type": "bar", "cornerRadiusEnd": 2},
+                "mark": {"type": "bar"},
                 "height": 200,
                 "encoding": {
                     "x": {"field": col, "type": "quantitative", "bin": {"maxbins": 30}},
@@ -217,7 +217,7 @@ def _category_charts(
             description=f"Frequency of each '{col.name}' value (top {MAX_CATEGORIES_SHOWN}).",
             spec={
                 "data": {"values": values},
-                "mark": {"type": "bar", "cornerRadiusEnd": 2},
+                "mark": {"type": "bar"},
                 "height": max(120, 24 * len(values)),
                 "encoding": {
                     "y": {"field": "category", "type": "nominal", "sort": "-x", "title": None},
@@ -399,7 +399,7 @@ def _model_comparison_chart(train_output: dict[str, Any] | None) -> ChartSpec | 
                     "A large train-test gap signals overfitting.",
         spec={
             "data": {"values": rows},
-            "mark": {"type": "bar", "cornerRadiusEnd": 2},
+            "mark": {"type": "bar"},
             "height": 280,
             "encoding": {
                 "x": {"field": "model", "type": "nominal", "axis": {"labelAngle": 0, "title": None}},
@@ -409,7 +409,7 @@ def _model_comparison_chart(train_output: dict[str, Any] | None) -> ChartSpec | 
                 "color": {
                     "field": "metric",
                     "scale": {"domain": ["Train", "Test", "CV mean"],
-                              "range": ["#97ddbc", "#3ddc91", "#ffcd48"]},
+                              "range": ["#8aa6c2", "#12467e", "#171c1f"]},
                     "legend": {"orient": "top", "title": None},
                 },
                 "tooltip": [{"field": "model"}, {"field": "metric"},
@@ -466,15 +466,15 @@ def _correlation_chart(corr_output: dict[str, Any] | None) -> ChartSpec | None:
         description="Strongest pairwise relationships. Green = positive, amber = negative.",
         spec={
             "data": {"values": values},
-            "mark": {"type": "bar", "cornerRadiusEnd": 2},
+            "mark": {"type": "bar"},
             "height": max(160, len(values) * 30),
             "encoding": {
                 "y": {"field": "pair", "type": "nominal", "sort": "-x", "title": None},
                 "x": {"field": "correlation", "type": "quantitative",
                       "scale": {"domain": [-1.1, 1.1]}, "title": "correlation coefficient"},
                 "color": {
-                    "condition": {"test": "datum.correlation >= 0", "value": "#3ddc91"},
-                    "value": "#ffcd48",
+                    "condition": {"test": "datum.correlation >= 0", "value": "#12467e"},
+                    "value": "#171c1f",
                 },
                 "tooltip": [{"field": "pair"}, {"field": "correlation"}],
             },

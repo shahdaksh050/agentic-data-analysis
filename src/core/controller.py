@@ -59,31 +59,50 @@ _AUTODETECT_LOW  = 0.40   # prompt user (CLI) or best-guess (UI) above this
 # LLM Client — thin, provider-agnostic wrapper
 # ---------------------------------------------------------------------------
 
+#: Fallback model per provider, used only when LLM_MODEL is unset.
+_DEFAULT_MODELS: dict[str, str] = {
+    "openai": "gpt-4o",
+    "anthropic": "claude-sonnet-4-6",
+    "gemini": "gemini-flash-latest",
+    "openrouter": "openai/gpt-4o",
+    "nvidia": "openai/gpt-oss-120b",
+    "local": "llama3.1",
+    "ollama": "llama3.1",
+}
+
+
 class LLMClient:
     """
     Thin wrapper around LLM provider APIs.
 
-    Supports OpenAI and Anthropic. Credentials come from environment
-    variables only — never hardcoded.
+    Supports OpenAI, Anthropic, Google Gemini, OpenRouter, NVIDIA NIM, and
+    any offline/self-hosted OpenAI-compatible server (Ollama, LM Studio,
+    vLLM, llama.cpp server, ...) via provider="local". Credentials come
+    from environment variables only — never hardcoded.
     """
 
     def __init__(self) -> None:
         self.provider: str = os.getenv("LLM_PROVIDER", "openai").lower()
-        self.model: str = os.getenv("LLM_MODEL", "gpt-4o")
+        self.model: str = os.getenv("LLM_MODEL") or _DEFAULT_MODELS.get(self.provider, "gpt-4o")
         self.temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.2"))
         self.max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
         self.timeout: float = float(os.getenv("LLM_TIMEOUT", "120"))
 
     def ping(self) -> tuple[bool, str]:
         """
-        Cheap connectivity + model-validity check (a few tokens).
+        Cheap connectivity + model-validity check (a small token budget).
 
         Returns (True, "") on success, (False, "<ExceptionType>: <detail>")
         on any failure — so callers can fail fast with the real reason
         instead of running a whole analysis on the deterministic fallback.
         """
         saved = self.max_tokens
-        self.max_tokens = 16
+        # Reasoning/"thinking" models (Gemini 3.x, NVIDIA gpt-oss, o-series-
+        # style models) spend part of the budget on hidden reasoning tokens
+        # before any visible output — 16 was enough for plain chat models
+        # but silently starved thinking models into empty content. 200 is
+        # still a negligible cost for a connectivity check.
+        self.max_tokens = 200
         try:
             self._dispatch("You are a connectivity check. Reply with OK.", "Reply with OK.")
             return True, ""
@@ -108,7 +127,11 @@ class LLMClient:
         return self._call_openai_compat(system_prompt, user_prompt)
 
     def _call_openai_compat(self, system_prompt: str, user_prompt: str) -> str:
-        """OpenAI, OpenRouter, and NVIDIA NIM all use the OpenAI-compatible SDK."""
+        """
+        OpenAI, OpenRouter, NVIDIA NIM, Google Gemini, and any offline/
+        self-hosted OpenAI-compatible server all use the OpenAI SDK — only
+        the base_url and api_key differ.
+        """
         from openai import OpenAI
         if self.provider == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY", "")
@@ -121,6 +144,20 @@ class LLMClient:
             api_key = os.getenv("NVIDIA_API_KEY", "")
             base_url = "https://integrate.api.nvidia.com/v1"
             extra_headers = {}
+        elif self.provider == "gemini":
+            # Google's OpenAI-compatible endpoint — no separate SDK needed.
+            # https://ai.google.dev/gemini-api/docs/openai
+            api_key = os.getenv("GEMINI_API_KEY", "")
+            base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+            extra_headers = {}
+        elif self.provider in ("local", "ollama"):
+            # Offline / self-hosted OpenAI-compatible server: Ollama, LM
+            # Studio, vLLM, llama.cpp server, text-generation-webui, etc.
+            # No cloud API key required — most local servers accept any
+            # non-empty string, so default to a placeholder.
+            api_key = os.getenv("LOCAL_LLM_API_KEY", "not-needed")
+            base_url = os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
+            extra_headers = {}
         else:
             api_key = os.getenv("OPENAI_API_KEY", "")
             base_url = None
@@ -129,6 +166,7 @@ class LLMClient:
             _key_names = {
                 "openrouter": "OPENROUTER_API_KEY",
                 "nvidia": "NVIDIA_API_KEY",
+                "gemini": "GEMINI_API_KEY",
             }
             raise ValueError(
                 f"No API key set for provider '{self.provider}'. "
@@ -153,7 +191,10 @@ class LLMClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
-        if self.provider == "openai":
+        if self.provider in ("openai", "gemini"):
+            # Both support the OpenAI JSON-mode contract; local/offline
+            # servers vary too widely, so JSON there relies on _parse_json's
+            # fence-stripping and repair fallback instead.
             create_kwargs["response_format"] = {"type": "json_object"}
         if self.provider == "nvidia":
             # NVIDIA NIM requires streaming; gpt-oss-120b also emits

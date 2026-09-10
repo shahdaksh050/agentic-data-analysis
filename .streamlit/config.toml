@@ -1,20 +1,20 @@
-# Theme — Sauce Labs style reference (see DESIGN.md)
-# Obsidian canvas, single neon-green accent, pill-shaped interactive language.
+# Theme — "Drafting Table" (see DESIGN.md)
+# Mineral drafting stock, ink linework, two plotter pens: blue measures, red warns.
 
 [theme]
-base = "dark"
-primaryColor = "#3ddc91"                      # Neon Pulse — the only action color
-backgroundColor = "#132322"                   # Obsidian Shell
-secondaryBackgroundColor = "#0e1a19"          # Deep Abyss — nested surfaces
-textColor = "#ffffff"
-linkColor = "#3ddc91"
-borderColor = "#263534"                       # ~white @ 8% over obsidian
-codeBackgroundColor = "#070f0f"               # Charcoal
-font = "Inter, 'Segoe UI', sans-serif"
-headingFont = "'Inter Tight', Inter, 'Segoe UI', sans-serif"
-codeFont = "'Cascadia Code', 'SF Mono', Consolas, monospace"
-baseRadius = "12px"
-buttonRadius = "full"                         # 56px pill — non-negotiable per DESIGN.md
-dataframeBorderColor = "#263534"
-dataframeHeaderBackgroundColor = "#0e1a19"
-chartCategoricalColors = ["#3ddc91", "#ffcd48", "#97ddbc", "#1c8f5c", "#d6f0b2", "#62b5a4"]
+base = "light"
+primaryColor = "#12467E"                      # Measurement pen — the agent's own marks
+backgroundColor = "#DCDBD3"                   # Mineral stock — the drafting sheet
+secondaryBackgroundColor = "#EFEEE8"           # Lifted sheet — plates and panels
+textColor = "#171C1F"                         # Drawing ink
+linkColor = "#12467E"
+borderColor = "#B6B4A9"                       # Ruled hairline
+codeBackgroundColor = "#E4E3DC"
+font = "Archivo, 'Segoe UI', sans-serif"
+headingFont = "Archivo, 'Segoe UI', sans-serif"
+codeFont = "'IBM Plex Mono', 'Cascadia Code', Consolas, monospace"
+baseRadius = "0px"                            # Nothing that carries data is rounded
+buttonRadius = "0px"
+dataframeBorderColor = "#B6B4A9"
+dataframeHeaderBackgroundColor = "#E4E3DC"
+chartCategoricalColors = ["#12467E", "#B5271A", "#7A8B99", "#C08A2E", "#3F6F5B", "#8E6E9E"]

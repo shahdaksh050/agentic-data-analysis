@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Tokens mirror DESIGN.md; the inks themselves are injected from Python. */
+  :root {
+    --ink: #171c1f;
+    --graphite: #54585b;
+    --pen: #12467e;
+    --sans: 'Archivo', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: transparent;   /* the plate sits directly on the sheet */
+    overflow: hidden;
+    font-family: var(--sans);
+  }
+
+  #stage {
+    position: relative;
+    height: 100%;
+    width: 100%;
+  }
+
+  #scene {
+    position: absolute;
+    inset: 0;
+    touch-action: pan-y;       /* vertical page scroll still works over the canvas */
+  }
+
+  #scene canvas { display: block; }
+  #scene canvas:focus-visible { outline: 2px solid var(--pen); outline-offset: -2px; }
+
+  /* Readout — names the hovered stage, or summarises the run. */
+  #readout {
+    position: absolute;
+    left: 0;
+    bottom: 2px;
+    max-width: min(44ch, calc(100% - 24px));
+    pointer-events: none;      /* never blocks a drag */
+    border-top: 1px solid var(--ink);
+    padding-top: 6px;
+  }
+
+  #readout-title {
+    margin: 0;
+    font-family: var(--sans);
+    font-variation-settings: 'wdth' 108;
+    font-weight: 700;
+    font-size: 15px;
+    line-height: 1.2;
+    letter-spacing: -.02em;
+    color: var(--ink);
+  }
+
+  #readout-body {
+    margin: 3px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--graphite);
+  }
+
+  #hint {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--graphite);
+    pointer-events: none;
+  }
+
+  .fallback {
+    padding: 20px 0;
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 46ch;
+    color: var(--graphite);
+    border-left: 3px solid var(--graphite);
+    padding-left: 14px;
+  }
+
+  @media (max-width: 640px) {
+    #hint { display: none; }   /* the gesture is discoverable by touch anyway */
+    #readout { max-width: calc(100% - 12px); }
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="scene"></div>
+    <div id="readout">
+      <p id="readout-title"></p>
+      <p id="readout-body"></p>
+    </div>
+    <p id="hint">Drag or arrow keys to rotate</p>
+  </div>
+
+  <script>window.__PIPELINE_STATE__ = __STATE_JSON__;</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script type="module">
+__SCENE_SCRIPT__
+  </script>
+</body>
+</html>

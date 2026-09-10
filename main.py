@@ -35,10 +35,17 @@ def parse_args() -> argparse.Namespace:
         "--provider",
         type=str,
         default="openai",
-        choices=["openai", "anthropic"],
-        help="LLM provider (default: openai).",
+        choices=["openai", "anthropic", "gemini", "openrouter", "nvidia", "local", "ollama"],
+        help="LLM provider (default: openai). Use 'local' or 'ollama' for an "
+             "offline/self-hosted OpenAI-compatible server — see LOCAL_LLM_BASE_URL.",
     )
     parser.add_argument("--model", type=str, default=None, help="Override LLM model name.")
+    parser.add_argument(
+        "--local-base-url",
+        type=str,
+        default=None,
+        help="Base URL for --provider local/ollama (default: http://localhost:11434/v1).",
+    )
     parser.add_argument("--target", type=str, default=None, help="Target/label column name.")
     parser.add_argument(
         "--objective",
@@ -131,6 +138,8 @@ def main() -> None:
     if args.model:
         os.environ["LLM_MODEL"] = args.model
     os.environ["LLM_PROVIDER"] = args.provider
+    if args.local_base_url:
+        os.environ["LOCAL_LLM_BASE_URL"] = args.local_base_url
     os.environ["MAX_ITERATIONS"] = str(args.max_iterations)
     os.environ["OUTPUT_DIR"] = args.output_dir
     if args.no_rlm:
