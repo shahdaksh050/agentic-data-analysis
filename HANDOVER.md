@@ -1,3 +1,28 @@
+# HANDOVER POINTER: Isolated Compute Sandbox in progress elsewhere
+
+**If resuming a session, check this first.** There is separate,
+in-progress work on a git worktree that this file (on `master`) does not
+track: a subagent-driven implementation of an "Isolated Compute Sandbox"
+(sub-project 1 of 4 of a "Universal Dynamic Analyst" hybrid extension).
+
+- Worktree: `.worktrees/isolated-compute-sandbox`, branch
+  `isolated-compute-sandbox`, branched from `master` at commit `1ae9461`.
+- **Full resume instructions are at the top of that worktree's own
+  `HANDOVER.md`** (`.worktrees/isolated-compute-sandbox/HANDOVER.md`) —
+  read that file, not this section, to continue the work. It records the
+  exact interruption point (Task 2 of 4 implemented and committed, its
+  review was about to be dispatched when the session ended), file paths,
+  and the dispatch instructions needed to pick it up.
+- Plan: `docs/superpowers/plans/2026-09-11-isolated-compute-sandbox.md`.
+  Spec: `docs/superpowers/specs/2026-09-11-isolated-compute-sandbox-design.md`.
+- This branch has **not** been merged back to `master` yet.
+- Unrelated to the Round 5 plan below — a checkpoint commit (`19f5c9a`)
+  snapshotted Round 5's in-progress state so the sandbox worktree could
+  build on it, but Round 5 itself continues independently per its own
+  sequencing further down in this file.
+
+---
+
 # Session Handover
 
 ## State at end of session
