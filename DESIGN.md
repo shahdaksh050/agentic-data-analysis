@@ -1,4 +1,4 @@
-# Drafting Table — Design System
+# Ledger — Design System
 
 The design reference for the Agentic Data Analysis console, the plate, and the
 shareable HTML report. Change a token here and in the code together.
@@ -11,77 +11,93 @@ shareable HTML report. Change a token here and in the code together.
 question in plain English; it plans the analysis, runs the tests, trains the
 models, and — the part that matters — tells you where it has fooled itself.
 
-**Who reads it.** Analysts and engineers who have to defend a number to someone
-else. They care less about how clever the agent is than about whether the result
-holds outside the training split.
+**Who reads it.** Anyone with a spreadsheet and a question — not a
+data-science audience. A shopkeeper checking sales, a teacher checking test
+scores, a coach checking game stats, a student checking a survey. They don't
+know what "generalisation" or "train-test gap" means, and they shouldn't
+have to. They care whether the answer is trustworthy and what to do about it.
 
-**The concept.** The console is a draughtsman's sheet. The agent works in ink on
-paper. Its reasoning is drawn, not lit: the seven-stage pipeline is an
-axonometric technical drawing that plots itself as the run progresses, and the
-results are ruled plates, gauge strips and specimen tables rather than cards.
+**The concept.** The console is a warm, familiar ledger — the kind of book
+anyone keeps to track something that matters to them, redrawn as software.
+Nothing on the page should feel like it belongs to an engineer: rounded
+cards instead of ruled plates, a friendly rounded typeface instead of a
+technical grotesque, soft warm shadows instead of hard offset ink-stamps.
+The seven-step pipeline still plots itself as the run progresses, but in
+plain language ("Reading Your File," not "Dataset Ingestion") and warm
+lamp-lit color instead of drafting blue.
 
-**Explicitly rejected.** The previous design was a borrowed identity — obsidian
-canvas, one neon-green accent, Inter and Inter Tight, tracked-out ALL-CAPS
-eyebrows above every heading, pill buttons, 20px radius on everything, soft grey
-shadows. Every one of those is a default rather than a choice, and none of them
-had anything to do with statistics. None of them survive here.
+**Explicitly rejected.** The previous "Drafting Table" identity — mineral
+stock and architectural blueprint, IBM Plex Mono numerals, square corners on
+everything, hard offset shadows, a 28px quadrille grid across the whole page.
+That system was built for analysts defending a number to another analyst. It
+is legible, precise, and completely wrong for someone opening this app
+between customers. None of it survives here, except the discipline: every
+choice below is deliberate, not a framework default.
 
 ---
 
 ## Tokens — ink
 
-Six colours. Two of them are pens; the rest are the stock the pens draw on.
+Seven colours, in two modes (Day and Night). Two of them are pens; the rest
+are the paper the pens write on.
 
-| Token        | Hex       | What it is                                          |
-| ------------ | --------- | --------------------------------------------------- |
-| `--stock`    | `#dcdbd3` | Mineral drafting stock. The page itself.            |
-| `--sheet`    | `#efeee8` | The lifted sheet: plates, tables, panels.           |
-| `--ink`      | `#171c1f` | Drawing ink. Type, rules, linework.                 |
-| `--graphite` | `#54585b` | Soft pencil. Secondary type, unreached structure.   |
-| `--pen`      | `#12467e` | The measurement pen. What the agent measured.       |
-| `--risk`     | `#b5271a` | The risk pen. Overfit, failure, warning. Nothing else. |
+| Token         | Day       | Night     | What it is                                    |
+| ------------- | --------- | --------- | ---------------------------------------------- |
+| `--stock`     | `#f7eedd` | `#241c14` | The page itself — warm cream / warm dark brown. |
+| `--sheet`     | `#fffbf2` | `#2f251a` | The lifted card: panels, tiles, tables.        |
+| `--ink`       | `#3a2b1e` | `#f3e9d8` | Body text, headings, linework.                 |
+| `--graphite`  | `#8a7660` | `#b8a688` | Secondary type, captions.                      |
+| `--pen`       | `#a34f20` | `#f0a24a` | The action pen. Buttons, links, what's active. |
+| `--risk`      | `#a33526` | `#e2685a` | The risk pen. A number that may not hold.      |
+| `--positive`  | `#5b8c5a` | `#7fb77e` | Good news — a metric that came back healthy.   |
 
-Supporting hairlines: `--rule #b6b4a9`, `--rule-faint #c8c6bc`,
-`--quadrille rgba(23,28,31,.045)`.
+Supporting hairlines: `--rule` (`#e4d4bc` / `#4a3c28`), `--rule-faint`
+(`#eee3cb` / `#3a2e1f`), `--accent` (`#e08a3e` / `#d99a4e`, decorative only).
 
-**The rule about red.** `--risk` means exactly one thing: this measurement may
-not hold. A train–test gap at or above 10 points, a failed stage, a data-quality
-warning. It is never used for emphasis, never for a heading, never to make
-something look important.
+**The rule about red.** `--risk` means exactly one thing: this number may not
+hold. It is never used for emphasis or to make something look important.
+
+**Contrast is verified, not eyeballed.** Every button-fill/text pairing in
+this system was checked against WCAG AA (4.5:1 for body text, 3:1 for large
+or bold text) before being chosen — see the `--pen` values above, which are
+deliberately darker (Day) or paired with dark text (Night) so buttons stay
+readable, not just pretty.
 
 Both pens are flat. There are no gradients anywhere in this system.
 
-Chart categories extend the two pens with four muted plot inks:
-`#12467e`, `#b5271a`, `#7a8b99`, `#c08a2e`, `#3f6f5b`, `#8e6e9e`.
+Chart categories extend the two pens with four warm plot inks:
+Day `#a34f20 #a33526 #c08a2e #5b8c5a #8a7660 #b5714a`.
 
 ---
 
 ## Tokens — type
 
-Two families.
+Two families, both rounded and friendly — nothing expanded, nothing
+condensed, nothing that reads as a technical stencil.
 
-**Archivo** (variable, `wdth` 75–125, `wght` 400–800) — display and UI. The width
-axis does the work: display sits at `wdth 118` and weight 800, body at `wdth 100`
-and weight 400. An expanded grotesque set very large and very tight is the
-stencil on a technical drawing.
+**Baloo 2** (weights 500–800) — headings, the hero, section titles, card
+titles. Warm and a little playful; it's what makes the page feel handmade
+rather than issued.
 
-**IBM Plex Mono** — every measured number, table figure, code block, stage index
-and log line. This is functional, not decorative: statistics need tabular
-alignment. Mono never carries a decorative label.
+**Mukta** (weights 400–700) — everything else: body copy, labels, buttons,
+table cells. Built for Latin+Devanagari pairing, so if this product ever adds
+Hindi or another regional script the type system doesn't have to change.
+
+Mono type (`Cascadia Code`/`Consolas`) is reserved for literal `<code>`/`<pre>`
+blocks only — it is never reached for to make a number or a label look
+technical. That was the old system's habit; it is exactly the habit a
+product built for a general, non-expert audience should drop.
 
 ### Scale
 
-Large jumps, few steps.
-
-| Role          | Size                       | Settings                              |
-| ------------- | -------------------------- | ------------------------------------- |
-| Display       | `clamp(40px, 6.6vw, 78px)` | `wdth 118`, 800, `-.038em`, lh `.93`  |
-| Section (h2)  | 30px                       | `wdth 112`, 700, `-.025em`            |
-| Sub-head (h3) | 19px                       | `wdth 112`, 700                       |
-| Minor (h4)    | 15.5px                     | `wdth 100`, 600                       |
-| Body          | 15px                       | 400, lh 1.62, max 72ch                |
-| Gauge value   | 27px mono                  | 500, `-.03em`                         |
-| Data / meta   | 11–12.5px mono             | 400                                   |
+| Role          | Size                       | Weight |
+| ------------- | -------------------------- | ------ |
+| Display       | `clamp(36px, 5.6vw, 64px)` | 800    |
+| Section (h2)  | 27px                       | 700    |
+| Sub-head (h3) | 19px                       | 700    |
+| Minor (h4)    | 15.5px                     | 700    |
+| Body          | 15.5px, lh 1.65, max 72ch  | 400    |
+| Stat tile     | 26px                       | 700    |
 
 Everything is left-aligned and ragged right. Prose never exceeds 72–74ch.
 
@@ -89,117 +105,115 @@ Everything is left-aligned and ragged right. Prose never exceeds 72–74ch.
 
 ## Structure, not decoration
 
-Rules carry information; they are not trim.
-
-- **Section head** — the title sits on its own 1px ink rule, sentence case. There
-  is no tracked-caps label above it. If the section needs a note, it goes *below*
-  the title in mono, where it reads as a caption rather than a category.
-- **Datum line** — a ruled bar of readings under the hero, cells divided by
-  hairlines: run state, stages finished, dataset, model. It replaces the
-  middle-dot meta string.
-- **Gauge strip** — one band ruled top (2px ink) and bottom (1px ink), the number
-  in mono leading and its label following. Not a row of cards. `.gauge.flag`
-  switches the top rule and the value to the risk pen.
-- **Stage ledger** — numbered rows. Numbering is legitimate here because the
-  pipeline genuinely is a sequence of seven stages; a left rule in the pen shows
-  which ones the run reached.
-- **Annotations** — insights and recommendations hang off a left rule with a
-  small mono mark in the gutter, like a reviewer's note in a margin. Graphite for
-  a finding, pen for an action, risk for a warning.
+- **Quick Facts bar** — a rounded card under the hero, cells divided by soft
+  hairlines: run state, mode, dataset, model. Same information the old
+  "datum line" carried, now a card instead of a ruled bar.
+- **Section head** — the title sits on a 2px warm rule, sentence case.
+- **Stat tile** — a rounded, softly shadowed card. Not a ruled gauge strip.
+  A flagged stat gets a risk-tinted border, not a color swap on a rule.
+- **Steps list** — numbered rows, each number in a small round chip. The
+  pipeline genuinely is a sequence of seven steps; the chip fills in the pen
+  color as each one completes.
+- **Callout cards** — insights, warnings, and recommendations hang off a
+  colored left rule on a tinted rounded card, like a sticky note rather than
+  a reviewer's margin mark. Graphite for a finding, pen for an action, risk
+  for a warning.
 
 ### Shape and elevation
 
-`border-radius: 0` on anything that carries data. Panels are sheets lying on a
-table: `--sheet` fill, 1px ink border, and a hard offset shadow
-`3px 3px 0 rgba(23,28,31,.09)` — no blur, because paper does not glow.
+`border-radius: 14px` on cards, panels, and expanders; full pill radius on
+buttons and tabs. Panels are lifted with a soft, blurred, warm-toned shadow —
+the opposite of the old hard offset stamp. Paper does glow, a little, here.
 
-The page ground carries a 28px quadrille at 4.5% ink, so the whole console reads
-as ruled stock.
+The page ground is a flat warm fill. No repeating grid texture — that
+quadrille was the single clearest "engineering tool" signal in the old
+system and it is gone entirely.
 
 ---
 
 ## Motion
 
-One orchestrated moment on load, and nothing else uncommanded.
+Unchanged in spirit from the previous system: one orchestrated moment on
+load (the plate's entrance, still built in `ui/assets/pipeline_3d.js` with
+GSAP), and nothing else uncommanded. The hero headline now rises and fades
+in rather than performing a pen-strike clip-path reveal — softer, and still
+gated on `prefers-reduced-motion: reduce`.
 
-**The plate's entrance** (GSAP, in `ui/assets/pipeline_3d.js`):
-
-1. The bench grid rules itself in and the drawing swings into its axonometric
-   view.
-2. The rail is struck left to right — each link is a sampled line revealed a
-   vertex at a time via `setDrawRange`, so a pen visibly travels it.
-3. The seven modules are set down along the rail with a `back.out` stagger.
-4. The refinement arc and the RLM tethers are drawn last, being the control flow
-   that isn't a straight line.
-5. The dataset payload enters ahead of stage 1 and hops forward, inking each
-   stage the run actually reached as it arrives.
-
-**The page** gets a single `clip-path` strike on the h1, matched in duration.
-Nothing else animates on entry. No per-section fade-and-slide-up, no hover
-transitions on every surface.
-
-Everything above is gated on `prefers-reduced-motion: reduce`, which paints the
-final state directly. The render loop is additionally gated on an
-`IntersectionObserver`, `document.hidden`, and a dirty flag — an idle plate costs
-no frames.
+The render loop is gated on an `IntersectionObserver`, `document.hidden`,
+and a dirty flag — an idle plate costs no frames.
 
 ---
 
 ## The plate
 
-`ui/pipeline_3d.py` owns the state contract; `ui/assets/pipeline_3d.js` draws it.
+`ui/pipeline_3d.py` owns the state contract; `ui/assets/pipeline_3d.js` draws
+it. The 3D view keeps its abstract stage geometry (a sheet, a crystal, a box,
+a torus, decomposing cubes, stacked sheets) — rebuilding that into literal,
+everyday iconography is future work, not part of this pass. What changed
+here is everything the 3D view *shares* with the rest of the console: warm
+lamp-like lighting instead of cool drafting light, the Day/Night palette
+instead of Mineral/Blueprint, a pill-shaped view toolbar instead of square
+CAD buttons, and plain-language stage labels fed in from `app.py`.
 
-It is a drawing, so there are **no lights in the scene**. Every surface is a flat
-`MeshBasicMaterial` fill in `--sheet` with its edges drawn over the top as
-hairlines, the fill pushed back by `polygonOffset` so the edges always win. This
-is both the look the brief asks for and the cheapest thing the GPU can do.
+Because the geometry itself is still abstract, **the plain-language steps
+list below the plate is the primary, legible account of progress** — the 3D
+view is ambient flavor on top of it, not the only place the run state lives.
+This is a deliberate scope boundary: a full redesign of the 3D metaphor into
+something more literal (a folder, a magnifying glass, a document — visuals
+that map onto anyone's everyday world rather than an abstract technical
+drawing) is a larger project than this reskin and should be scoped
+separately if wanted.
 
-State reads as ink pressure, not as new hues:
+**Degradation.** No WebGL context means a plain-text message pointing at the
+steps list, which carries the same information.
 
-| Status  | Cage opacity | Fill | Ink        |
-| ------- | ------------ | ---- | ---------- |
-| pending | .18          | 0    | `graphite` |
-| skipped | .12          | 0    | `graphite` |
-| done    | .55          | .92  | `pen`      |
-| active  | .95          | 1    | `pen`      |
-| error   | .85          | .55  | `risk`     |
-
-The core shape of each module is its label — a flat sheet arrives, a crystal
-reasons over it, a box does the work, a torus loops, four cubes decompose, two
-stacked sheets are the report. The drawing also encodes real control flow: stage
-5 arcs back to stage 3, and stage 6 carries two satellites.
-
-**Degradation.** No WebGL context means a plain-text fallback pointing at the
-stage ledger, which carries the same information. Pixel ratio is capped at 2 —
-hairlines gain nothing above that and low-end GPUs pay for every pixel.
-
-**Access.** The canvas is focusable, labelled `role="img"` with a summary of the
-run, and orbits on the arrow keys; `[` and `]` step through the stages and `Home`
-recentres. The stage ledger in the page is the non-visual equivalent.
+**Access.** The canvas is focusable, labelled `role="img"` with a plain-
+language summary of the run, and orbits on the arrow keys; `[` and `]` step
+through the stages and `Home` recentres.
 
 ---
 
 ## Writing
 
-Plain verbs, sentence case, no filler. Say what happened and what to do.
+Plain verbs, sentence case, no filler. Say what happened and what to do —
+and say it the way you'd explain it to someone who has a question about
+their own data, not the way you'd write it in a paper.
 
-- Headline: "Every finding, measured twice." — the product's actual
-  differentiator, not a category description.
-- Errors state the failure and the fix, and do not apologise: "Could not reach
-  the model, so the analysis did not start." then what to check.
-- Empty states are an invitation: "Nothing on the table yet."
+- Headline: "We check every answer twice." — trustworthy, not clever.
+- The seven steps: Reading Your File → Understanding Your Question → Running
+  the Numbers → Making Sense of It → Double-Checking → Solving the Tricky
+  Parts → Writing Your Report. These names are the single source of truth in
+  `STAGE_DEFS` (`app.py`) and flow through to the plate and the steps list —
+  change them in one place.
+- Errors state the failure and the fix, and do not apologise.
+- Empty states are an invitation: "Let's see what your data shows."
 - Buttons name the action and keep that name through the flow.
-- No emoji as status. `[done]`, `[run ]`, `[fail]`, `[skip]` in the log; the word
-  "risk" where a warning triangle used to be.
+- The eight helper agents get a plain job-title name ("Planner," "File
+  Checker," "Fact-Checker," "Model Builder," "Reality-Checker,"
+  "Double-Checker," "Detail Handler," "Report Writer") instead of an
+  engineering title. Their "mission/rule/uses/found" fields in
+  `_render_agent_deep_dive` (`app.py`) explain what they do in plain
+  language — no named papers, no bare statistical terms without a plain
+  gloss next to them.
+
+**Extent of the plain-language pass.** The "Your Helpers" tab and the "Full
+Details" tab (formerly "Statistical & ML Lab") are both rewritten into plain
+language now — headers, captions, and agent descriptions. The one place
+technical terms remain on purpose is inside genuine data tables in "Full
+Details" (precision/recall/F1, p-values) — renaming a standard statistical
+term in a data table loses meaning without adding real explanation, so
+those keep their accepted names but get a plain-language caption next to
+them instead (see "Accuracy by Category" and "Is the Pattern Real?" in
+`app.py`). That's a deliberate line, not a leftover.
 
 ---
 
 ## Don't
 
-- Add a tracked-out ALL-CAPS label above a heading.
-- Round a corner on anything that carries data.
-- Use a blurred shadow.
+- Reach for mono to make a label look technical.
+- Use a hard, unblurred offset shadow.
 - Use `--risk` for anything other than a result that may not hold.
 - Introduce a third pen, or a gradient.
-- Animate a section into view on scroll.
-- Reach for mono to make a label look technical.
+- Ship a color pairing without checking contrast — verify, don't eyeball.
+- Bring back the quadrille grid, square corners, or IBM Plex Mono. That
+  system is retired.

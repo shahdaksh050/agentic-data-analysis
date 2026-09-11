@@ -15,9 +15,12 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.tools.base import BaseTool
+
+if TYPE_CHECKING:
+    from src.core.memory import MemorySystem
 
 
 class GenerateReportTool(BaseTool):
@@ -35,6 +38,28 @@ class GenerateReportTool(BaseTool):
         "Produces a Markdown report and a JSON data file. "
         "Returns output file paths."
     )
+    output_subdir = "reports"
+    uses_cleaned_file = False  # takes no file_path param
+
+    def applies_to(self, profile: Any, metadata: Any) -> float:
+        # AgentController._generate_final_report calls this tool directly
+        # and unconditionally after the reasoning loop ends (Stage 7) — it
+        # is never something the planner itself needs to schedule.
+        return 0.0
+
+    def prepare_params(
+        self, params: dict[str, Any], memory: MemorySystem, output_root: str
+    ) -> dict[str, Any]:
+        # The accumulated tool results live in memory, not in anything the
+        # LLM plan can supply — always inject them fresh.
+        params = super().prepare_params(params, memory, output_root)
+        meta = memory.dataset_metadata
+        params.setdefault("dataset_name", Path(meta.file_path).stem if meta else "dataset")
+        params["tool_results_json"] = json.dumps(
+            [r.to_dict() for r in memory.tool_results], default=str
+        )
+        params.setdefault("llm_insights", {})
+        return params
 
     def execute(
         self,

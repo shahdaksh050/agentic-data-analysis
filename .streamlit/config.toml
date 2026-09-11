@@ -1,20 +1,20 @@
-# Theme — "Drafting Table" (see DESIGN.md)
-# Mineral drafting stock, ink linework, two plotter pens: blue measures, red warns.
+# Theme — "Ledger" (see DESIGN.md)
+# Warm paper, friendly ink, one terracotta pen for actions, one soft red for warnings.
 
 [theme]
 base = "light"
-primaryColor = "#12467E"                      # Measurement pen — the agent's own marks
-backgroundColor = "#DCDBD3"                   # Mineral stock — the drafting sheet
-secondaryBackgroundColor = "#EFEEE8"           # Lifted sheet — plates and panels
-textColor = "#171C1F"                         # Drawing ink
-linkColor = "#12467E"
-borderColor = "#B6B4A9"                       # Ruled hairline
-codeBackgroundColor = "#E4E3DC"
-font = "Archivo, 'Segoe UI', sans-serif"
-headingFont = "Archivo, 'Segoe UI', sans-serif"
-codeFont = "'IBM Plex Mono', 'Cascadia Code', Consolas, monospace"
-baseRadius = "0px"                            # Nothing that carries data is rounded
-buttonRadius = "0px"
-dataframeBorderColor = "#B6B4A9"
-dataframeHeaderBackgroundColor = "#E4E3DC"
-chartCategoricalColors = ["#12467E", "#B5271A", "#7A8B99", "#C08A2E", "#3F6F5B", "#8E6E9E"]
+primaryColor = "#A34F20"                      # Terracotta pen — buttons, links, the agent's own marks
+backgroundColor = "#F7EEDD"                   # Warm cream — the page itself
+secondaryBackgroundColor = "#FFFBF2"          # Lifted card — panels and tiles
+textColor = "#3A2B1E"                         # Warm ink
+linkColor = "#A34F20"
+borderColor = "#E4D4BC"                       # Soft tan hairline
+codeBackgroundColor = "#F1E4CB"
+font = "Mukta, 'Segoe UI', sans-serif"
+headingFont = "'Baloo 2', 'Mukta', 'Segoe UI', sans-serif"
+codeFont = "'Cascadia Code', Consolas, monospace"
+baseRadius = "14px"                           # Warm and rounded, not drafted
+buttonRadius = "999px"
+dataframeBorderColor = "#E4D4BC"
+dataframeHeaderBackgroundColor = "#F1E4CB"
+chartCategoricalColors = ["#A34F20", "#A33526", "#C08A2E", "#5B8C5A", "#8A7660", "#B5714A"]

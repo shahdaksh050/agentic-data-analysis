@@ -30,6 +30,27 @@ SEVERE_SKEW_THRESHOLD = 2.0
 #: Identifier-style column name fragments.
 _ID_NAME_HINTS = ("id", "uuid", "guid", "index", "key", "code", "number", "no")
 
+#: A string column averaging at least this many words per value reads as
+#: free text (reviews, comments, descriptions) rather than category labels
+#: — routes it to text-analysis tooling instead of one-hot encoding.
+FREE_TEXT_AVG_WORDS = 6.0
+
+#: Minimum rows before a datetime column is treated as a usable time axis.
+MIN_TIME_SERIES_ROWS = 20
+
+#: Numeric feature count at/above which dimensionality-reduction tooling
+#: (PCA, multicollinearity) starts to pay off.
+HIGH_DIMENSIONAL_THRESHOLD = 8
+
+#: Categorical cardinality range considered a plausible panel/group key
+#: (too few = boolean-like, too many = identifier-like).
+_PANEL_GROUP_MIN_CARD = 2
+_PANEL_GROUP_MAX_CARD = 50
+
+#: Column-name fragments that hint at geographic coordinates.
+_LAT_NAME_HINTS = ("lat", "latitude")
+_LON_NAME_HINTS = ("lon", "lng", "longitude")
+
 
 @dataclass
 class ColumnProfile:
@@ -71,6 +92,15 @@ class DatasetProfile:
     warnings: list[str]
     quality_score: int        # 0-100
 
+    # ---- Dataset-nature facts (drive tool selection, not just display) ----
+    datetime_cols: list[str] = field(default_factory=list)
+    is_time_series: bool = False
+    text_cols: list[str] = field(default_factory=list)
+    geo_lat_col: str | None = None
+    geo_lon_col: str | None = None
+    is_high_dimensional: bool = False
+    panel_group_cols: list[str] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "row_count": self.row_count,
@@ -80,10 +110,20 @@ class DatasetProfile:
             "columns": [c.to_dict() for c in self.columns],
             "warnings": self.warnings,
             "quality_score": self.quality_score,
+            "datetime_cols": self.datetime_cols,
+            "is_time_series": self.is_time_series,
+            "text_cols": self.text_cols,
+            "geo_lat_col": self.geo_lat_col,
+            "geo_lon_col": self.geo_lon_col,
+            "is_high_dimensional": self.is_high_dimensional,
+            "panel_group_cols": self.panel_group_cols,
         }
 
     def columns_of_kind(self, *kinds: str) -> list[ColumnProfile]:
         return [c for c in self.columns if c.kind in kinds]
+
+    def has_geo(self) -> bool:
+        return bool(self.geo_lat_col and self.geo_lon_col)
 
     def to_prompt_string(self, max_warnings: int = 8) -> str:
         """
@@ -109,6 +149,19 @@ class DatasetProfile:
         ids = [_sp(c.name) for c in self.columns if c.kind == "identifier"]
         if ids:
             lines.append(f"Identifier columns (exclude from modelling): {', '.join(ids[:6])}.")
+        nature: list[str] = []
+        if self.is_time_series:
+            nature.append(f"time-series (datetime column(s): {', '.join(_sp(c) for c in self.datetime_cols[:3])})")
+        if self.text_cols:
+            nature.append(f"free-text column(s): {', '.join(_sp(c) for c in self.text_cols[:3])}")
+        if self.has_geo():
+            nature.append(f"geographic coordinates ({_sp(self.geo_lat_col or '')}, {_sp(self.geo_lon_col or '')})")
+        if self.is_high_dimensional:
+            nature.append("high-dimensional (many numeric features — watch multicollinearity)")
+        if self.panel_group_cols:
+            nature.append(f"grouped/panel structure via: {', '.join(_sp(c) for c in self.panel_group_cols[:3])}")
+        if nature:
+            lines.append("Data nature: " + "; ".join(nature) + ".")
         if self.warnings:
             lines.append(
                 "Warnings: " + " | ".join(_sp(w, max_len=160) for w in self.warnings[:max_warnings])
@@ -156,6 +209,22 @@ def _profile_column(name: str, series: pd.Series, row_count: int) -> ColumnProfi
     stats: dict[str, float] = {}
     top_values: dict[str, int] = {}
 
+    # Free-text probe, computed early: a review/comment column is very often
+    # *exactly* unique per row (no two reviews are word-for-word identical),
+    # which would otherwise satisfy the identifier check's uniqueness==1.0
+    # branch below and misfile prose as a row ID. Prose length is decided
+    # entirely by content, not by dtype or cardinality, so it must be
+    # checked before identifier — a 100%-unique text column is text, not an ID.
+    free_text_avg_words: float | None = None
+    if (
+        not pd.api.types.is_numeric_dtype(series)
+        and not pd.api.types.is_bool_dtype(series)
+        and nunique > 1
+    ):
+        sample = series.dropna().astype(str).head(200)
+        if not sample.empty:
+            free_text_avg_words = float(sample.str.split().str.len().mean())
+
     if nunique <= 1:
         kind = "constant"
         flags.append("constant")
@@ -165,6 +234,10 @@ def _profile_column(name: str, series: pd.Series, row_count: int) -> ColumnProfi
     # 100% unique but is a time axis, not an ID.
     elif _is_datetime_like(series):
         kind = "datetime"
+    elif free_text_avg_words is not None and free_text_avg_words >= FREE_TEXT_AVG_WORDS:
+        kind = "text"
+        flags.append("free_text")
+        stats["avg_word_count"] = round(free_text_avg_words, 2)
     elif _is_identifier_like(name, series, row_count):
         kind = "identifier"
         flags.append("id_like")
@@ -190,6 +263,8 @@ def _profile_column(name: str, series: pd.Series, row_count: int) -> ColumnProfi
         top_values = {str(k): int(v) for k, v in counts.items()}
         if nunique > HIGH_CARDINALITY_THRESHOLD:
             flags.append("high_cardinality")
+        if free_text_avg_words is not None:
+            stats["avg_word_count"] = round(free_text_avg_words, 2)
 
     if missing_pct > HIGH_MISSING_FRACTION * 100:
         flags.append("high_missing")
@@ -269,6 +344,39 @@ def profile_dataframe(df: pd.DataFrame, target_column: str | None = None) -> Dat
 
     quality_score = max(0, 100 - penalty)
 
+    # ---- Dataset-nature facts — structured, not prose, so gating logic
+    #      (ToolRegistry.candidate_tools) can branch on them directly ----
+    datetime_cols = [c.name for c in columns if c.kind == "datetime"]
+    is_time_series = bool(datetime_cols) and row_count >= MIN_TIME_SERIES_ROWS
+
+    text_cols = [c.name for c in columns if c.kind == "text"]
+
+    numeric_cols = [c.name for c in columns if c.kind == "numeric"]
+    geo_lat_col: str | None = None
+    geo_lon_col: str | None = None
+    for col in columns:
+        if col.kind != "numeric":
+            continue
+        name_l = col.name.lower()
+        lo, hi = col.stats.get("min"), col.stats.get("max")
+        if lo is None or hi is None:
+            continue
+        if geo_lat_col is None and any(h in name_l for h in _LAT_NAME_HINTS) and -90.0 <= lo and hi <= 90.0:
+            geo_lat_col = col.name
+        elif geo_lon_col is None and any(h in name_l for h in _LON_NAME_HINTS) and -180.0 <= lo and hi <= 180.0:
+            geo_lon_col = col.name
+
+    is_high_dimensional = len(numeric_cols) >= HIGH_DIMENSIONAL_THRESHOLD
+
+    panel_group_cols: list[str] = []
+    if datetime_cols:
+        for col in columns:
+            if (
+                col.kind in ("categorical", "boolean")
+                and _PANEL_GROUP_MIN_CARD <= col.nunique <= _PANEL_GROUP_MAX_CARD
+            ):
+                panel_group_cols.append(col.name)
+
     return DatasetProfile(
         row_count=row_count,
         column_count=len(df.columns),
@@ -277,4 +385,11 @@ def profile_dataframe(df: pd.DataFrame, target_column: str | None = None) -> Dat
         columns=columns,
         warnings=warnings,
         quality_score=quality_score,
+        datetime_cols=datetime_cols,
+        is_time_series=is_time_series,
+        text_cols=text_cols,
+        geo_lat_col=geo_lat_col,
+        geo_lon_col=geo_lon_col,
+        is_high_dimensional=is_high_dimensional,
+        panel_group_cols=panel_group_cols,
     )

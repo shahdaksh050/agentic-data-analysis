@@ -196,6 +196,17 @@ class LLMClient:
             # servers vary too widely, so JSON there relies on _parse_json's
             # fence-stripping and repair fallback instead.
             create_kwargs["response_format"] = {"type": "json_object"}
+        if self.provider == "gemini":
+            # Gemini 2.5+/3.x "thinking" models spend a large, variable, and
+            # otherwise invisible share of max_tokens on hidden reasoning
+            # before writing any visible answer. Left uncapped, a normal
+            # max_tokens budget can be entirely consumed by thinking, so the
+            # JSON answer gets truncated or never starts at all (observed:
+            # a 4096-token call spent ~3900 tokens thinking and returned 155
+            # tokens of cut-off prose). "low" caps that overhead — the agent
+            # already supplies its own higher-level reasoning across the
+            # iterative planning loop, so per-call deep thinking adds little.
+            create_kwargs["reasoning_effort"] = os.getenv("GEMINI_REASONING_EFFORT", "low")
         if self.provider == "nvidia":
             # NVIDIA NIM requires streaming; gpt-oss-120b also emits
             # reasoning_content chunks (chain-of-thought) before the answer.
@@ -361,10 +372,17 @@ class ToolRegistry:
     Registry of all available execution-layer tools.
 
     The LLM references tools by name; this class resolves them to
-    callable BaseTool instances.
+    callable BaseTool instances. Tools register themselves generically
+    (register()) rather than the registry hardcoding an exhaustive import
+    list — new tools (built-in or, in future, generated) plug in the same
+    way the built-ins do.
     """
 
     def __init__(self) -> None:
+        self._registry: dict[str, Any] = {}
+        self._register_builtin_tools()
+
+    def _register_builtin_tools(self) -> None:
         from src.tools.clustering import ClusterDataTool
         from src.tools.data_processing import (
             CleanDataTool,
@@ -372,12 +390,16 @@ class ToolRegistry:
             DetectOutliersTool,
             IngestDatasetTool,
         )
+        from src.tools.dimensionality import DimensionalityAnalysisTool
+        from src.tools.geospatial import GeospatialAnalysisTool
         from src.tools.ml_pipeline import EvaluateModelTool, TrainModelTool
         from src.tools.report_generator import GenerateReportTool
         from src.tools.statistical_analysis import SelectStatisticalTestTool
+        from src.tools.text_analysis import TextAnalysisTool
+        from src.tools.time_series import TimeSeriesAnalysisTool
         from src.tools.visualization import GenerateVisualizationsTool
 
-        _tools = [
+        for tool in (
             IngestDatasetTool(),
             CleanDataTool(),
             DetectOutliersTool(),
@@ -388,8 +410,16 @@ class ToolRegistry:
             ClusterDataTool(),
             GenerateVisualizationsTool(),
             GenerateReportTool(),
-        ]
-        self._registry = {t.name: t for t in _tools}
+            TimeSeriesAnalysisTool(),
+            TextAnalysisTool(),
+            DimensionalityAnalysisTool(),
+            GeospatialAnalysisTool(),
+        ):
+            self.register(tool)
+
+    def register(self, tool: Any) -> None:
+        """Add (or replace) a tool in the registry, keyed by its `name`."""
+        self._registry[tool.name] = tool
 
     def get(self, name: str) -> Any:
         if name not in self._registry:
@@ -405,7 +435,29 @@ class ToolRegistry:
         return list(self._registry.keys())
 
     def get_all_descriptions(self) -> str:
+        """Descriptions for every registered tool, gating aside. Used by
+        offline scripts (validate/dry_run) that have no DatasetProfile."""
         return "\n\n".join(t.to_prompt_description() for t in self._registry.values())
+
+    def candidate_tools(
+        self, profile: Any | None, metadata: Any | None
+    ) -> list[Any]:
+        """
+        Tools relevant to this dataset, ranked by applies_to() score
+        (highest first). A tool scoring 0.0 is excluded entirely — this
+        IS the dynamic-selection mechanism: what the planner sees is
+        already filtered to what fits the data's nature.
+        """
+        scored = [(t, t.applies_to(profile, metadata)) for t in self._registry.values()]
+        relevant = [(t, s) for t, s in scored if s > 0.0]
+        relevant.sort(key=lambda ts: ts[1], reverse=True)
+        return [t for t, _ in relevant]
+
+    def get_candidate_descriptions(self, profile: Any | None, metadata: Any | None) -> str:
+        tools = self.candidate_tools(profile, metadata)
+        if not tools:
+            return self.get_all_descriptions()
+        return "\n\n".join(t.to_prompt_description() for t in tools)
 
 
 # ---------------------------------------------------------------------------
@@ -558,10 +610,19 @@ class AgentController:
                     console.print("  [dim]No target column detected. Defaulting to EDA mode.[/]")
                     metadata.task_type = "eda"
 
-        elif not metadata.task_type:
+        else:
+            # Target was already known (explicit hint). IngestDatasetTool now
+            # delegates to infer_task_type() itself, but recompute here too —
+            # this is the one place a divergence would silently break
+            # training (see IMPROVEMENTS.md #1), so don't gate it on
+            # `not metadata.task_type` ever again.
             metadata.task_type = metadata.infer_task_type()
 
         self.memory.store_dataset_metadata(metadata)
+        # Generic context store, not just the DatasetMetadata field — lets
+        # BaseTool.requires_context declarations (e.g. select_statistical_test's
+        # group_column) fill themselves in without controller-side special-casing.
+        self.memory.set_context("target_column", metadata.target_column)
         self.memory.append_tool_result(result)
 
         # ---- Data profiling (the data scientist's "first look") ----
@@ -595,8 +656,12 @@ class AgentController:
         if not self.memory.dataset_metadata:
             raise RuntimeError("No dataset loaded. Call load_dataset() first.")
 
-        # Initialise PromptManager and RLMEngine
-        tool_desc = self.tool_registry.get_all_descriptions()
+        # Initialise PromptManager and RLMEngine. Tool descriptions are
+        # filtered/ranked against the dataset's profile — the planner only
+        # ever sees tools that actually apply to this data's nature.
+        tool_desc = self.tool_registry.get_candidate_descriptions(
+            self.last_profile, self.memory.dataset_metadata
+        )
         self._prompt_manager = PromptManager(self.memory, tool_desc)
         self._rlm_engine = RLMEngine(
             llm_callable=self.llm_client.call,
@@ -769,17 +834,27 @@ class AgentController:
             )
         return steps
 
+    #: Nature-driven tools included in the fallback plan when applies_to()
+    #: scores them at full confidence (1.0) — same tools, same gating logic
+    #: the LLM planner sees, so there's one source of truth for "what suits
+    #: this data" (controller._should_decompose folds in the same way).
+    _FALLBACK_NATURE_TOOLS = (
+        "time_series_analysis", "text_analysis", "dimensionality_analysis", "geospatial_analysis",
+    )
+
     def _build_fallback_plan(self) -> dict[str, Any]:
         """
         Deterministic analysis plan used when the LLM is unreachable on the
-        first reasoning cycle. Mirrors the mandatory plan structure from the
-        initial prompt: clean → outliers → correlation → (train + evaluate
-        when a target exists, otherwise EDA visualisations).
+        first reasoning cycle. Always: clean → outliers → correlation, plus
+        whichever nature-specific tools the profile-driven gating says
+        apply at full confidence, plus (train + evaluate) when a target
+        exists or (cluster + visualise) otherwise.
         """
         meta = self.memory.dataset_metadata
         if meta is None:
             raise RuntimeError("No dataset loaded — cannot build a fallback plan.")
         fp = meta.file_path
+        profile = self.last_profile
         steps: list[dict[str, Any]] = [
             {
                 "step_number": 1,
@@ -791,23 +866,38 @@ class AgentController:
                 },
                 "rationale": "Fallback plan: impute missing values before analysis.",
             },
-            {
-                "step_number": 2,
-                "tool_name": "detect_outliers",
-                "parameters": {"file_path": fp, "method": "iqr"},
-                "rationale": "Fallback plan: flag anomalous rows.",
-            },
-            {
-                "step_number": 3,
-                "tool_name": "correlation_analysis",
-                "parameters": {"file_path": fp, "target_column": meta.target_column},
-                "rationale": "Fallback plan: quantify feature relationships.",
-            },
         ]
+
+        # detect_outliers/correlation_analysis are near-universal but not
+        # unconditional — e.g. correlation_analysis needs 2+ numeric columns
+        # — so they go through the same applies_to gate as everything else
+        # rather than being hardcoded past it (a single-numeric-column
+        # dataset would otherwise error out here every time).
+        for name, params, rationale in (
+            ("detect_outliers", {"file_path": fp, "method": "iqr"}, "Fallback plan: flag anomalous rows."),
+            ("correlation_analysis", {"file_path": fp, "target_column": meta.target_column}, "Fallback plan: quantify feature relationships."),
+        ):
+            if self.tool_registry.has(name) and self.tool_registry.get(name).applies_to(profile, meta) > 0.0:
+                steps.append({
+                    "step_number": len(steps) + 1,
+                    "tool_name": name,
+                    "parameters": params,
+                    "rationale": rationale,
+                })
+
+        for name in self._FALLBACK_NATURE_TOOLS:
+            if self.tool_registry.has(name) and self.tool_registry.get(name).applies_to(profile, meta) >= 1.0:
+                steps.append({
+                    "step_number": len(steps) + 1,
+                    "tool_name": name,
+                    "parameters": {"file_path": fp},
+                    "rationale": f"Fallback plan: data profile indicates '{name}' applies to this dataset.",
+                })
+
         if meta.target_column and meta.task_type in ("classification", "regression"):
             steps += [
                 {
-                    "step_number": 4,
+                    "step_number": len(steps) + 1,
                     "tool_name": "train_model",
                     "parameters": {
                         "file_path": fp,
@@ -817,7 +907,7 @@ class AgentController:
                     "rationale": "Fallback plan: train baseline models with CV.",
                 },
                 {
-                    "step_number": 5,
+                    "step_number": len(steps) + 2,
                     "tool_name": "evaluate_model",
                     "parameters": {
                         "file_path": fp,
@@ -830,13 +920,13 @@ class AgentController:
         else:
             steps += [
                 {
-                    "step_number": 4,
+                    "step_number": len(steps) + 1,
                     "tool_name": "cluster_data",
                     "parameters": {"file_path": fp},
                     "rationale": "Fallback plan: no target — discover natural segments.",
                 },
                 {
-                    "step_number": 5,
+                    "step_number": len(steps) + 2,
                     "tool_name": "generate_visualizations",
                     "parameters": {"file_path": fp, "chart_type": "correlation_heatmap"},
                     "rationale": "Fallback plan: EDA visualisation without a target.",
@@ -1037,56 +1127,6 @@ class AgentController:
             if self.on_step_callback:
                 self.on_step_callback(step.tool_name, "running",
                                       f"{idx}/{total_steps} — {step.tool_name}…")
-            # ── Auto-substitute cleaned_file_path & output_dir into params ──
-            params = dict(step.parameters)
-            cleaned = self.memory.get_context("cleaned_file_path")
-            if cleaned:
-                # Replace any placeholder or original path reference
-                if "file_path" in params:
-                    raw = params["file_path"]
-                    # Substitute if it looks like a placeholder or the original file
-                    if (raw in ("cleaned_file_path", "<cleaned_file_path>",
-                                "path/to/cleaned", "")
-                            or not raw.endswith((".csv", ".xlsx", ".xls"))):
-                        params["file_path"] = cleaned
-                    # Also substitute if it's the original (non-cleaned) path
-                    # and a cleaned version now exists
-                    elif step.tool_name not in ("clean_data", "ingest_dataset"):
-                        params["file_path"] = cleaned
-
-            # Inject output_dir for tools that write files
-            if step.tool_name in ("train_model", "evaluate_model",
-                                   "generate_visualizations", "generate_report"):
-                if "output_dir" not in params or not params.get("output_dir"):
-                    base = self._output_dir
-                    subdir = {
-                        "train_model":           "models",
-                        "evaluate_model":        "models",
-                        "generate_visualizations": "visualizations",
-                        "generate_report":       "reports",
-                    }.get(step.tool_name, "output")
-                    params["output_dir"] = str(Path(base) / subdir)
-
-            # ── Auto-substitute best_model_path for tools that need a trained model ──
-            if step.tool_name in ("evaluate_model", "generate_visualizations"):
-                best_path = self.memory.get_context("best_model_path")
-                if best_path:
-                    raw_mp = params.get("model_path", "")
-                    if not raw_mp or not Path(raw_mp).exists():
-                        params["model_path"] = best_path
-
-            # ── generate_report needs the accumulated results, which the LLM
-            #    cannot supply — inject them from memory ──
-            if step.tool_name == "generate_report":
-                meta = self.memory.dataset_metadata
-                params.setdefault(
-                    "dataset_name", Path(meta.file_path).stem if meta else "dataset"
-                )
-                params["tool_results_json"] = json.dumps(
-                    [r.to_dict() for r in self.memory.tool_results], default=str
-                )
-                params.setdefault("llm_insights", {})
-
             # Defense in depth: _parse_steps filters unknown tools, but never
             # let a registry miss crash the whole pipeline.
             try:
@@ -1101,6 +1141,15 @@ class AgentController:
                 self.memory.append_tool_result(result)
                 self.memory.mark_step_complete(step.step_number, result)
                 continue
+
+            # Generic parameter resolution, driven by each tool's own
+            # declarations (BaseTool.prepare_params) — cleaned_file_path
+            # redirection, output_dir injection, and any bespoke overrides
+            # (best_model_path, forced test_size, report result injection)
+            # all live on the tool itself instead of growing this if-ladder
+            # every time a new tool needs to plug into the pipeline.
+            params = tool.prepare_params(step.parameters, self.memory, self._output_dir)
+
             result = tool.run(**params)
             self.memory.append_tool_result(result)
             self.memory.mark_step_complete(step.step_number, result)
@@ -1120,6 +1169,9 @@ class AgentController:
                     if model_path:
                         self.memory.set_context("best_model_path", model_path)
                         self.memory.set_context("best_model_name", best)
+                trained_test_size = result.output.get("test_size")
+                if trained_test_size is not None:
+                    self.memory.set_context("train_test_size", trained_test_size)
 
             # If cleaning produced a cleaned file, store it for downstream tools
             if step.tool_name == "clean_data" and result.status == "success":
@@ -1139,7 +1191,11 @@ class AgentController:
     # ------------------------------------------------------------------
 
     def _should_decompose(self) -> bool:
-        """Trigger decomposition when the dataset has many features (>15)."""
+        """Trigger decomposition for wide datasets — the same structural
+        fact (is_high_dimensional) that gates dimensionality_analysis, so
+        there's one source of truth for "this data has a lot of features"."""
+        if self.last_profile is not None:
+            return self.last_profile.is_high_dimensional
         meta = self.memory.dataset_metadata
         return meta is not None and meta.column_count > 15
 

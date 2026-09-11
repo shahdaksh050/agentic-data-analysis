@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from src.core.memory import ToolResult
+from src.core.memory import MemorySystem, ToolResult
+
+if TYPE_CHECKING:
+    from src.core.memory import DatasetMetadata
+    from src.core.profiler import DatasetProfile
 
 
 class ToolExecutionError(Exception):
@@ -31,6 +36,67 @@ class BaseTool(ABC):
     name: str
     #: Human-readable description injected into LLM system prompts.
     description: str
+
+    #: Subfolder under the run's output_dir this tool writes into (e.g.
+    #: "models", "visualizations"). None means the tool writes no files —
+    #: ToolRegistry/AgentController use this instead of a hardcoded map to
+    #: inject `output_dir`.
+    output_subdir: str | None = None
+
+    #: When True (the default), `file_path` in this tool's parameters is
+    #: redirected to the pipeline's cleaned dataset once clean_data has
+    #: produced one. Ingestion/cleaning tools themselves opt out.
+    uses_cleaned_file: bool = True
+
+    #: {memory_context_key: param_name} — filled in from MemorySystem
+    #: context whenever the plan step left `param_name` empty. Covers the
+    #: common case (e.g. target_column); tools with bespoke injection logic
+    #: (forced overrides, existence checks) override prepare_params instead.
+    requires_context: ClassVar[dict[str, str]] = {}
+
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        """
+        Relevance score in [0.0, 1.0] for this dataset, used to build the
+        candidate tool set the planner sees (ToolRegistry.candidate_tools).
+
+        0.0 excludes the tool entirely. The default (1.0) suits
+        general-purpose EDA/reporting tools that apply to any dataset;
+        tools tied to a specific data nature (time-series, text, geo, a
+        target column...) override this to gate themselves in or out.
+        """
+        return 1.0
+
+    def prepare_params(
+        self, params: dict[str, Any], memory: MemorySystem, output_root: str
+    ) -> dict[str, Any]:
+        """
+        Resolve this step's parameters against pipeline state before execute().
+
+        Generic policy driven by the declarations above:
+          - redirect file_path to cleaned_file_path (if uses_cleaned_file)
+          - inject output_dir under output_root/output_subdir (if unset)
+          - fill any param named in requires_context from memory context
+            (only when the planner left it empty)
+
+        Override to add tool-specific injection (e.g. a forced override that
+        must win even when the planner supplied a value, or a value that
+        must be computed from accumulated results rather than read back).
+        Always call super().prepare_params() first so the generic rules
+        still apply.
+        """
+        params = dict(params)
+        if self.uses_cleaned_file:
+            cleaned = memory.get_context("cleaned_file_path")
+            if cleaned and "file_path" in params:
+                params["file_path"] = cleaned
+        if self.output_subdir and not params.get("output_dir"):
+            params["output_dir"] = str(Path(output_root) / self.output_subdir)
+        for ctx_key, param_name in self.requires_context.items():
+            if not params.get(param_name):
+                value = memory.get_context(ctx_key)
+                if value is not None:
+                    params[param_name] = value
+        return params
 
     @abstractmethod
     def execute(self, **kwargs: Any) -> dict[str, Any]:

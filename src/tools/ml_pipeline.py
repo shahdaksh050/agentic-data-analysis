@@ -16,12 +16,16 @@ from __future__ import annotations
 
 import pickle
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import pandas as pd
 
 from src.tools.base import BaseTool, ToolExecutionError
+
+if TYPE_CHECKING:
+    from src.core.memory import DatasetMetadata, MemorySystem
+    from src.core.profiler import DatasetProfile
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
@@ -39,6 +43,13 @@ def _read_df(file_path: str) -> pd.DataFrame:
 
 # Overfitting warning threshold: gap between train and test accuracy
 OVERFIT_THRESHOLD = 0.10
+
+#: Composite-score weight for _pick_best's overfit penalty: how many points
+#: of cv_mean one point of (train_test_gap - OVERFIT_THRESHOLD) costs a
+#: model when ranking. At 1.0, a model 0.10 over the threshold loses 0.10
+#: off its effective score — enough to lose to a close runner-up that
+#: wasn't flagged, without disqualifying a clear overall winner outright.
+OVERFIT_PENALTY_WEIGHT = 1.0
 
 
 #: Absolute skewness at which a non-negative numeric feature gets log1p.
@@ -148,10 +159,15 @@ class TrainModelTool(BaseTool):
         "and train/test gap monitoring to detect overfitting. "
         "Returns per-model metrics, CV scores, and the best model name."
     )
+    output_subdir = "models"
+    requires_context: ClassVar[dict[str, str]] = {"target_column": "target_column"}
 
     CLASSIFICATION_MODELS: ClassVar[list[str]] = ["random_forest", "xgboost", "logistic_regression"]
     REGRESSION_MODELS: ClassVar[list[str]] = ["random_forest", "xgboost", "linear_regression", "ridge"]
     CLUSTERING_MODELS: ClassVar[list[str]] = ["kmeans", "dbscan"]
+
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        return 1.0 if metadata and metadata.target_column and metadata.task_type in ("classification", "regression") else 0.0
 
     def execute(  # type: ignore[override]
         self,
@@ -514,9 +530,25 @@ class TrainModelTool(BaseTool):
         return metrics
 
     def _pick_best(self, results: dict[str, Any]) -> str:
+        """Rank by cv_mean, penalised for overfitting past OVERFIT_THRESHOLD.
+
+        A model that tops cv_mean but is already flagged in overfit_warnings
+        (train_test_gap too high) used to still be crowned "best" and
+        propagate as best_model_path/best_model_name through evaluate_model,
+        the feature-importance chart, and the final report — inconsistent
+        with the system's own anti-overfitting stance (IMPROVEMENTS.md #5).
+        """
         if not results:
             return "none"
-        return max(results, key=lambda m: float(results[m].get("cv_mean", -float("inf"))))
+
+        def _score(name: str) -> float:
+            r = results[name]
+            cv_mean = float(r.get("cv_mean", -float("inf")))
+            gap = float(r.get("train_test_gap", 0.0))
+            penalty = OVERFIT_PENALTY_WEIGHT * max(0.0, gap - OVERFIT_THRESHOLD)
+            return cv_mean - penalty
+
+        return max(results, key=_score)
 
     def get_schema(self) -> dict[str, Any]:
         return {
@@ -560,6 +592,31 @@ class EvaluateModelTool(BaseTool):
         "Produces a full classification report (or regression metrics) "
         "plus an overfitting diagnostic (train_test_gap)."
     )
+    requires_context: ClassVar[dict[str, str]] = {"target_column": "target_column"}
+
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        return 1.0 if metadata and metadata.target_column and metadata.task_type in ("classification", "regression") else 0.0
+
+    def prepare_params(
+        self, params: dict[str, Any], memory: MemorySystem, output_root: str
+    ) -> dict[str, Any]:
+        params = super().prepare_params(params, memory, output_root)
+        # best_model_path only overrides when the planner's model_path is
+        # missing or doesn't exist — it may legitimately name a different
+        # saved model on a re-evaluation step.
+        best_path = memory.get_context("best_model_path")
+        if best_path:
+            raw_mp = params.get("model_path", "")
+            if not raw_mp or not Path(raw_mp).exists():
+                params["model_path"] = best_path
+        # evaluate_model's whole purpose is to recreate train_model's exact
+        # split ("held-out data only") — a different test_size produces a
+        # different partition under the same random_state, so this is a
+        # forced override, never a fill-if-absent.
+        trained_test_size = memory.get_context("train_test_size")
+        if trained_test_size is not None:
+            params["test_size"] = trained_test_size
+        return params
 
     def execute(  # type: ignore[override]
         self,

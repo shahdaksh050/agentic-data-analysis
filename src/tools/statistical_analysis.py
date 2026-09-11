@@ -14,12 +14,16 @@ Decision logic (auto-selection):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pandas as pd
 from scipy import stats
 
 from src.tools.base import BaseTool, ToolExecutionError
+
+if TYPE_CHECKING:
+    from src.core.memory import DatasetMetadata
+    from src.core.profiler import DatasetProfile
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
@@ -49,6 +53,15 @@ class SelectStatisticalTestTool(BaseTool):
         "based on data characteristics (normality, group count, data types). "
         "Returns test name, statistic, p-value, and interpretation."
     )
+    requires_context: ClassVar[dict[str, str]] = {"target_column": "group_column"}
+
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        if metadata and metadata.target_column and metadata.task_type == "classification":
+            return 1.0
+        if profile is None:
+            return 0.6
+        groupable = [c for c in profile.columns if 2 <= c.nunique <= 20 and c.kind in ("categorical", "boolean")]
+        return 0.6 if groupable else 0.0
 
     def execute(  # type: ignore[override]
         self,
@@ -79,7 +92,7 @@ class SelectStatisticalTestTool(BaseTool):
 
         df_clean = df[[feature_column, group_column]].dropna()
         # For continuous group columns, bin into quartiles automatically
-        if df_clean[group_column].dtype in (float,) or str(df_clean[group_column].dtype).startswith("float"):
+        if str(df_clean[group_column].dtype).startswith("float"):
             df_clean = df_clean.copy()
             df_clean[group_column] = pd.qcut(df_clean[group_column], q=4,
                                               labels=["Q1","Q2","Q3","Q4"],
@@ -102,9 +115,12 @@ class SelectStatisticalTestTool(BaseTool):
         if not pd.api.types.is_numeric_dtype(df_clean[feature_column]):
             return self._chi_square(df_clean, feature_column, group_column, alpha)
 
-        # Normality (Shapiro-Wilk, sub-sampled for large groups)
+        # Normality (Shapiro-Wilk, sub-sampled for large groups). Shapiro
+        # requires n>=3 and raises otherwise; a group smaller than that can't
+        # be tested for normality, so treat it as non-normal and fall back to
+        # the non-parametric branch below rather than crashing the whole test.
         is_normal = all(
-            stats.shapiro(g[:5000] if len(g) > 5000 else g)[1] > alpha
+            len(g) >= 3 and stats.shapiro(g[:5000] if len(g) > 5000 else g)[1] > alpha
             for g in group_arrays
         )
 

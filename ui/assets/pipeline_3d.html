@@ -4,23 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* Tokens mirror DESIGN.md; the inks themselves are injected from Python. */
+  /* Tokens mirror DESIGN.md and are updated dynamically from window.__PIPELINE_STATE__.palette */
   :root {
-    --ink: #171c1f;
-    --graphite: #54585b;
-    --pen: #12467e;
-    --sans: 'Archivo', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
-    --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    --ink: #3a2b1e;
+    --graphite: #8a7660;
+    --pen: #a34f20;
+    --risk: #a33526;
+    --stock: #f7eedd;
+    --sheet: #fffbf2;
+    --accent: #e08a3e;
+    --rule: rgba(58, 43, 30, 0.16);
+    --sans: 'Mukta', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
+    --heading: 'Baloo 2', 'Mukta', ui-sans-serif, sans-serif;
+    --mono: 'Cascadia Code', ui-monospace, Consolas, monospace;
   }
 
   html, body {
     margin: 0;
     height: 100%;
-    background: transparent;   /* the plate sits directly on the sheet */
+    width: 100%;
+    background: transparent;
     overflow: hidden;
     font-family: var(--sans);
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   #stage {
@@ -32,80 +41,217 @@
   #scene {
     position: absolute;
     inset: 0;
-    touch-action: pan-y;       /* vertical page scroll still works over the canvas */
+    touch-action: pan-y;
   }
 
-  #scene canvas { display: block; }
-  #scene canvas:focus-visible { outline: 2px solid var(--pen); outline-offset: -2px; }
+  #scene canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }
 
-  /* Readout — names the hovered stage, or summarises the run. */
+  #scene canvas:focus-visible {
+    outline: 2px solid var(--pen);
+    outline-offset: -2px;
+  }
+
+  /* Floating HUD Overlay Layer */
+  #hud-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  /* 3D Floating Stage Callout Tag */
+  .hud-pin {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    opacity: 0;
+    transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .hud-pin.active {
+    opacity: 1;
+    transform: translate(-50%, -115%);
+  }
+
+  .hud-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 4px 11px;
+    box-shadow: 0 2px 8px rgba(58,43,30,0.14);
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 11.5px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .hud-badge .step {
+    font-weight: 600;
+    color: var(--pen);
+  }
+
+  .hud-badge.err .step {
+    color: var(--risk);
+  }
+
+  .hud-pointer {
+    width: 1px;
+    height: 12px;
+    background: var(--rule);
+    margin: 0 auto;
+  }
+
+  /* View toolbar */
+  #cad-toolbar {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(58,43,30,0.12);
+    padding: 3px;
+    z-index: 20;
+  }
+
+  .cad-btn {
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 700;
+    background: transparent;
+    border: none;
+    color: var(--graphite);
+    padding: 4px 10px;
+    cursor: pointer;
+    line-height: 1;
+    border-radius: 999px;
+    transition: all 0.12s ease;
+  }
+
+  .cad-btn:hover {
+    color: var(--ink);
+    background: var(--stock);
+  }
+
+  .cad-btn.active {
+    background: var(--pen);
+    color: var(--sheet);
+  }
+
+  /* Readout panel in bottom-left */
   #readout {
     position: absolute;
-    left: 0;
-    bottom: 2px;
-    max-width: min(44ch, calc(100% - 24px));
-    pointer-events: none;      /* never blocks a drag */
-    border-top: 1px solid var(--ink);
-    padding-top: 6px;
+    left: 12px;
+    bottom: 10px;
+    max-width: min(44ch, calc(100% - 140px));
+    pointer-events: none;
+    z-index: 15;
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(58,43,30,0.10);
+    padding: 8px 12px;
   }
 
   #readout-title {
     margin: 0;
-    font-family: var(--sans);
-    font-variation-settings: 'wdth' 108;
+    font-family: var(--heading);
     font-weight: 700;
-    font-size: 15px;
+    font-size: 14.5px;
     line-height: 1.2;
-    letter-spacing: -.02em;
     color: var(--ink);
   }
 
   #readout-body {
-    margin: 3px 0 0;
-    font-family: var(--mono);
+    margin: 2px 0 0;
+    font-family: var(--sans);
     font-size: 12px;
-    line-height: 1.45;
+    line-height: 1.4;
     color: var(--graphite);
   }
 
   #hint {
     position: absolute;
-    right: 4px;
-    bottom: 4px;
+    right: 12px;
+    bottom: 8px;
     margin: 0;
-    font-family: var(--mono);
+    font-family: var(--sans);
+    font-weight: 600;
     font-size: 11px;
     color: var(--graphite);
     pointer-events: none;
+    opacity: 0.8;
   }
 
   .fallback {
-    padding: 20px 0;
+    padding: 24px;
     font-size: 14px;
     line-height: 1.6;
-    max-width: 46ch;
+    max-width: 48ch;
     color: var(--graphite);
     border-left: 3px solid var(--graphite);
-    padding-left: 14px;
+    margin: 20px;
   }
 
   @media (max-width: 640px) {
-    #hint { display: none; }   /* the gesture is discoverable by touch anyway */
-    #readout { max-width: calc(100% - 12px); }
+    #hint { display: none; }
+    #readout { max-width: calc(100% - 24px); }
+    #cad-toolbar { top: 6px; right: 6px; }
   }
 </style>
 </head>
 <body>
   <div id="stage">
     <div id="scene"></div>
+    <div id="hud-layer">
+      <div id="hud-pin" class="hud-pin">
+        <div id="hud-badge" class="hud-badge">
+          <span id="hud-step" class="step">1</span>
+          <span id="hud-text">Reading Your File</span>
+        </div>
+        <div class="hud-pointer"></div>
+      </div>
+    </div>
+    <div id="cad-toolbar">
+      <button id="btn-iso" class="cad-btn active" title="Angled view">3D</button>
+      <button id="btn-plan" class="cad-btn" title="Top-down view">Top</button>
+      <button id="btn-front" class="cad-btn" title="Front-on view">Front</button>
+      <button id="btn-reset" class="cad-btn" title="Recenter">⟲</button>
+    </div>
     <div id="readout">
       <p id="readout-title"></p>
       <p id="readout-body"></p>
     </div>
-    <p id="hint">Drag or arrow keys to rotate</p>
+    <p id="hint">Drag to look around · [ / ] to step through</p>
   </div>
 
-  <script>window.__PIPELINE_STATE__ = __STATE_JSON__;</script>
+  <script>
+    window.__PIPELINE_STATE__ = __STATE_JSON__;
+    // Apply dynamic palette tokens from state
+    if (window.__PIPELINE_STATE__ && window.__PIPELINE_STATE__.palette) {
+      const p = window.__PIPELINE_STATE__.palette;
+      const root = document.documentElement;
+      if (p.ink) root.style.setProperty('--ink', p.ink);
+      if (p.graphite) root.style.setProperty('--graphite', p.graphite);
+      if (p.pen) root.style.setProperty('--pen', p.pen);
+      if (p.risk) root.style.setProperty('--risk', p.risk);
+      if (p.stock) root.style.setProperty('--stock', p.stock);
+      if (p.sheet) root.style.setProperty('--sheet', p.sheet);
+      if (p.accent) root.style.setProperty('--accent', p.accent);
+    }
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
   <script type="module">
 __SCENE_SCRIPT__

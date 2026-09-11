@@ -38,6 +38,54 @@ _NUMERIC_TARGET_NAMES = frozenset({
 _PARTIAL_TARGET_HINTS = ("target", "label", "class", "outcome", "predict", "response")
 
 
+def _shrink_to_fit(obj: Any, max_chars: int) -> Any:
+    """Shrink `obj` so `json.dumps(obj)` fits within `max_chars`, by
+    replacing oversized nested values with a short placeholder — never by
+    slicing the serialised string. A blind character slice can cut JSON off
+    mid-structure (invalid JSON, and possibly cut before the metric value
+    that matters); this always returns something that serialises cleanly.
+
+    Only touches dict values (and, recursively, list items) — scalars are
+    returned untouched since there's no way to shrink a number or a short
+    string without changing what it says.
+    """
+    if len(json.dumps(obj, default=str)) <= max_chars:
+        return obj
+
+    if isinstance(obj, dict):
+        shrunk = dict(obj)
+        # Largest serialised value first, so the biggest offender is
+        # summarised before smaller — likely more important — fields
+        # (e.g. `best_model`, `task_type`) are touched at all.
+        by_size = sorted(
+            shrunk.keys(),
+            key=lambda k: len(json.dumps(shrunk[k], default=str)),
+            reverse=True,
+        )
+        for key in by_size:
+            if len(json.dumps(shrunk, default=str)) <= max_chars:
+                break
+            value = shrunk[key]
+            if isinstance(value, (dict, list)) and value:
+                size = len(json.dumps(value, default=str))
+                count = len(value)
+                kind = "entries" if isinstance(value, dict) else "items"
+                shrunk[key] = f"<{count} {kind}, {size} chars — omitted for length>"
+            elif isinstance(value, str) and len(value) > 80:
+                shrunk[key] = value[:80] + "…"
+        return shrunk
+
+    if isinstance(obj, list):
+        items = list(obj)
+        while items and len(json.dumps(items, default=str)) > max_chars:
+            items.pop()
+        if len(items) < len(obj):
+            return [*items, f"…and {len(obj) - len(items)} more"]
+        return items
+
+    return obj
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -316,11 +364,17 @@ class MemorySystem:
             f"[dim]({result.execution_time_ms:.0f} ms)[/]"
         )
 
-    def get_results_summary(self, max_chars_per_result: int = 350) -> str:
+    def get_results_summary(self, max_chars_per_result: int = 1200) -> str:
         """
         Compact summary of all tool outputs for LLM context injection.
 
-        Only non-raw-data fields are included to keep tokens low.
+        Only non-raw-data fields are included to keep tokens low. Oversized
+        nested fields are summarised field-by-field (see `_shrink_to_fit`),
+        never blindly sliced — a mid-structure character cut can produce
+        broken JSON and can cut off before a model's actual metric values,
+        which directly undermines the system prompt's hard rule to "cite
+        ONLY metric values that appear verbatim in the results"
+        (IMPROVEMENTS.md #3).
         """
         if not self.tool_results:
             return "No tool results yet."
@@ -328,7 +382,8 @@ class MemorySystem:
         for r in self.tool_results:
             if r.status == "success":
                 slim = {k: v for k, v in r.output.items() if k not in {"raw_data", "dataframe"}}
-                serialised = json.dumps(slim, default=str)[:max_chars_per_result]
+                shrunk = _shrink_to_fit(slim, max_chars_per_result)
+                serialised = json.dumps(shrunk, default=str)
                 lines.append(f"[{r.tool_name}] SUCCESS → {serialised}")
             elif r.status == "skipped":
                 lines.append(f"[{r.tool_name}] SKIPPED → {r.output.get('summary', '')}")

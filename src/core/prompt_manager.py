@@ -28,6 +28,14 @@ The Agent Controller will execute every tool you specify. \
 You must produce valid, parseable JSON every time.
 
 ## Available Tools
+The list below has already been filtered to tools that apply to THIS \
+dataset's profile (its shape, column kinds, and detected data nature — \
+time-series, free text, geographic coordinates, high dimensionality, a \
+target column, ...). Every tool listed is a legitimate candidate; nothing \
+here is decorative. You choose which of them to run, in what order, and \
+with what parameters, based on the evidence in the Data Profile below — \
+there is no fixed sequence to follow.
+
 {tool_descriptions}
 
 ## Strict Response Contract
@@ -92,30 +100,35 @@ INITIAL_ANALYSIS_PROMPT = """## Dataset Overview
 
 ## Your Task
 You are in Stage 2 of the analysis pipeline (Initial Reasoning Phase).
-Produce an ordered analysis plan using EXACT tool_names from the tool list above.
+Produce an ordered analysis plan using EXACT tool_names from the Available
+Tools list — that list is already filtered to what applies to THIS
+dataset's profile, so treat every tool on it as a live option worth
+considering, not a menu to sample lightly from.
 
-MANDATORY RULES — follow these precisely:
-1. ALWAYS begin with clean_data (strategy: "median") passing the original file_path.
-2. ALWAYS follow with detect_outliers on the cleaned file.
-3. ALWAYS run correlation_analysis on the cleaned file.
-4. If task type is "eda" or "clustering" (no target column):
-   - Run cluster_data on the cleaned file to discover natural segments
-     (auto-selects k by silhouette score).
-   - Run generate_visualizations (chart_type: "correlation_heatmap") and
-     generate_visualizations (chart_type: "distributions").
-   - Do NOT run train_model, evaluate_model, or select_statistical_test.
-   - If the user objective mentions segments, groups, personas, or customer
-     types, cluster_data is the MOST important step — prioritise it.
-5. If a target column IS identified (classification or regression):
-   - Run select_statistical_test with an appropriate feature_column and the target as group_column.
-   - Run train_model with the cleaned file, the target_column, and the correct task_type.
-   - Run evaluate_model using the best model path from train_model output.
-   - Run generate_visualizations (chart_type: "feature_importance") and "roc_curve".
-6. ALWAYS end with generate_report.
-7. For every tool that reads data after clean_data, use the cleaned_file_path
-   returned by clean_data — NOT the original file path.
-8. Include file_path in every tool's parameters that requires it.
-9. Produce 5–8 steps total. Never exceed 8 steps per iteration.
+Ground the plan in the evidence above: the dataset's column kinds,
+warnings, and detected nature (time-series, free text, geographic,
+high-dimensional, grouped/panel, imbalanced, ...), when given, tell you
+what this dataset actually is. Two datasets with different natures should
+produce different plans — do not default to a generic clean → correlate →
+model recipe when the evidence points somewhere more specific.
+
+Invariants (the only fixed rules):
+1. Clean data before running any other analysis on it — start with
+   clean_data (strategy "median" is the safe default) on the original
+   file_path, then use the cleaned_file_path it returns as `file_path`
+   for every subsequent tool that reads data.
+2. Include `file_path` in every tool call that requires it.
+3. Do not plan a tool that isn't in the Available Tools list — it will be
+   rejected unexecuted.
+4. If the user objective names a goal (segments, forecasting, a specific
+   outcome to predict, ...), prioritise the tools that answer it.
+5. Produce 5–8 steps total. Never exceed 8 steps per iteration — if more
+   analysis is warranted, continue it on the next iteration.
+
+Beyond that, use your judgement as a data scientist: pick the tools whose
+descriptions match what this data needs, order them sensibly (diagnostics
+before modelling, modelling before evaluating it), and give each a
+rationale tied to the profile evidence.
 
 Respond in Form 1 (Action Plan).
 """

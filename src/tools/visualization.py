@@ -11,11 +11,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from src.tools.base import BaseTool, ToolExecutionError
+
+if TYPE_CHECKING:
+    from src.core.memory import MemorySystem
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
@@ -50,6 +53,18 @@ class GenerateVisualizationsTool(BaseTool):
         "roc_curve | confusion_matrix. "
         "Saves PNG + HTML to output_dir. Returns file paths."
     )
+    output_subdir = "visualizations"
+
+    def prepare_params(
+        self, params: dict[str, Any], memory: MemorySystem, output_root: str
+    ) -> dict[str, Any]:
+        params = super().prepare_params(params, memory, output_root)
+        best_path = memory.get_context("best_model_path")
+        if best_path:
+            raw_mp = params.get("model_path", "")
+            if not raw_mp or not Path(raw_mp).exists():
+                params["model_path"] = best_path
+        return params
 
     def execute(  # type: ignore[override]
         self,

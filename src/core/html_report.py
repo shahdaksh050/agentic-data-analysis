@@ -18,66 +18,63 @@ import json
 import time
 from typing import Any
 
-# "Drafting Table" (DESIGN.md): mineral stock, ink linework, two plotter pens.
-# The shared report is the same sheet as the console, printed.
+# "Ledger" (DESIGN.md): warm paper, friendly ink, one terracotta pen.
+# The shared report is the same warm sheet as the console, printed.
 _CSS = """
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
 body {
-  background: #dcdbd3;
-  background-image:
-    repeating-linear-gradient(to right,  rgba(23,28,31,.045) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(to bottom, rgba(23,28,31,.045) 0 1px, transparent 1px 28px);
-  color: #171c1f;
-  font-family: 'Archivo', 'Segoe UI', system-ui, sans-serif;
-  margin: 0; padding: 3.5rem 1.5rem; line-height: 1.62;
+  background: #f7eedd;
+  color: #3a2b1e;
+  font-family: 'Mukta', 'Segoe UI', system-ui, sans-serif;
+  margin: 0; padding: 3.5rem 1.5rem; line-height: 1.65;
 }
-.wrap { max-width: 940px; margin: 0 auto; }
-h1 { font-variation-settings: 'wdth' 118; font-weight: 800;
-     font-size: clamp(34px, 5.4vw, 58px); line-height: .95; letter-spacing: -.038em;
-     margin: .3rem 0 .2rem; max-width: 18ch; }
-h2 { font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 27px;
-     letter-spacing: -.028em; line-height: 1.05; color: #171c1f;
-     border-bottom: 1px solid #171c1f; padding-bottom: .35rem; margin: 3rem 0 1rem; }
-.sub { color: #54585b; font-family: 'IBM Plex Mono', monospace; font-size: .78rem;
-       margin-bottom: 2rem; }
-.objective { border-left: 3px solid #12467e; padding: .3rem 0 .3rem 1rem;
+.wrap { max-width: 900px; margin: 0 auto; }
+h1 { font-family: 'Baloo 2', 'Mukta', sans-serif; font-weight: 800;
+     font-size: clamp(32px, 5vw, 52px); line-height: 1.06;
+     margin: .3rem 0 .2rem; max-width: 18ch; color: #3a2b1e; }
+h2 { font-family: 'Baloo 2', 'Mukta', sans-serif; font-weight: 700; font-size: 25px;
+     line-height: 1.15; color: #3a2b1e;
+     border-bottom: 2px solid #e4d4bc; padding-bottom: .4rem; margin: 3rem 0 1rem; }
+.sub { color: #8a7660; font-size: .85rem; margin-bottom: 2rem; }
+.objective { border-left: 4px solid #a34f20; border-radius: 0 10px 10px 0;
+             background: #fffbf2; padding: .6rem 0 .6rem 1rem;
              margin: 1.4rem 0; max-width: 72ch; }
-.card { padding: .35rem 0 .35rem 1rem; margin: .1rem 0 .8rem;
-        border-left: 3px solid #c8c6bc; max-width: 74ch; }
-.card.exec { background: #efeee8; border: 1px solid #171c1f;
-             box-shadow: 3px 3px 0 rgba(23,28,31,.09);
-             padding: 1.4rem 1.6rem; max-width: 72ch; }
-.insight { border-left-color: #54585b; }
-.rec { border-left-color: #12467e; }
-.driver { border-left-color: #54585b; font-size: .93rem; }
-.treat { border-left-color: #c8c6bc; font-size: .88rem; color: #54585b; }
-.warn { border-left-color: #b5271a; color: #b5271a; }
-table { border-collapse: collapse; width: 100%; font-size: .86rem;
-        background: #efeee8; box-shadow: 3px 3px 0 rgba(23,28,31,.09); }
-th, td { border: 1px solid #c8c6bc; padding: .45rem .7rem; text-align: left; }
-td { font-family: 'IBM Plex Mono', monospace; font-size: .8rem; }
-th { background: #e4e3dc; color: #171c1f; font-weight: 700; font-size: .78rem;
-     border-color: #171c1f; }
-.chart { background: #efeee8; border: 1px solid #171c1f;
-         box-shadow: 3px 3px 0 rgba(23,28,31,.09);
-         padding: 1.1rem 1.2rem 1rem; margin: 1.4rem 0; }
-.chart h3 { margin: .1rem 0 .2rem; font-weight: 700; font-size: 1rem;
-            letter-spacing: -.02em; }
-.chart p { margin: .15rem 0 .9rem; color: #54585b; font-size: .82rem; max-width: 68ch; }
+.card { padding: .5rem 0 .5rem 1rem; margin: .1rem 0 .8rem;
+        border-left: 3px solid #e4d4bc; border-radius: 0 10px 10px 0;
+        background: #fffbf2; max-width: 74ch; }
+.card.exec { background: #fffbf2; border: 1px solid #e4d4bc; border-left: 4px solid #a34f20;
+             border-radius: 14px; box-shadow: 0 4px 14px rgba(58,43,30,.12);
+             padding: 1.5rem 1.7rem; max-width: 72ch; }
+.insight { border-left-color: #8a7660; }
+.rec { border-left-color: #a34f20; }
+.driver { border-left-color: #8a7660; font-size: .95rem; }
+.treat { border-left-color: #e4d4bc; font-size: .9rem; color: #8a7660; }
+.warn { border-left-color: #a33526; color: #a33526; }
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: .88rem;
+        background: #fffbf2; border: 1px solid #e4d4bc; border-radius: 12px; overflow: hidden;
+        box-shadow: 0 4px 14px rgba(58,43,30,.10); }
+th, td { border-bottom: 1px solid #eee3cb; padding: .55rem .8rem; text-align: left; }
+th { background: #f1e4cb; color: #3a2b1e; font-weight: 700; font-size: .8rem; }
+.chart { background: #fffbf2; border: 1px solid #e4d4bc; border-radius: 14px;
+         box-shadow: 0 4px 14px rgba(58,43,30,.10);
+         padding: 1.2rem 1.3rem 1.1rem; margin: 1.4rem 0; }
+.chart h3 { margin: .1rem 0 .2rem; font-weight: 700; font-size: 1.05rem;
+            font-family: 'Baloo 2', 'Mukta', sans-serif; }
+.chart p { margin: .15rem 0 .9rem; color: #8a7660; font-size: .85rem; max-width: 68ch; }
 .vega-holder { width: 100%; }
-.badge { display: inline-block; border: 1px solid #12467e; color: #12467e;
-         font-family: 'IBM Plex Mono', monospace; padding: .18rem .7rem;
-         font-size: .74rem; margin: 0 .35rem .35rem 0; }
-.footer { margin-top: 4rem; border-top: 1px solid #171c1f; padding-top: .7rem;
-          color: #54585b; font-family: 'IBM Plex Mono', monospace; font-size: .74rem; }
+.badge { display: inline-block; border: 1px solid #a34f20; color: #a34f20;
+         background: #fffbf2; border-radius: 999px; font-weight: 600;
+         padding: .25rem .85rem; font-size: .78rem; margin: 0 .4rem .4rem 0; }
+.footer { margin-top: 4rem; border-top: 1px solid #e4d4bc; padding-top: .8rem;
+          color: #8a7660; font-size: .8rem; }
 """
 
 _FONTS_CDN = (
     '<link rel="preconnect" href="https://fonts.googleapis.com">'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800'
-    '&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">'
+    '<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800'
+    '&family=Mukta:wght@400;500;600;700&display=swap" rel="stylesheet">'
 )
 
 _VEGA_CDN = (
@@ -87,26 +84,26 @@ _VEGA_CDN = (
 )
 
 _VEGA_PLOT_CONFIG: dict[str, Any] = {
-    "background": "#efeee8",
-    "font": "Archivo, 'Segoe UI', sans-serif",
-    "axis": {"labelColor": "#54585b",
-             "titleColor": "#54585b",
-             "gridColor": "#c8c6bc",
+    "background": "#fffbf2",
+    "font": "Mukta, 'Segoe UI', sans-serif",
+    "axis": {"labelColor": "#8a7660",
+             "titleColor": "#8a7660",
+             "gridColor": "#e4d4bc",
              "gridDash": [2, 3],
-             "domainColor": "#171c1f",
-             "tickColor": "#171c1f",
-             "labelFont": "IBM Plex Mono, monospace",
+             "domainColor": "#3a2b1e",
+             "tickColor": "#3a2b1e",
+             "labelFont": "Mukta, sans-serif",
              "labelFontSize": 11,
-             "titleFont": "Archivo, sans-serif",
+             "titleFont": "Baloo 2, sans-serif",
              "titleFontWeight": 600},
-    "legend": {"labelColor": "#171c1f",
-               "titleColor": "#54585b",
-               "labelFont": "Archivo, sans-serif",
-               "titleFont": "Archivo, sans-serif",
+    "legend": {"labelColor": "#3a2b1e",
+               "titleColor": "#8a7660",
+               "labelFont": "Mukta, sans-serif",
+               "titleFont": "Baloo 2, sans-serif",
                "symbolType": "square"},
     "view": {"stroke": "transparent"},
-    "range": {"category": ["#12467e", "#b5271a", "#7a8b99",
-                           "#c08a2e", "#3f6f5b", "#8e6e9e"]},
+    "range": {"category": ["#a34f20", "#a33526", "#c08a2e",
+                           "#5b8c5a", "#8a7660", "#b5714a"]},
 }
 
 
@@ -163,8 +160,7 @@ def build_html_report(
 
     sections.append(
         f"<h1>What we found in {_esc(dataset_name)}</h1>"
-        f'<div class="sub">Drawn up {timestamp} by the Agentic Data Analysis '
-        f"System</div>"
+        f'<div class="sub">Prepared {timestamp} by your data assistant</div>'
         f"<div>{badges}</div>"
     )
 
@@ -246,8 +242,7 @@ def build_html_report(
         )
 
     sections.append(
-        '<div class="footer">Agentic Data Analysis System · reasoning ↔ execution '
-        "separation with RLM context offloading</div>"
+        '<div class="footer">Made for you by your data assistant.</div>'
     )
 
     body = "\n".join(sections)

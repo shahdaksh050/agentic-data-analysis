@@ -1,71 +1,97 @@
 /**
- * The plate — a live technical drawing of the seven-stage RLM pipeline.
+ * The plate — a warm, friendly 3D view of the seven-step pipeline.
  *
- * The console is a draughtsman's sheet (DESIGN.md), so the pipeline is drawn
- * rather than lit: hairline cages around solids, flat paper fills, no gloss and
- * no glow. Two pens ink the drawing — blue for what the run measured, red for
- * where it failed. Stages the run never reached stay in pencil.
- *
- * The drawing also encodes real control flow: stage 5 arcs back to stage 3
- * (iterative refinement re-enters tool execution) and stage 6 carries two
- * satellites (the recursive RLM sub-calls).
- *
- * State arrives from Python on `window.__PIPELINE_STATE__`; see ui/pipeline_3d.py.
+ * - Soft directional lighting and gentle contact shadows for depth.
+ * - Fluid data particle stream flowing through active pipeline stages and refinement arcs.
+ * - Morphing kinetic modules with stage-specific geometries and mechanical animations.
+ * - 3D world-space projected HUD pin callouts.
+ * - Interactive perspective toggles (ISO, PLAN, FRONT, RESET).
+ * - Full performance gating (dirty flag, visibility check, DPR clamp, teardown).
  */
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 
-const STATE = window.__PIPELINE_STATE__;
-const C = STATE.palette;
-const STAGES = STATE.stages;
+const STATE = window.__PIPELINE_STATE__ || { stages: [], palette: {} };
+const C = STATE.palette || {};
+const STAGES = STATE.stages || [];
+const THEME = STATE.theme || "day";
+const isNight = THEME === "night";
 
 const host = document.getElementById("scene");
 const elTitle = document.getElementById("readout-title");
 const elBody = document.getElementById("readout-body");
+const hudPin = document.getElementById("hud-pin");
+const hudStep = document.getElementById("hud-step");
+const hudText = document.getElementById("hud-text");
+const hudBadge = document.getElementById("hud-badge");
 
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* ------------------------------------------------------------------ *
- * Drawing geometry, in world units
- * ------------------------------------------------------------------ */
-const GAP = 2.0; // spacing between stage modules along the rail
-const CAGE = 0.92; // wireframe module edge length
-const REFINE_FROM = 4; // stage 5 (0-indexed) …
-const REFINE_TO = 2; // … loops back into stage 3
-const RLM_INDEX = 5; // stage 6 spawns the recursive satellites
-const STROKE_SAMPLES = 24; // points per drawn line, so a pen can travel it
-
-/** World X for a stage, centring the rail on the origin. */
-const xFor = (i) => (i - (STAGES.length - 1) / 2) * GAP;
-
-const isReached = (s) => s === "done" || s === "active" || s === "error";
-
-/** The ink a stage is drawn in once the run has reached it. */
-function inkFor(status) {
-  if (status === "error") return C.risk;
-  if (status === "done" || status === "active") return C.pen;
-  return C.graphite;
+/* Streamlit reruns this iframe's document on *any* widget interaction
+ * anywhere in the app, not just after an analysis run advances a stage —
+ * moving an unrelated sidebar slider triggers the same full page rerun.
+ * build_document() is deterministic for unchanged (stages, theme), so
+ * replaying the entrance animation only makes sense when that pair has
+ * actually changed since we last played it. sessionStorage survives an
+ * iframe document reload within the same tab, so it's the signal: skip
+ * the animation and snap straight to final state on a rerun that changed
+ * nothing (IMPROVEMENTS.md #10); play it in full when the run progressed.
+ */
+const RUN_SIGNATURE = JSON.stringify({
+  theme: THEME,
+  stages: STAGES.map((s) => [s.num, s.status, s.detail]),
+});
+function hasPlayedEntranceFor(signature) {
+  try {
+    return sessionStorage.getItem("pipeline3d:lastEntrance") === signature;
+  } catch {
+    return false; // storage blocked (sandboxed iframe) — always animate
+  }
+}
+function markEntrancePlayed(signature) {
+  try {
+    sessionStorage.setItem("pipeline3d:lastEntrance", signature);
+  } catch {
+    /* storage blocked — nothing to persist, next load just animates again */
+  }
 }
 
-/** Line weight is unavailable in WebGL, so pressure is carried by opacity. */
+/* ------------------------------------------------------------------ *
+ * Drawing geometry & layout constants
+ * ------------------------------------------------------------------ */
+const GAP = 2.1;               // Spacing between modules along rail
+const CAGE = 0.95;              // Wireframe module bounding size
+const REFINE_FROM = 4;          // Stage 5 (0-indexed)
+const REFINE_TO = 2;            // Loops back to Stage 3
+const RLM_INDEX = 5;            // Stage 6 recursive decomposition
+const STROKE_SAMPLES = 28;      // Line sample points for pen reveal
+
+const xFor = (i) => (i - (STAGES.length - 1) / 2) * GAP;
+const isReached = (s) => s === "done" || s === "active" || s === "error";
+
+function inkFor(status) {
+  if (status === "error") return C.risk || "#a33526";
+  if (status === "done" || status === "active") return C.pen || "#a34f20";
+  return C.graphite || "#8a7660";
+}
+
 const CAGE_OPACITY = {
-  pending: 0.4,
-  skipped: 0.22,
-  done: 0.75,
-  active: 1,
+  pending: 0.35,
+  skipped: 0.18,
+  done: 0.85,
+  active: 1.0,
   error: 0.95,
 };
 
-/** Reached stages get inked in on paper; the rest stay as a pencil outline. */
 const FILL_OPACITY = {
-  pending: 0,
-  skipped: 0,
+  pending: 0.15,
+  skipped: 0.05,
   done: 0.92,
-  active: 1,
-  error: 0.55,
+  active: 1.0,
+  error: 0.65,
 };
 
-/** WebGL missing: the drawing is decoration, the stage list is not. */
 function fallback(message) {
+  if (!host) return;
   host.innerHTML = "";
   const p = document.createElement("p");
   p.className = "fallback";
@@ -74,7 +100,7 @@ function fallback(message) {
 }
 
 /* ------------------------------------------------------------------ *
- * Renderer, scene, camera
+ * Renderer, Scene, Camera & Lighting
  * ------------------------------------------------------------------ */
 let renderer;
 try {
@@ -84,34 +110,48 @@ try {
     powerPreference: "high-performance",
   });
 } catch (err) {
-  fallback("This browser can't render WebGL. Open the stage ledger for the same information as text.");
+  fallback("This 3D view isn't available here. See the steps list below instead.");
   throw err;
 }
 
-renderer.setClearColor(0x000000, 0); // blend into the sheet
+renderer.setClearColor(0x000000, 0);
 host.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
 
-// No lights: every surface is a flat fill with a drawn edge, which is both the
-// look the brief asks for and the cheapest thing the GPU can do.
+// Warm ambient + directional lighting, like a reading lamp over the desk
+const ambientLight = new THREE.AmbientLight(
+  isNight ? 0x3a2c1c : 0xfaf1de,
+  isNight ? 1.1 : 0.85
+);
+scene.add(ambientLight);
 
-/** Everything rotatable lives under the drawing, so the entrance can swing it. */
+const dirLight = new THREE.DirectionalLight(isNight ? 0xffe0b0 : 0xffffff, isNight ? 1.0 : 0.65);
+dirLight.position.set(6, 12, 8);
+scene.add(dirLight);
+
+const fillLight = new THREE.DirectionalLight(
+  isNight ? 0xf0a24a : 0xecdfc4,
+  0.35
+);
+fillLight.position.set(-6, -4, -4);
+scene.add(fillLight);
+
 const drawing = new THREE.Group();
 scene.add(drawing);
 
 /* ------------------------------------------------------------------ *
- * Shared resources — created once, reused across all seven modules
+ * Shared Resources & Disposal Tracking
  * ------------------------------------------------------------------ */
 const disposables = [];
-const keep = (resource) => {
-  disposables.push(resource);
-  return resource;
+const keep = (res) => {
+  if (res) disposables.push(res);
+  return res;
 };
 
 const cageGeo = keep(new THREE.EdgesGeometry(new THREE.BoxGeometry(CAGE, CAGE, CAGE)));
-const pickGeo = keep(new THREE.BoxGeometry(CAGE * 1.35, CAGE * 1.35, CAGE * 1.35));
+const pickGeo = keep(new THREE.BoxGeometry(CAGE * 1.4, CAGE * 1.4, CAGE * 1.4));
 const pickMat = keep(
   new THREE.MeshBasicMaterial({
     transparent: true,
@@ -121,35 +161,45 @@ const pickMat = keep(
   })
 );
 
-/**
- * The solid at the heart of each module. The shape is the label: a flat sheet
- * arrives, a crystal reasons over it, a box does the work, and so on.
- */
+/* ------------------------------------------------------------------ *
+ * Core Stage Geometries
+ * ------------------------------------------------------------------ */
 function coreGeometries(index) {
   switch (index) {
-    case 0: // Ingestion — the raw file lands as a flat sheet
-      return [[new THREE.BoxGeometry(0.64, 0.07, 0.64), 0, 0, 0]];
-    case 1: // Reasoning — a crystal of thought
-      return [[new THREE.OctahedronGeometry(0.37), 0, 0, 0]];
-    case 2: // Tool execution — solid machinery
-      return [[new THREE.BoxGeometry(0.46, 0.46, 0.46), 0, 0, 0]];
-    case 3: // Interpretation — the picture comes together
-      return [[new THREE.IcosahedronGeometry(0.35, 1), 0, 0, 0]];
-    case 4: // Refinement — the loop, echoing the arc overhead
-      return [[new THREE.TorusGeometry(0.29, 0.08, 8, 22), 0, 0, 0]];
-    case 5: // RLM decomposition — one problem splits into four
+    case 0: // Ingestion: layered raw data sheet
+      return [
+        [new THREE.BoxGeometry(0.66, 0.06, 0.66), 0, -0.04, 0],
+        [new THREE.BoxGeometry(0.52, 0.05, 0.52), 0, 0.06, 0],
+      ];
+    case 1: // Reasoning: prismatic crystal of thought
+      return [
+        [new THREE.OctahedronGeometry(0.38, 0), 0, 0, 0],
+      ];
+    case 2: // Execution: solid machine caliper block with bore
+      return [
+        [new THREE.BoxGeometry(0.48, 0.48, 0.48), 0, 0, 0],
+        [new THREE.CylinderGeometry(0.12, 0.12, 0.52, 16), 0, 0, 0],
+      ];
+    case 3: // Interpretation: faceted geodesic sphere
+      return [
+        [new THREE.IcosahedronGeometry(0.38, 1), 0, 0, 0],
+      ];
+    case 4: // Refinement: gyroscopic dual-ring torus
+      return [
+        [new THREE.TorusGeometry(0.30, 0.07, 12, 28), 0, 0, 0],
+      ];
+    case 5: // RLM Decomposition: 4 recursive sub-task cubes
       return [-0.16, 0.16].flatMap((x) =>
         [-0.16, 0.16].map((z) => [new THREE.BoxGeometry(0.22, 0.22, 0.22), x, 0, z])
       );
-    default: // Report — the finished document, two sheets stacked
+    default: // Report: final bound specification sheets
       return [
-        [new THREE.BoxGeometry(0.6, 0.05, 0.5), 0, 0.08, 0],
-        [new THREE.BoxGeometry(0.6, 0.05, 0.5), 0, -0.06, 0],
+        [new THREE.BoxGeometry(0.62, 0.05, 0.52), 0, 0.08, 0],
+        [new THREE.BoxGeometry(0.62, 0.05, 0.52), 0, -0.06, 0],
       ];
   }
 }
 
-/** A drawn solid: a flat paper fill with its edges inked over the top. */
 function buildCore(index, fillMat, edgeMat) {
   const group = new THREE.Group();
   for (const [geometry, x, y, z] of coreGeometries(index)) {
@@ -166,60 +216,81 @@ function buildCore(index, fillMat, edgeMat) {
 }
 
 /* ------------------------------------------------------------------ *
- * Modules
+ * Modules & Bench Shadows
  * ------------------------------------------------------------------ */
+const shadowGeo = keep(new THREE.PlaneGeometry(1.2, 1.2));
+const shadowMat = keep(
+  new THREE.MeshBasicMaterial({
+    color: new THREE.Color(isNight ? 0x120d08 : 0x3a2b1e),
+    transparent: true,
+    opacity: isNight ? 0.22 : 0.09,
+    depthWrite: false,
+  })
+);
+
 const nodes = STAGES.map((stage, i) => {
   const group = new THREE.Group();
   group.position.x = xFor(i);
 
+  // Ground contact shadow disc
+  const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = -1.33;
+  group.add(shadow);
+
+  // Wireframe cage
   const cageMat = keep(
     new THREE.LineBasicMaterial({
-      color: new THREE.Color(C.graphite),
+      color: new THREE.Color(C.graphite || "#8a7660"),
       transparent: true,
       opacity: CAGE_OPACITY.pending,
     })
   );
-  group.add(new THREE.LineSegments(cageGeo, cageMat));
+  const cage = new THREE.LineSegments(cageGeo, cageMat);
+  group.add(cage);
 
-  // Fill sits fractionally behind its own edges, so the hairlines always win.
+  // Volumetric material for core solid
   const fillMat = keep(
-    new THREE.MeshBasicMaterial({
-      color: new THREE.Color(C.sheet),
+    new THREE.MeshLambertMaterial({
+      color: new THREE.Color(C.sheet || "#fffbf2"),
       transparent: true,
-      opacity: 0,
+      opacity: FILL_OPACITY.pending,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     })
   );
+
   const edgeMat = keep(
     new THREE.LineBasicMaterial({
-      color: new THREE.Color(C.graphite),
+      color: new THREE.Color(C.graphite || "#8a7660"),
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.55,
     })
   );
+
   const core = buildCore(i, fillMat, edgeMat);
   group.add(core);
 
-  // Invisible but raycastable, so hovering forgives a near miss.
+  // Raycasting hit target
   const pick = new THREE.Mesh(pickGeo, pickMat);
   pick.userData.index = i;
   group.add(pick);
 
   drawing.add(group);
-  return { stage, group, cageMat, core, fillMat, edgeMat, pick };
+  return { stage, group, cage, cageMat, core, fillMat, edgeMat, pick };
 });
 
 /* ------------------------------------------------------------------ *
- * Rail, refinement arc, RLM satellites — structure that carries meaning.
- *
- * Every line is sampled into many points so `setDrawRange` can walk a pen
- * along it during the entrance.
+ * Connectors, Refinement Arc, Satellites
  * ------------------------------------------------------------------ */
 function makeStroke(points, color, opacity) {
   const material = keep(
-    new THREE.LineBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity })
+    new THREE.LineBasicMaterial({
+      color: new THREE.Color(color),
+      transparent: true,
+      opacity,
+    })
   );
   const geometry = keep(new THREE.BufferGeometry().setFromPoints(points));
   const line = new THREE.Line(geometry, material);
@@ -227,44 +298,39 @@ function makeStroke(points, color, opacity) {
   return { material, geometry, count: points.length };
 }
 
-/** Straight run between two points, sampled so it can be drawn on. */
 function straight(from, to) {
   return new THREE.LineCurve3(from, to).getPoints(STROKE_SAMPLES);
 }
 
-/** One segment per hop, so each inks only once the data has crossed it. */
 const links = nodes.slice(0, -1).map((_, i) =>
   makeStroke(
     straight(
       new THREE.Vector3(xFor(i) + CAGE / 2, 0, 0),
       new THREE.Vector3(xFor(i + 1) - CAGE / 2, 0, 0)
     ),
-    C.graphite,
+    C.graphite || "#8a7660",
     0.42
   )
 );
 
-/** Stage 5 feeds back into stage 3 — the controller's iteration loop. */
-const refineArc = makeStroke(
-  new THREE.QuadraticBezierCurve3(
-    new THREE.Vector3(xFor(REFINE_FROM), CAGE / 2, 0),
-    new THREE.Vector3((xFor(REFINE_FROM) + xFor(REFINE_TO)) / 2, 2.5, 0),
-    new THREE.Vector3(xFor(REFINE_TO), CAGE / 2, 0)
-  ).getPoints(56),
-  C.graphite,
-  0.34
+// Stage 5 -> Stage 3 refinement feedback arc
+const refineArcCurve = new THREE.QuadraticBezierCurve3(
+  new THREE.Vector3(xFor(REFINE_FROM), CAGE / 2, 0),
+  new THREE.Vector3((xFor(REFINE_FROM) + xFor(REFINE_TO)) / 2, 2.6, 0),
+  new THREE.Vector3(xFor(REFINE_TO), CAGE / 2, 0)
 );
+const refineArc = makeStroke(refineArcCurve.getPoints(64), C.graphite || "#8a7660", 0.35);
 
-/** Stage 6 spawns recursive sub-calls, shown as two satellites off the rail. */
+// Stage 6 RLM recursive satellites
 const satellites = [-1, 1].map((side) => {
-  const position = new THREE.Vector3(xFor(RLM_INDEX), 0.15, side * 1.25);
-  const geometry = keep(new THREE.BoxGeometry(0.2, 0.2, 0.2));
+  const pos = new THREE.Vector3(xFor(RLM_INDEX), 0.15, side * 1.35);
+  const geo = keep(new THREE.BoxGeometry(0.24, 0.24, 0.24));
 
   const fillMat = keep(
-    new THREE.MeshBasicMaterial({
-      color: new THREE.Color(C.sheet),
+    new THREE.MeshLambertMaterial({
+      color: new THREE.Color(C.sheet || "#fffbf2"),
       transparent: true,
-      opacity: 0,
+      opacity: 0.1,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
@@ -272,92 +338,106 @@ const satellites = [-1, 1].map((side) => {
   );
   const edgeMat = keep(
     new THREE.LineBasicMaterial({
-      color: new THREE.Color(C.graphite),
+      color: new THREE.Color(C.graphite || "#8a7660"),
       transparent: true,
       opacity: 0.5,
     })
   );
 
-  const fill = new THREE.Mesh(geometry, fillMat);
-  fill.position.copy(position);
+  const fill = new THREE.Mesh(geo, fillMat);
+  fill.position.copy(pos);
   drawing.add(fill);
 
-  const edges = new THREE.LineSegments(keep(new THREE.EdgesGeometry(geometry)), edgeMat);
-  edges.position.copy(position);
+  const edges = new THREE.LineSegments(keep(new THREE.EdgesGeometry(geo)), edgeMat);
+  edges.position.copy(pos);
   drawing.add(edges);
 
   const tether = makeStroke(
-    straight(new THREE.Vector3(xFor(RLM_INDEX), 0, side * (CAGE / 2)), position.clone()),
-    C.graphite,
+    straight(new THREE.Vector3(xFor(RLM_INDEX), 0, side * (CAGE / 2)), pos.clone()),
+    C.graphite || "#8a7660",
     0.3
   );
-  return { fillMat, edgeMat, tether };
+
+  return { fillMat, edgeMat, fill, edges, tether, position: pos };
 });
 
-/** The sheet's own quadrille, carried into the drawing as a bench plane. */
-const grid = new THREE.GridHelper(20, 20, new THREE.Color(C.ink), new THREE.Color(C.ink));
+// Bench grid plane
+const gridColor = new THREE.Color(C.grid || C.ink || "#3a2b1e");
+const grid = new THREE.GridHelper(22, 22, gridColor, gridColor);
 grid.position.y = -1.35;
 grid.material.transparent = true;
-grid.material.opacity = 0.065;
+grid.material.opacity = isNight ? 0.12 : 0.05;
 keep(grid.geometry);
 keep(grid.material);
 drawing.add(grid);
 
 /* ------------------------------------------------------------------ *
- * Payload — the dataset itself, as a lattice of cells riding the rail
+ * Dynamic Fluid Ink Particle Stream
  * ------------------------------------------------------------------ */
-const CELLS = { x: 2, y: 3, z: 4 };
-const CELL_COUNT = CELLS.x * CELLS.y * CELLS.z;
-const CELL_STEP = 0.13;
-
-const payload = new THREE.InstancedMesh(
-  keep(new THREE.BoxGeometry(0.075, 0.075, 0.075)),
-  keep(new THREE.MeshBasicMaterial({ color: new THREE.Color(C.pen) })),
-  CELL_COUNT
+const PARTICLE_COUNT = 84;
+const pGeo = keep(new THREE.OctahedronGeometry(0.042, 0));
+const pMat = keep(
+  new THREE.MeshBasicMaterial({
+    color: new THREE.Color(C.pen || "#a34f20"),
+    transparent: true,
+    opacity: 0.85,
+  })
 );
-payload.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-payload.visible = false;
-drawing.add(payload);
+const particleMesh = new THREE.InstancedMesh(pGeo, pMat, PARTICLE_COUNT);
+particleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+particleMesh.visible = false;
+drawing.add(particleMesh);
 
-/** Home offset of every cell in the lattice, reused each frame. */
-const cellHomes = [];
-for (let ix = 0; ix < CELLS.x; ix++) {
-  for (let iy = 0; iy < CELLS.y; iy++) {
-    for (let iz = 0; iz < CELLS.z; iz++) {
-      cellHomes.push(
-        new THREE.Vector3(
-          (ix - (CELLS.x - 1) / 2) * CELL_STEP,
-          (iy - (CELLS.y - 1) / 2) * CELL_STEP,
-          (iz - (CELLS.z - 1) / 2) * CELL_STEP
-        )
-      );
+// Pre-initialize particle offsets and paths
+const particleData = Array.from({ length: PARTICLE_COUNT }, (_, i) => ({
+  t: i / PARTICLE_COUNT,
+  speed: 0.25 + (i % 5) * 0.05,
+  spread: (Math.random() - 0.5) * 0.12,
+  isArc: i % 4 === 0, // portion of particles travel overhead refinement arc
+}));
+const pMatrix = new THREE.Matrix4();
+const pPos = new THREE.Vector3();
+
+function updateParticles(delta) {
+  const reachedCount = STAGES.filter((s) => isReached(s.status)).length;
+  if (reachedCount <= 0) {
+    particleMesh.visible = false;
+    return;
+  }
+  particleMesh.visible = true;
+
+  const maxStage = Math.max(0, reachedCount - 1);
+  const startX = xFor(0) - 0.8;
+  const endX = xFor(maxStage);
+  const totalDist = Math.max(endX - startX, 0.1);
+  const hasRefined = isReached(STAGES[REFINE_FROM]?.status);
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const p = particleData[i];
+    p.t = (p.t + delta * p.speed) % 1;
+
+    if (p.isArc && hasRefined && maxStage >= REFINE_FROM) {
+      // Traverse overhead refinement loop
+      refineArcCurve.getPoint(p.t, pPos);
+      pPos.z += p.spread;
+    } else {
+      // Traverse main rail
+      pPos.x = startX + p.t * totalDist;
+      pPos.y = Math.sin(p.t * Math.PI * (maxStage + 1)) * 0.06;
+      pPos.z = p.spread;
     }
-  }
-}
 
-const cellMatrix = new THREE.Matrix4();
-
-/** `spread` fans the lattice apart in transit and packs it back on arrival. */
-function layoutPayload(spread, phase) {
-  for (let i = 0; i < CELL_COUNT; i++) {
-    const home = cellHomes[i];
-    const scale = 1 + spread * 0.9 + Math.sin(phase + i * 0.7) * 0.06;
-    cellMatrix.makeTranslation(home.x * scale, home.y * scale, home.z * scale);
-    payload.setMatrixAt(i, cellMatrix);
+    const scale = 0.8 + Math.sin(p.t * Math.PI * 4) * 0.25;
+    pMatrix.makeScale(scale, scale, scale);
+    pMatrix.setPosition(pPos.x, pPos.y, pPos.z);
+    particleMesh.setMatrixAt(i, pMatrix);
   }
-  payload.instanceMatrix.needsUpdate = true;
+  particleMesh.instanceMatrix.needsUpdate = true;
 }
-layoutPayload(0, 0);
 
 /* ------------------------------------------------------------------ *
- * Camera framing
+ * Camera Framing & CAD Projections
  * ------------------------------------------------------------------ */
-/**
- * The points the framing has to keep on screen: the eight corners of every
- * stage cage, the apex of the refinement arc, the RLM satellites, and where
- * the payload comes to rest. A crude bounding box would reserve height at the
- * ends of the rail, where nothing is actually drawn.
- */
 const fitPoints = [];
 STAGES.forEach((_, i) => {
   for (const dx of [-CAGE / 2, CAGE / 2]) {
@@ -368,15 +448,13 @@ STAGES.forEach((_, i) => {
     }
   }
 });
-fitPoints.push(new THREE.Vector3((xFor(REFINE_FROM) + xFor(REFINE_TO)) / 2, 1.5, 0));
+fitPoints.push(new THREE.Vector3((xFor(REFINE_FROM) + xFor(REFINE_TO)) / 2, 2.7, 0));
 for (const side of [-1, 1]) {
-  fitPoints.push(new THREE.Vector3(xFor(RLM_INDEX), 0.28, side * 1.35));
+  fitPoints.push(new THREE.Vector3(xFor(RLM_INDEX), 0.3, side * 1.5));
 }
-fitPoints.push(new THREE.Vector3(xFor(STAGES.length - 1), 0.75, 0));
 
-const FIT_MARGIN = 0.9; // fraction of the frame the drawing may fill
-
-const orbit = { theta: 0.42, phi: 1.16, radius: 12 };
+const FIT_MARGIN = 0.88;
+const orbit = { theta: 0.42, phi: 1.16, radius: 12.5 };
 const drag = { theta: 0, phi: 0 };
 const parallax = { x: 0, y: 0 };
 const smooth = { theta: 0.42, phi: 1.16 };
@@ -395,7 +473,6 @@ function placeCamera(cam, radius, theta, phi) {
   cam.lookAt(0, 0, 0);
 }
 
-/** Projected bounds of the drawing as the probe currently sees it. */
 function projectedBounds() {
   probe.updateMatrixWorld(true);
   const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
@@ -409,24 +486,14 @@ function projectedBounds() {
   return b;
 }
 
-/**
- * Frames the drawing for the current viewport.
- *
- * The rail is long and thin, so viewed broadside it wastes a square frame; as
- * the viewport narrows it is swung into depth instead. The distance is then
- * solved by projecting the drawing and shrinking to fit, and the drawing is
- * slid so that what is actually on screen sits in the middle of it — with a
- * rail seen at an angle, perspective puts the near end much further from the
- * centre than the far one. Only ever runs on resize.
- */
 function fitCamera(width, height) {
   camera.aspect = width / Math.max(height, 1);
   camera.updateProjectionMatrix();
 
   orbit.theta = THREE.MathUtils.clamp(
-    THREE.MathUtils.mapLinear(camera.aspect, 1.1, 2.6, 0.92, 0.34),
-    0.34,
-    0.92
+    THREE.MathUtils.mapLinear(camera.aspect, 1.1, 2.6, 0.88, 0.32),
+    0.32,
+    0.88
   );
 
   probe.copy(camera);
@@ -441,20 +508,19 @@ function fitCamera(width, height) {
     const spanY = (bounds.maxY - bounds.minY) / 2;
     radius *= Math.max(spanX, spanY) / FIT_MARGIN;
   }
-  orbit.radius = THREE.MathUtils.clamp(radius, 7, 40);
+  orbit.radius = THREE.MathUtils.clamp(radius, 7, 36);
 
   placeCamera(probe, orbit.radius, orbit.theta, orbit.phi);
   bounds = projectedBounds();
-  const halfHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * orbit.radius;
-  const halfWidth = halfHeight * camera.aspect;
+  const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * orbit.radius;
+  const halfW = halfH * camera.aspect;
   camRight.setFromMatrixColumn(probe.matrixWorld, 0);
   camUp.setFromMatrixColumn(probe.matrixWorld, 1);
   drawing.position
     .copy(camRight)
-    .multiplyScalar((-(bounds.minX + bounds.maxX) / 2) * halfWidth)
-    .addScaledVector(camUp, (-(bounds.minY + bounds.maxY) / 2) * halfHeight);
+    .multiplyScalar((-(bounds.minX + bounds.maxX) / 2) * halfW)
+    .addScaledVector(camUp, (-(bounds.minY + bounds.maxY) / 2) * halfH);
 
-  // Don't ease into the very first framing — the entrance already has a swing.
   if (!framed) {
     smooth.theta = orbit.theta;
     smooth.phi = orbit.phi;
@@ -462,29 +528,28 @@ function fitCamera(width, height) {
   }
 }
 
-/** Eases the camera toward its target; reports whether it is still moving. */
 function updateCamera() {
   const targetTheta = orbit.theta + drag.theta + parallax.x * 0.12;
-  const targetPhi = THREE.MathUtils.clamp(orbit.phi + drag.phi + parallax.y * 0.08, 0.55, 1.7);
+  const targetPhi = THREE.MathUtils.clamp(orbit.phi + drag.phi + parallax.y * 0.08, 0.1, 1.65);
   const moving =
     Math.abs(targetTheta - smooth.theta) > 1e-4 || Math.abs(targetPhi - smooth.phi) > 1e-4;
 
-  smooth.theta += (targetTheta - smooth.theta) * 0.12;
-  smooth.phi += (targetPhi - smooth.phi) * 0.12;
+  smooth.theta += (targetTheta - smooth.theta) * 0.14;
+  smooth.phi += (targetPhi - smooth.phi) * 0.14;
 
   placeCamera(camera, orbit.radius, smooth.theta, smooth.phi);
   return moving;
 }
 
 /* ------------------------------------------------------------------ *
- * Readout — plain text describing the run, or whatever is hovered
+ * Readout & 3D Projected HUD Callout Pins
  * ------------------------------------------------------------------ */
 const STATUS_WORD = {
-  done: "Finished",
-  active: "Running",
-  error: "Failed",
-  skipped: "Skipped",
-  pending: "Not run",
+  done: "Completed",
+  active: "Executing",
+  error: "Inspection Flag",
+  skipped: "Omitted",
+  pending: "Pending",
 };
 
 function defaultReadout() {
@@ -492,31 +557,64 @@ function defaultReadout() {
   const running = STAGES.find((s) => s.status === "active");
   const finished = STAGES.filter((s) => s.status === "done").length;
 
-  if (errored) return ["Run stopped", `Stage ${errored.num} failed: ${errored.name}.`];
-  if (running) return ["Running", `Stage ${running.num} of ${STAGES.length} — ${running.name}.`];
-  if (finished === STAGES.length) return ["Run complete", `All ${STAGES.length} stages finished.`];
-  if (finished > 0) return ["Run finished", `${finished} of ${STAGES.length} stages ran.`];
-  return ["Waiting for a dataset", "Upload a file in the sidebar, then start the run."];
+  if (errored) return ["Something Needs Checking", `Step ${errored.num} flagged: ${errored.name}`];
+  if (running) return ["Working On It", `Step ${running.num} of ${STAGES.length} — ${running.name}`];
+  if (finished === STAGES.length) return ["All Done!", `All ${STAGES.length} steps finished.`];
+  if (finished > 0) return ["Stopped Partway", `${finished} of ${STAGES.length} steps finished.`];
+  return ["Ready When You Are", "Upload your file and tell us what you'd like to know."];
 }
 
 function setReadout(title, body) {
-  // textContent, never innerHTML — stage details come from tool output.
-  elTitle.textContent = title;
-  elBody.textContent = body;
+  if (elTitle) elTitle.textContent = title;
+  if (elBody) elBody.textContent = body;
 }
 setReadout(...defaultReadout());
 
+const hudPos = new THREE.Vector3();
+function updateHUD(hoveredIndex, activeIndex) {
+  if (!hudPin || !hudBadge) return;
+  const targetIdx = hoveredIndex >= 0 ? hoveredIndex : activeIndex;
+  if (targetIdx < 0 || targetIdx >= nodes.length) {
+    hudPin.classList.remove("active");
+    return;
+  }
+
+  const node = nodes[targetIdx];
+  node.group.getWorldPosition(hudPos);
+  hudPos.y += CAGE * 0.75;
+  hudPos.project(camera);
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  const x = (hudPos.x * 0.5 + 0.5) * rect.width;
+  const y = (-hudPos.y * 0.5 + 0.5) * rect.height;
+
+  hudPin.style.left = `${x}px`;
+  hudPin.style.top = `${y}px`;
+
+  const s = node.stage;
+  if (hudStep) hudStep.textContent = s.num.padStart(2, "0");
+  if (hudText) hudText.textContent = `${s.name} [${STATUS_WORD[s.status] || "Ready"}]`;
+
+  if (s.status === "error") {
+    hudBadge.classList.add("err");
+  } else {
+    hudBadge.classList.remove("err");
+  }
+
+  hudPin.classList.add("active");
+}
+
 /* ------------------------------------------------------------------ *
- * Inking state onto the drawing
+ * Inking State Transitions
  * ------------------------------------------------------------------ */
 function ink(i, animated) {
   const { stage, group, cageMat, fillMat, edgeMat } = nodes[i];
   const color = new THREE.Color(inkFor(stage.status));
   const cageOpacity = CAGE_OPACITY[stage.status] ?? CAGE_OPACITY.pending;
-  const fillOpacity = FILL_OPACITY[stage.status] ?? 0;
-  const edgeOpacity = isReached(stage.status) ? 1 : 0.5;
+  const fillOpacity = FILL_OPACITY[stage.status] ?? 0.15;
+  const edgeOpacity = isReached(stage.status) ? 1.0 : 0.5;
 
-  if (!animated) {
+  if (!animated || REDUCED_MOTION) {
     cageMat.color.copy(color);
     cageMat.opacity = cageOpacity;
     edgeMat.color.copy(color);
@@ -525,72 +623,63 @@ function ink(i, animated) {
     return;
   }
 
-  const tl = gsap.timeline({ onUpdate: invalidate });
-  tl.to(
-    [cageMat.color, edgeMat.color],
-    { r: color.r, g: color.g, b: color.b, duration: 0.4, ease: "power2.out" },
-    0
-  )
-    .to(cageMat, { opacity: cageOpacity, duration: 0.4 }, 0)
-    .to(edgeMat, { opacity: edgeOpacity, duration: 0.4 }, 0)
-    .to(fillMat, { opacity: fillOpacity, duration: 0.45, ease: "power2.out" }, 0)
-    .to(group.scale, { x: 1.1, y: 1.1, z: 1.1, duration: 0.16, ease: "power2.out" }, 0)
-    .to(group.scale, { x: 1, y: 1, z: 1, duration: 0.34, ease: "power2.out" }, 0.16);
+  gsap.timeline({ onUpdate: invalidate })
+    .to([cageMat.color, edgeMat.color], {
+      r: color.r,
+      g: color.g,
+      b: color.b,
+      duration: 0.35,
+      ease: "power2.out",
+    }, 0)
+    .to(cageMat, { opacity: cageOpacity, duration: 0.35 }, 0)
+    .to(edgeMat, { opacity: edgeOpacity, duration: 0.35 }, 0)
+    .to(fillMat, { opacity: fillOpacity, duration: 0.4, ease: "power2.out" }, 0)
+    .to(group.scale, { x: 1.12, y: 1.12, z: 1.12, duration: 0.15, ease: "back.out(2)" }, 0)
+    .to(group.scale, { x: 1, y: 1, z: 1, duration: 0.3, ease: "power2.out" }, 0.15);
 }
 
-/** Ink the connectors, refinement arc and satellites the run actually used. */
 function inkStructure(animated) {
   const reached = STAGES.map((s) => isReached(s.status));
-
-  const paint = (material, color, opacity) => {
-    const target = new THREE.Color(color);
-    if (!animated) {
-      material.color.copy(target);
-      material.opacity = opacity;
+  const paint = (mat, col, op) => {
+    const target = new THREE.Color(col);
+    if (!animated || REDUCED_MOTION) {
+      mat.color.copy(target);
+      mat.opacity = op;
       return;
     }
-    gsap.to(material.color, {
-      r: target.r,
-      g: target.g,
-      b: target.b,
-      duration: 0.45,
-      onUpdate: invalidate,
-    });
-    gsap.to(material, { opacity, duration: 0.45, onUpdate: invalidate });
+    gsap.to(mat.color, { r: target.r, g: target.g, b: target.b, duration: 0.45, onUpdate: invalidate });
+    gsap.to(mat, { opacity: op, duration: 0.45, onUpdate: invalidate });
   };
 
   links.forEach((link, i) => {
     const crossed = reached[i] && reached[i + 1];
-    paint(link.material, crossed ? C.pen : C.graphite, crossed ? 0.85 : 0.42);
+    paint(link.material, crossed ? (C.pen || "#a34f20") : (C.graphite || "#8a7660"), crossed ? 0.9 : 0.42);
   });
 
   const refined = reached[REFINE_FROM];
-  paint(refineArc.material, refined ? C.pen : C.graphite, refined ? 0.7 : 0.34);
+  paint(refineArc.material, refined ? (C.pen || "#a34f20") : (C.graphite || "#8a7660"), refined ? 0.8 : 0.35);
 
   const recursed = reached[RLM_INDEX];
   for (const sat of satellites) {
-    paint(sat.edgeMat, recursed ? C.pen : C.graphite, recursed ? 1 : 0.5);
-    paint(sat.fillMat, C.sheet, recursed ? 0.92 : 0);
-    paint(sat.tether.material, recursed ? C.pen : C.graphite, recursed ? 0.65 : 0.3);
+    paint(sat.edgeMat, recursed ? (C.pen || "#a34f20") : (C.graphite || "#8a7660"), recursed ? 1 : 0.5);
+    paint(sat.fillMat, C.sheet || "#fffbf2", recursed ? 0.92 : 0.1);
+    paint(sat.tether.material, recursed ? (C.pen || "#a34f20") : (C.graphite || "#8a7660"), recursed ? 0.75 : 0.3);
   }
 }
 
 /* ------------------------------------------------------------------ *
- * Entrance — one orchestrated moment. The sheet is ruled, the rail is
- * struck left to right, the modules are set down, then the dataset runs
- * the rail and inks in the stages the run actually reached.
+ * Entrance Animation Sequence
  * ------------------------------------------------------------------ */
 const strokes = [...links, refineArc, ...satellites.map((s) => s.tether)];
 
-/** Reveals a sampled line one vertex at a time, like a pen travelling it. */
-function drawStroke(timeline, stroke, at, duration) {
+function drawStroke(tl, stroke, at, dur) {
   const walk = { n: 0 };
   stroke.geometry.setDrawRange(0, 0);
-  timeline.to(
+  tl.to(
     walk,
     {
       n: stroke.count,
-      duration,
+      duration: dur,
       ease: "none",
       onUpdate: () => {
         stroke.geometry.setDrawRange(0, Math.ceil(walk.n));
@@ -601,107 +690,56 @@ function drawStroke(timeline, stroke, at, duration) {
   );
 }
 
-const traversal = STAGES.reduce((acc, s, i) => (isReached(s.status) ? [...acc, i] : acc), []);
-const activeIndex = STAGES.findIndex((s) => s.status === "active");
-
-const PAYLOAD_REST_Y = 0.62; // clear of the core it parks over
-
-let payloadSpread = 0;
-let payloadParked = true;
-
-function finishDrawing() {
+function snapToFinalState() {
   for (const stroke of strokes) stroke.geometry.setDrawRange(0, stroke.count);
+  nodes.forEach((_, i) => ink(i, false));
+  inkStructure(false);
+  invalidate();
 }
 
-function play() {
+function playEntrance() {
   if (REDUCED_MOTION) {
-    finishDrawing();
-    nodes.forEach((_, i) => ink(i, false));
-    inkStructure(false);
-    if (traversal.length) {
-      payload.visible = true;
-      payload.position.x = xFor(traversal[traversal.length - 1]);
-      payload.position.y = PAYLOAD_REST_Y;
-    }
+    snapToFinalState();
     return;
   }
+  if (hasPlayedEntranceFor(RUN_SIGNATURE)) {
+    snapToFinalState();
+    return;
+  }
+  markEntrancePlayed(RUN_SIGNATURE);
 
   inkStructure(true);
+  const tl = gsap.timeline({ onUpdate: invalidate });
 
-  const tl = gsap.timeline({ onUpdate: invalidate, onComplete: settle });
+  // 1. Grid bench ruling in and scene rotation
+  tl.from(grid.material, { opacity: 0, duration: 0.8, ease: "power2.out" }, 0)
+    .from(drawing.rotation, { y: -0.4, duration: 1.2, ease: "power3.out" }, 0);
 
-  // 1. The sheet is ruled and the drawing swings into its axonometric view.
-  tl.from(grid.material, { opacity: 0, duration: 0.7, ease: "power2.out" }, 0).from(
-    drawing.rotation,
-    { y: -0.45, duration: 1.3, ease: "power3.out" },
-    0
-  );
+  // 2. Rail stroke reveal
+  links.forEach((link, i) => drawStroke(tl, link, 0.12 + i * 0.06, 0.22));
 
-  // 2. The rail is struck left to right, one hop at a time.
-  links.forEach((link, i) => drawStroke(tl, link, 0.15 + i * 0.07, 0.24));
-
-  // 3. The modules are set down along it.
+  // 3. Modules stamp down
   tl.from(
     nodes.map((n) => n.group.scale),
-    { x: 0.01, y: 0.01, z: 0.01, duration: 0.45, stagger: 0.055, ease: "back.out(2.2)" },
-    0.22
+    { x: 0.01, y: 0.01, z: 0.01, duration: 0.45, stagger: 0.05, ease: "back.out(2)" },
+    0.2
   );
 
-  // 4. The control flow that isn't a straight line gets drawn last.
-  drawStroke(tl, refineArc, 0.62, 0.45);
-  satellites.forEach((sat, i) => drawStroke(tl, sat.tether, 0.72 + i * 0.06, 0.2));
+  // 4. Overhead arcs & RLM tethers
+  drawStroke(tl, refineArc, 0.55, 0.4);
+  satellites.forEach((sat, i) => drawStroke(tl, sat.tether, 0.65 + i * 0.05, 0.2));
 
-  if (!traversal.length) {
-    // Nothing has run: stage 1 breathes, so the sheet reads as live not stalled.
-    gsap.to(nodes[0].cageMat, {
-      opacity: 0.85,
-      duration: 1.4,
-      repeat: -1,
-      yoyo: true,
-      ease: "sine.inOut",
-      onUpdate: invalidate,
-    });
-    return;
+  // 5. Inking visited stages
+  const traversal = STAGES.reduce((acc, s, i) => (isReached(s.status) ? [...acc, i] : acc), []);
+  let at = 0.8;
+  for (const idx of traversal) {
+    tl.call(() => ink(idx, true), undefined, at);
+    at += 0.18;
   }
-
-  // 5. The dataset enters ahead of stage 1 and hops forward, inking each stage.
-  payload.visible = true;
-  payload.position.x = xFor(traversal[0]) - GAP;
-  payloadParked = false;
-
-  const HOP = 0.34;
-  let at = 0.85;
-
-  for (const i of traversal) {
-    const transit = { p: 0 };
-    tl.to(payload.position, { x: xFor(i), duration: HOP, ease: "power1.inOut" }, at)
-      .to(
-        transit,
-        {
-          p: 1,
-          duration: HOP,
-          onUpdate: () => {
-            payloadSpread = Math.sin(transit.p * Math.PI) * 0.55;
-          },
-        },
-        at
-      )
-      .call(() => ink(i, true), undefined, at + HOP);
-    at += HOP + 0.08;
-  }
-
-  tl.to(payload.position, { y: PAYLOAD_REST_Y, duration: 0.35, ease: "power2.out" }, at);
-}
-
-/** Once the entrance is done, only a live stage justifies burning frames. */
-function settle() {
-  payloadSpread = 0;
-  payloadParked = true;
-  setContinuous(activeIndex >= 0);
 }
 
 /* ------------------------------------------------------------------ *
- * Interaction — drag or arrow keys to orbit, hover to read a stage
+ * Interaction & Pointer Handlers
  * ------------------------------------------------------------------ */
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -711,6 +749,7 @@ const canvas = renderer.domElement;
 let hovered = -1;
 let dragging = false;
 let lastPointer = { x: 0, y: 0 };
+const activeIndex = STAGES.findIndex((s) => s.status === "active");
 
 function setHover(i) {
   if (i === hovered) return;
@@ -719,23 +758,25 @@ function setHover(i) {
   if (i < 0) {
     setReadout(...defaultReadout());
     canvas.style.cursor = "grab";
-    return;
+  } else {
+    const s = STAGES[i];
+    const det = s.detail ? ` — ${s.detail}` : "";
+    setReadout(`${s.num}. ${s.name}`, `${STATUS_WORD[s.status] || "Not run"}${det}`);
+    canvas.style.cursor = "pointer";
   }
-  const stage = STAGES[i];
-  const detail = stage.detail ? ` ${stage.detail}` : "";
-  setReadout(`${stage.num}. ${stage.name}`, `${STATUS_WORD[stage.status] ?? "Not run"}.${detail}`);
-  canvas.style.cursor = "pointer";
+  updateHUD(hovered, activeIndex);
+  invalidate();
 }
 
-canvas.addEventListener("pointermove", (event) => {
+canvas.addEventListener("pointermove", (e) => {
   const rect = canvas.getBoundingClientRect();
-  const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  const ny = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
   if (dragging) {
-    drag.theta = THREE.MathUtils.clamp(drag.theta - (event.clientX - lastPointer.x) * 0.005, -0.7, 0.7);
-    drag.phi = THREE.MathUtils.clamp(drag.phi - (event.clientY - lastPointer.y) * 0.004, -0.3, 0.3);
-    lastPointer = { x: event.clientX, y: event.clientY };
+    drag.theta = THREE.MathUtils.clamp(drag.theta - (e.clientX - lastPointer.x) * 0.005, -0.85, 0.85);
+    drag.phi = THREE.MathUtils.clamp(drag.phi - (e.clientY - lastPointer.y) * 0.004, -0.4, 0.4);
+    lastPointer = { x: e.clientX, y: e.clientY };
     invalidate();
     return;
   }
@@ -746,21 +787,20 @@ canvas.addEventListener("pointermove", (event) => {
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObjects(pickTargets, false)[0];
   setHover(hit ? hit.object.userData.index : -1);
-  invalidate();
 });
 
-canvas.addEventListener("pointerdown", (event) => {
+canvas.addEventListener("pointerdown", (e) => {
   dragging = true;
-  lastPointer = { x: event.clientX, y: event.clientY };
-  canvas.setPointerCapture(event.pointerId);
+  lastPointer = { x: e.clientX, y: e.clientY };
+  canvas.setPointerCapture(e.pointerId);
   canvas.style.cursor = "grabbing";
 });
 
-function endDrag(event) {
+function endDrag(e) {
   if (!dragging) return;
   dragging = false;
-  if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-  canvas.style.cursor = "grab";
+  if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  canvas.style.cursor = hovered >= 0 ? "pointer" : "grab";
 }
 canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
@@ -769,87 +809,118 @@ canvas.addEventListener("pointerleave", () => {
   parallax.x = 0;
   parallax.y = 0;
   setHover(-1);
-  invalidate();
 });
 
-canvas.style.cursor = "grab";
-
-/* Keyboard: the same orbit as the drag, plus stepping through the stages, so
-   the drawing is not mouse-only. The stage ledger in the page carries the same
-   text for anyone who skips it. */
-const summary = defaultReadout();
+/* Keyboard Navigation */
 canvas.tabIndex = 0;
 canvas.setAttribute("role", "img");
-canvas.setAttribute(
-  "aria-label",
-  `Technical drawing of the ${STAGES.length}-stage analysis pipeline. ${summary[0]}. ${summary[1]}`
-);
+canvas.setAttribute("aria-label", "3D view of the analysis steps and their progress");
 
-const KEY_STEP = 0.12;
-canvas.addEventListener("keydown", (event) => {
-  const step = {
-    ArrowLeft: () => (drag.theta = THREE.MathUtils.clamp(drag.theta + KEY_STEP, -0.7, 0.7)),
-    ArrowRight: () => (drag.theta = THREE.MathUtils.clamp(drag.theta - KEY_STEP, -0.7, 0.7)),
-    ArrowUp: () => (drag.phi = THREE.MathUtils.clamp(drag.phi + KEY_STEP * 0.6, -0.3, 0.3)),
-    ArrowDown: () => (drag.phi = THREE.MathUtils.clamp(drag.phi - KEY_STEP * 0.6, -0.3, 0.3)),
-  };
-  if (event.key === "Home") {
+const KEY_STEP = 0.14;
+canvas.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") drag.theta = THREE.MathUtils.clamp(drag.theta + KEY_STEP, -0.85, 0.85);
+  else if (e.key === "ArrowRight") drag.theta = THREE.MathUtils.clamp(drag.theta - KEY_STEP, -0.85, 0.85);
+  else if (e.key === "ArrowUp") drag.phi = THREE.MathUtils.clamp(drag.phi + KEY_STEP * 0.6, -0.4, 0.4);
+  else if (e.key === "ArrowDown") drag.phi = THREE.MathUtils.clamp(drag.phi - KEY_STEP * 0.6, -0.4, 0.4);
+  else if (e.key === "Home") {
     drag.theta = 0;
     drag.phi = 0;
     setHover(-1);
-  } else if (step[event.key]) {
-    step[event.key]();
-  } else if (event.key === "]" || event.key === "[") {
-    const next = event.key === "]" ? hovered + 1 : hovered - 1;
+  } else if (e.key === "]" || e.key === "[") {
+    const next = e.key === "]" ? hovered + 1 : hovered - 1;
     setHover(next < 0 || next >= STAGES.length ? -1 : next);
-  } else {
-    return;
-  }
-  event.preventDefault();
+  } else return;
+
+  e.preventDefault();
   invalidate();
 });
 
-canvas.addEventListener("blur", () => setHover(-1));
+/* CAD Perspective Controls */
+function bindCadButtons() {
+  const btnIso = document.getElementById("btn-iso");
+  const btnPlan = document.getElementById("btn-plan");
+  const btnFront = document.getElementById("btn-front");
+  const btnReset = document.getElementById("btn-reset");
+
+  const setCadActive = (btn) => {
+    [btnIso, btnPlan, btnFront].forEach((b) => b && b.classList.remove("active"));
+    if (btn) btn.classList.add("active");
+  };
+
+  const tweenCamera = (theta, phi) => {
+    gsap.to(orbit, {
+      theta,
+      phi,
+      duration: 0.65,
+      ease: "power2.inOut",
+      onUpdate: () => {
+        drag.theta = 0;
+        drag.phi = 0;
+        invalidate();
+      },
+    });
+  };
+
+  if (btnIso) {
+    btnIso.addEventListener("click", () => {
+      setCadActive(btnIso);
+      tweenCamera(0.42, 1.16);
+    });
+  }
+  if (btnPlan) {
+    btnPlan.addEventListener("click", () => {
+      setCadActive(btnPlan);
+      tweenCamera(0.001, 0.15); // Top-down architectural plan
+    });
+  }
+  if (btnFront) {
+    btnFront.addEventListener("click", () => {
+      setCadActive(btnFront);
+      tweenCamera(0.001, Math.PI / 2 - 0.05); // Elevation front
+    });
+  }
+  if (btnReset) {
+    btnReset.addEventListener("click", () => {
+      setCadActive(btnIso);
+      drag.theta = 0;
+      drag.phi = 0;
+      parallax.x = 0;
+      parallax.y = 0;
+      tweenCamera(0.42, 1.16);
+    });
+  }
+}
+bindCadButtons();
 
 /* ------------------------------------------------------------------ *
- * Render loop — gated on visibility, and on there being motion at all
+ * Render Loop & Animation Dynamics
  * ------------------------------------------------------------------ */
 let onScreen = true;
 let pageVisible = !document.hidden;
-let continuous = !REDUCED_MOTION;
 let dirty = true;
 
 function invalidate() {
   dirty = true;
 }
 
-function setContinuous(value) {
-  continuous = value && !REDUCED_MOTION;
-  invalidate();
-}
-
 function resize() {
-  const width = host.clientWidth;
-  const height = host.clientHeight;
-  if (!width || !height) return;
-  // Cap the pixel ratio: hairlines gain nothing above 2x, and low-end GPUs pay
-  // for every extra pixel.
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(width, height, false);
-  fitCamera(width, height);
+  const w = host.clientWidth;
+  const h = host.clientHeight;
+  if (!w || !h) return;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h, false);
+  fitCamera(w, h);
+  updateHUD(hovered, activeIndex);
   invalidate();
 }
 
 new ResizeObserver(resize).observe(host);
 resize();
 
-new IntersectionObserver(
-  ([entry]) => {
-    onScreen = entry.isIntersecting;
-    invalidate();
-  },
-  { threshold: 0 }
-).observe(host);
+new IntersectionObserver(([e]) => {
+  onScreen = e.isIntersecting;
+  invalidate();
+}, { threshold: 0 }).observe(host);
 
 document.addEventListener("visibilitychange", () => {
   pageVisible = !document.hidden;
@@ -861,32 +932,66 @@ const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   if (!onScreen || !pageVisible) return;
 
-  const cameraMoving = updateCamera();
-  if (!continuous && !dirty && !cameraMoving) return;
-  dirty = false;
-
+  const delta = clock.getDelta();
   const t = clock.getElapsedTime();
+  const cameraMoving = updateCamera();
 
-  if (activeIndex >= 0) {
-    nodes[activeIndex].core.rotation.y = t * 0.6;
-    nodes[activeIndex].core.rotation.x = Math.sin(t * 0.4) * 0.25;
+  // Active Stage Kinetic Animations
+  if (activeIndex >= 0 && nodes[activeIndex]) {
+    const core = nodes[activeIndex].core;
+    switch (activeIndex) {
+      case 0: // Ingestion: scan translation
+        core.position.y = Math.sin(t * 3) * 0.04;
+        break;
+      case 1: // Reasoning: dual crystal rotation
+        core.rotation.y = t * 0.7;
+        core.rotation.x = Math.sin(t * 0.5) * 0.25;
+        break;
+      case 2: // Execution: mechanical stepped spin
+        core.rotation.y = Math.floor(t * 1.5) * (Math.PI / 2);
+        core.rotation.z = Math.sin(t * 4) * 0.08;
+        break;
+      case 3: // Interpretation: geodesic precession
+        core.rotation.y = t * 0.5;
+        core.rotation.z = t * 0.3;
+        break;
+      case 4: // Refinement: gyro precession
+        core.rotation.x = t * 1.2;
+        core.rotation.y = t * 0.8;
+        break;
+      case 5: // RLM Decomposition: satellite breathing
+        satellites.forEach((sat, si) => {
+          sat.fill.position.y = sat.position.y + Math.sin(t * 3 + si) * 0.08;
+          sat.edges.position.y = sat.fill.position.y;
+        });
+        break;
+      case 6: // Report: gentle float
+        core.position.y = Math.sin(t * 2) * 0.03;
+        break;
+    }
+    dirty = true;
   }
-  if (payload.visible) {
-    layoutPayload(payloadSpread, payloadParked ? t * 1.6 : t * 4);
+
+  // Fluid particle stream
+  updateParticles(delta);
+
+  // Floating HUD coordinates
+  if (hovered >= 0 || activeIndex >= 0) {
+    updateHUD(hovered, activeIndex);
   }
+
+  if (!dirty && !cameraMoving && activeIndex < 0 && !particleMesh.visible) return;
+  dirty = false;
 
   renderer.render(scene, camera);
 });
 
-play();
+playEntrance();
 
-/* ------------------------------------------------------------------ *
- * Teardown — Streamlit reruns replace this iframe, so release the GPU
- * ------------------------------------------------------------------ */
+/* Teardown */
 window.addEventListener("pagehide", () => {
   renderer.setAnimationLoop(null);
   gsap.globalTimeline.clear();
-  for (const resource of disposables) resource.dispose?.();
-  payload.dispose();
+  for (const r of disposables) r.dispose?.();
   renderer.dispose();
 });

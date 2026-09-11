@@ -24,26 +24,39 @@ from typing import Literal
 import streamlit as st
 import streamlit.components.v1 as components
 
-__all__ = ["PALETTE", "Stage", "StageStatus", "build_document", "render"]
+__all__ = ["PALETTE", "PALETTES", "Stage", "StageStatus", "build_document", "render"]
 
 _ASSETS = Path(__file__).parent / "assets"
 
 #: Matches the status vocabulary ``app.py`` already writes into ``stage_log``.
 StageStatus = Literal["pending", "active", "done", "skipped", "error"]
 
-#: DESIGN.md tokens the scene is allowed to use. The ``:root`` block in
-#: ``app.py`` mirrors these values — change both together.
-#:
-#: The drawing is inked in two pens: ``pen`` for what the run measured,
-#: ``risk`` for where it failed. Everything not yet reached stays in pencil.
-PALETTE: dict[str, str] = {
-    "stock": "#dcdbd3",
-    "sheet": "#efeee8",
-    "ink": "#171c1f",
-    "graphite": "#54585b",
-    "pen": "#12467e",
-    "risk": "#b5271a",
+#: Day / Night palettes for the warm ledger theme.
+PALETTES: dict[str, dict[str, str]] = {
+    "day": {
+        "stock": "#f7eedd",
+        "sheet": "#fffbf2",
+        "ink": "#3a2b1e",
+        "graphite": "#8a7660",
+        "pen": "#a34f20",
+        "risk": "#a33526",
+        "accent": "#e08a3e",
+        "grid": "#e4d4bc",
+    },
+    "night": {
+        "stock": "#241c14",
+        "sheet": "#2f251a",
+        "ink": "#f3e9d8",
+        "graphite": "#b8a688",
+        "pen": "#f0a24a",
+        "risk": "#e2685a",
+        "accent": "#d99a4e",
+        "grid": "#4a3c28",
+    },
 }
+
+#: Default palette for backwards compatibility
+PALETTE: dict[str, str] = PALETTES["day"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +94,7 @@ def _embed(document: str, height: int) -> None:
         components.html(document, height=height, scrolling=False)
 
 
-def build_document(stages: Sequence[Stage]) -> str:
+def build_document(stages: Sequence[Stage], theme: str = "day") -> str:
     """Assemble the standalone HTML document for ``stages``.
 
     Split out from :func:`render` so the scene can be previewed without a
@@ -89,16 +102,19 @@ def build_document(stages: Sequence[Stage]) -> str:
 
     Args:
         stages: The workflow stages, in execution order.
+        theme: "day" or "night".
 
     Returns:
         A self-contained HTML document, bar the Three.js and GSAP CDN tags.
     """
+    palette = PALETTES.get(theme, PALETTES["day"])
     state = {
         "stages": [
             {"num": s.num, "name": s.name, "status": s.status, "detail": s.detail}
             for s in stages
         ],
-        "palette": PALETTE,
+        "palette": palette,
+        "theme": theme,
     }
     # Stage details come from tool output, so escape anything that could close
     # the inline <script> early. The scene renders them with textContent.
@@ -111,11 +127,12 @@ def build_document(stages: Sequence[Stage]) -> str:
     )
 
 
-def render(stages: Sequence[Stage], *, height: int = 400) -> None:
+def render(stages: Sequence[Stage], *, height: int = 420, theme: str = "day") -> None:
     """Draw the plate for ``stages``.
 
     Args:
         stages: The workflow stages, in execution order.
         height: Iframe height in pixels. The scene reframes itself to fit.
+        theme: Theme name ("day" or "night").
     """
-    _embed(build_document(stages), height)
+    _embed(build_document(stages, theme=theme), height)

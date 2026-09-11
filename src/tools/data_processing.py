@@ -11,12 +11,16 @@ All tools are deterministic and return structured dicts.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
+from src.core.memory import DatasetMetadata
 from src.tools.base import BaseTool, ToolExecutionError
+
+if TYPE_CHECKING:
+    from src.core.profiler import DatasetProfile
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
@@ -52,6 +56,12 @@ class IngestDatasetTool(BaseTool):
         "class balance, high-cardinality columns, and basic statistics. "
         "Returns structured metadata — do NOT pass raw data to the LLM."
     )
+    uses_cleaned_file = False
+
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        # Stage 1 already ingests the dataset before planning starts — never
+        # a candidate for the LLM's own plan.
+        return 0.0
 
     def execute(self, file_path: str, target_column: str | None = None, **_: Any) -> dict[str, Any]:  # type: ignore[override]
         path = Path(file_path)
@@ -86,18 +96,6 @@ class IngestDatasetTool(BaseTool):
             if df[c].nunique() > 50
         ]
 
-        # Infer task type
-        task_type: str | None = None
-        if target_column and target_column in df.columns:
-            dtype = str(df[target_column].dtype)
-            n_unique = df[target_column].nunique()
-            if "int" in dtype or "bool" in dtype or n_unique <= 20:
-                task_type = "classification"
-            else:
-                task_type = "regression"
-        elif not target_column:
-            task_type = "clustering"
-
         metadata_dict: dict[str, Any] = {
             "file_path": str(path.resolve()),
             "row_count": len(df),
@@ -106,13 +104,18 @@ class IngestDatasetTool(BaseTool):
             "missing_values": missing_values,
             "numerical_cols": numerical_cols,
             "categorical_cols": categorical_cols,
-            "target_column": target_column,
-            "task_type": task_type,
+            "target_column": target_column if target_column in df.columns else None,
+            "task_type": None,
             "class_balance": class_balance,
             "high_cardinality_cols": high_card,
             "column_nunique": column_nunique,
             "summary_stats": {},
         }
+        # Task type has exactly one implementation: DatasetMetadata.infer_task_type().
+        # A previous version duplicated this logic here with a different (wrong)
+        # rule for high-cardinality object/string targets — see IMPROVEMENTS.md #1.
+        task_type = DatasetMetadata(**metadata_dict).infer_task_type()
+        metadata_dict["task_type"] = task_type
 
         return {
             "summary": (
@@ -158,6 +161,7 @@ class CleanDataTool(BaseTool):
         "Strategies: 'mean', 'median', 'mode', 'drop_rows', 'forward_fill'. "
         "Returns cleaned_file_path for use by subsequent tools."
     )
+    uses_cleaned_file = False  # this IS the tool that produces cleaned_file_path
 
     STRATEGIES = frozenset({"mean", "median", "mode", "drop_rows", "forward_fill"})
 
@@ -261,6 +265,11 @@ class DetectOutliersTool(BaseTool):
         "Returns per-column counts and an outlier-flagged dataset path."
     )
 
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        if profile is None:
+            return 1.0
+        return 1.0 if profile.columns_of_kind("numeric") else 0.0
+
     def execute(  # type: ignore[override]
         self,
         file_path: str,
@@ -308,7 +317,7 @@ class DetectOutliersTool(BaseTool):
                 "columns_checked": num_df.columns.tolist(),
             })
             mask = pd.Series(False, index=df.index)
-            mask.iloc[clean.index[mask_idx]] = True
+            mask.loc[clean.index[mask_idx]] = True
 
         elif method == "isolation_forest":
             from sklearn.ensemble import IsolationForest
@@ -317,7 +326,7 @@ class DetectOutliersTool(BaseTool):
             preds = model.fit_predict(clean)
             report.update({"total_outliers": int((preds == -1).sum()), "contamination": 0.05})
             mask = pd.Series(False, index=df.index)
-            mask.iloc[clean.index[preds == -1]] = True
+            mask.loc[clean.index[preds == -1]] = True
 
         else:
             raise ToolExecutionError(f"Unknown method '{method}'. Use: iqr, zscore, isolation_forest")
@@ -383,6 +392,11 @@ class CorrelationAnalysisTool(BaseTool):
         "Methods: 'pearson' (default), 'spearman', 'kendall'."
     )
 
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        if profile is None:
+            return 1.0
+        return 1.0 if len(profile.columns_of_kind("numeric")) >= 2 else 0.0
+
     def execute(  # type: ignore[override]
         self,
         file_path: str,
@@ -413,6 +427,7 @@ class CorrelationAnalysisTool(BaseTool):
         # Target correlations
         target_corrs: dict[str, float] = {}
         target_encoded = False
+        target_corr_method = method
         if target_column and target_column in corr.columns:
             target_corrs = {
                 c: round(float(corr.loc[c, target_column]), 4)
@@ -435,6 +450,7 @@ class CorrelationAnalysisTool(BaseTool):
             ).where(raw_target.notna())
             aligned = encoded.loc[num_df.index]
             target_encoded = True
+            target_corr_method = "point-biserial"
             for c in num_df.columns:
                 val = float(num_df[c].corr(aligned))
                 if not np.isnan(val):
@@ -442,6 +458,40 @@ class CorrelationAnalysisTool(BaseTool):
             target_corrs = dict(
                 sorted(target_corrs.items(), key=lambda x: abs(x[1]), reverse=True)
             )
+        elif (
+            target_column
+            and target_column in df.columns
+            and df[target_column].nunique(dropna=True) > 2
+        ):
+            # Non-numeric target with 3+ classes: Pearson r is undefined, so
+            # this used to leave target_correlations silently empty with no
+            # warning (IMPROVEMENTS.md #4). Eta-squared — the ANOVA analogue
+            # of R² — measures how much of each numeric feature's variance is
+            # explained by target-class membership: bounded [0, 1], same
+            # dict shape as a correlation magnitude, comparable across
+            # features. Unlike Pearson r it has no sign (there's no single
+            # "direction" across 3+ unordered classes).
+            classes = df[target_column].loc[num_df.index]
+            for c in num_df.columns:
+                feature = num_df[c]
+                groups = [
+                    feature[classes == cls].to_numpy()
+                    for cls in classes.dropna().unique()
+                ]
+                groups = [g for g in groups if len(g) >= 2]
+                if len(groups) < 2:
+                    continue
+                overall_mean = feature.mean()
+                ss_total = float(((feature - overall_mean) ** 2).sum())
+                if ss_total <= 0:
+                    continue
+                ss_between = sum(len(g) * (g.mean() - overall_mean) ** 2 for g in groups)
+                target_corrs[c] = round(float(ss_between / ss_total), 4)
+            target_corrs = dict(
+                sorted(target_corrs.items(), key=lambda x: x[1], reverse=True)
+            )
+            target_encoded = True
+            target_corr_method = "eta-squared"
 
         top_summary = (
             f"Top pair: {top_pairs[0]['col_a']} ↔ {top_pairs[0]['col_b']} "
@@ -457,6 +507,7 @@ class CorrelationAnalysisTool(BaseTool):
             "method": method,
             "top_correlations": top_pairs,
             "target_correlations": target_corrs,
+            "target_correlation_method": target_corr_method,
             "target_encoded_binary": target_encoded,
             "features_analyzed": cols,
             "n_features": len(cols),

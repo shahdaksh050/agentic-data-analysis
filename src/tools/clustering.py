@@ -17,12 +17,16 @@ from __future__ import annotations
 
 import pickle
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from src.tools.base import BaseTool, ToolExecutionError
 from src.tools.ml_pipeline import _read_df
+
+if TYPE_CHECKING:
+    from src.core.memory import DatasetMetadata
+    from src.core.profiler import DatasetProfile
 
 #: Default upper bound for the automatic k search.
 DEFAULT_MAX_K = 8
@@ -71,6 +75,14 @@ class ClusterDataTool(BaseTool):
         "visualisation. Use when there is no target column or when the user "
         "asks about segments/groups/personas."
     )
+    output_subdir = "models"
+
+    def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
+        if metadata and metadata.target_column:
+            # Still occasionally useful (segmenting features regardless of
+            # label), but modelling the target is almost always the priority.
+            return 0.4
+        return 1.0
 
     def execute(  # type: ignore[override]
         self,

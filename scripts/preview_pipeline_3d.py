@@ -24,13 +24,13 @@ from ui.pipeline_3d import Stage, build_document  # noqa: E402
 
 #: Mirrors STAGE_DEFS in app.py.
 STAGE_NAMES = [
-    "Dataset Ingestion",
-    "Initial Reasoning",
-    "Tool Execution",
-    "Result Interpretation",
-    "Iterative Refinement",
-    "RLM Decomposition",
-    "Report Generation",
+    "Reading Your File",
+    "Understanding Your Question",
+    "Running the Numbers",
+    "Making Sense of It",
+    "Double-Checking",
+    "Solving the Tricky Parts",
+    "Writing Your Report",
 ]
 
 
@@ -74,19 +74,21 @@ SCENARIOS = {
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="complete")
+    parser.add_argument("--theme", choices=["day", "night"], default="day", help="color theme")
     parser.add_argument("-o", "--out", type=Path, help="output path")
     parser.add_argument("--open", action="store_true", help="open in the default browser")
     args = parser.parse_args()
 
-    out = args.out or ROOT / "output" / f"pipeline_3d_{args.scenario}.html"
+    out = args.out or ROOT / "output" / f"pipeline_3d_{args.scenario}_{args.theme}.html"
     out.parent.mkdir(parents=True, exist_ok=True)
 
+    bg_color = "#241c14" if args.theme == "night" else "#f7eedd"
     # The component fills its iframe, so give the standalone page a real height.
-    document = build_document(SCENARIOS[args.scenario]()).replace(
-        "<body>", '<body style="height:420px;background:#dcdbd3">', 1
+    document = build_document(SCENARIOS[args.scenario](), theme=args.theme).replace(
+        "<body>", f'<body style="height:420px;background:{bg_color}">', 1
     )
     out.write_text(document, encoding="utf-8")
-    print(f"{args.scenario} -> {out}")
+    print(f"{args.scenario} [{args.theme}] -> {out}")
 
     if args.open:
         webbrowser.open(out.resolve().as_uri())

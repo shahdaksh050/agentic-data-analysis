@@ -15,6 +15,7 @@ Key fixes vs previous version
 """
 from __future__ import annotations
 
+import html
 import json
 import os
 import sys
@@ -35,7 +36,7 @@ sys.path.insert(0, str(ROOT))
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(
     page_title="Agentic Data Analysis",
-    page_icon="📐",
+    page_icon="🧾",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -73,330 +74,496 @@ def _stub_rich() -> None:
     class _Tx:
         def __init__(self, *a: Any, **k: Any): pass
 
-    sys.modules["rich"].Console = _C            # type: ignore[attr-defined]
-    sys.modules["rich.console"].Console = _C    # type: ignore[attr-defined]
-    sys.modules["rich.panel"].Panel = _P        # type: ignore[attr-defined]
-    sys.modules["rich.table"].Table = _T        # type: ignore[attr-defined]
-    sys.modules["rich.tree"].Tree = _Tr         # type: ignore[attr-defined]
-    sys.modules["rich.progress"].Progress = _Pr         # type: ignore[attr-defined]
-    sys.modules["rich.progress"].SpinnerColumn = _Sp    # type: ignore[attr-defined]
-    sys.modules["rich.progress"].TextColumn = _Tx       # type: ignore[attr-defined]
+    # Assign to the sub-module entries in sys.modules directly —
+    # never traverse sys.modules["rich"].tree as an attribute chain.
+    sys.modules["rich"].Console = _C                  # type: ignore[attr-defined]
+    sys.modules["rich.console"].Console = _C          # type: ignore[attr-defined]
+    sys.modules["rich.panel"].Panel = _P              # type: ignore[attr-defined]
+    sys.modules["rich.tree"].Tree = _Tr               # type: ignore[attr-defined]
+    sys.modules["rich.table"].Table = _T              # type: ignore[attr-defined]
+    sys.modules["rich.progress"].Progress = _Pr       # type: ignore[attr-defined]
+    sys.modules["rich.progress"].SpinnerColumn = _Sp  # type: ignore[attr-defined]
+    sys.modules["rich.progress"].TextColumn = _Tx     # type: ignore[attr-defined]
 
 
 _stub_rich()
 
 
-# ── CSS — "Drafting Table" design system (DESIGN.md) ─────────────────────────
-# Mineral drafting stock, ink linework, two plotter pens. Nothing that carries
-# data is rounded; structure comes from ruled hairlines, not from radius.
-st.markdown("""
+def _inject_theme_css(theme: str = "day") -> None:
+    """Inject dynamic Ledger CSS supporting Day and Night modes."""
+    is_night = theme == "night"
+    stock       = "#241c14" if is_night else "#f7eedd"
+    sheet       = "#2f251a" if is_night else "#fffbf2"
+    sheet_alt   = "#3a2e1f" if is_night else "#f1e4cb"
+    ink         = "#f3e9d8" if is_night else "#3a2b1e"
+    graphite    = "#b8a688" if is_night else "#8a7660"
+    pen         = "#f0a24a" if is_night else "#a34f20"
+    pen_hover   = "#ffb86b" if is_night else "#7e3d18"
+    risk        = "#e2685a" if is_night else "#a33526"
+    accent      = "#d99a4e" if is_night else "#e08a3e"
+    positive    = "#7fb77e" if is_night else "#5b8c5a"
+    rule        = "#4a3c28" if is_night else "#e4d4bc"
+    rule_faint  = "#3a2e1f" if is_night else "#eee3cb"
+    lift        = "0 4px 18px rgba(0,0,0,.35)" if is_night else "0 4px 14px rgba(58,43,30,.14)"
+    lift_sm     = "0 2px 8px rgba(0,0,0,.3)" if is_night else "0 2px 8px rgba(58,43,30,.10)"
+    code_bg     = "#2a2015" if is_night else "#f1e4cb"
+
+    st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@400;500;600;700&display=swap');
 
-:root {
-    --stock:    #dcdbd3;   /* mineral drafting stock — the page itself */
-    --sheet:    #efeee8;   /* the lifted sheet — plates, tables, panels */
-    --ink:      #171c1f;   /* drawing ink — type, rules, linework */
-    --graphite: #54585b;   /* soft pencil — secondary type */
-    --pen:      #12467e;   /* measurement pen — what the agent measured */
-    --risk:     #b5271a;   /* risk pen — overfit, failure, warning. Nothing else. */
+:root {{
+    --stock:       {stock};
+    --sheet:       {sheet};
+    --sheet-alt:   {sheet_alt};
+    --ink:         {ink};
+    --graphite:    {graphite};
+    --pen:         {pen};
+    --pen-hover:   {pen_hover};
+    --risk:        {risk};
+    --accent:      {accent};
+    --positive:    {positive};
+    --rule:        {rule};
+    --rule-faint:  {rule_faint};
+    --lift:        {lift};
+    --lift-sm:     {lift_sm};
+    --code-bg:     {code_bg};
+    --radius:      14px;
+    --radius-pill: 999px;
 
-    --rule:        #b6b4a9;   /* ruled hairline */
-    --rule-faint:  #c8c6bc;
-    --quadrille:   rgba(23,28,31,.045);
-    --lift: 3px 3px 0 rgba(23,28,31,.09);   /* a sheet lying on the table */
+    --sans:    'Mukta', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
+    --heading: 'Baloo 2', 'Mukta', ui-sans-serif, sans-serif;
+    --mono:    'Cascadia Code', Consolas, ui-monospace, monospace;
+}}
 
-    --sans: 'Archivo', ui-sans-serif, 'Segoe UI', system-ui, sans-serif;
-    --mono: 'IBM Plex Mono', 'Cascadia Code', ui-monospace, Consolas, monospace;
-}
-
-/* ── The drafting sheet ── */
-#MainMenu, footer, .stAppDeployButton { visibility: hidden; }
-header[data-testid="stHeader"] { background: transparent; }
-.stApp {
+/* ── The page ── */
+#MainMenu, footer, .stAppDeployButton {{ visibility: hidden; }}
+header[data-testid="stHeader"] {{ background: transparent; }}
+.stApp {{
     background-color: var(--stock);
-    background-image:
-        repeating-linear-gradient(to right,  var(--quadrille) 0 1px, transparent 1px 28px),
-        repeating-linear-gradient(to bottom, var(--quadrille) 0 1px, transparent 1px 28px);
-}
-.block-container { max-width: 1240px; padding-top: 2.4rem; }
-html, body, .stApp, [class*="css"] { font-family: var(--sans); color: var(--ink); }
-hr { border: none; border-top: 1px solid var(--rule) !important; }
-a { color: var(--pen) !important; text-underline-offset: 3px; }
+    background-image: none;
+    transition: background-color 0.2s ease;
+}}
+.block-container {{ max-width: 1180px; padding-top: 2.2rem; }}
+html, body, .stApp, [class*="css"] {{ font-family: var(--sans); color: var(--ink); }}
+hr {{ border: none; border-top: 1px solid var(--rule) !important; }}
+a {{ color: var(--pen) !important; text-underline-offset: 3px; font-weight: 600; }}
 
-section[data-testid="stSidebar"] {
+section[data-testid="stSidebar"] {{
     background: var(--sheet);
     border-right: 1px solid var(--rule);
     background-image: none;
-}
+}}
 section[data-testid="stSidebar"] .stSlider label,
-section[data-testid="stSidebar"] label p { font-size: 13px; color: var(--graphite); }
+section[data-testid="stSidebar"] label p {{ font-size: 13.5px; color: var(--graphite); font-weight: 600; }}
 
-::-webkit-scrollbar { width: 11px; height: 11px; }
-::-webkit-scrollbar-thumb { background: var(--rule); border: 3px solid var(--stock); }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {{ width: 10px; height: 10px; }}
+::-webkit-scrollbar-thumb {{ background: var(--rule); border-radius: 6px; border: 2px solid var(--stock); }}
+::-webkit-scrollbar-track {{ background: transparent; }}
 
-/* ── Type: an expanded grotesque against a mono for every measured number ── */
-h1, h2, h3, h4, h5, h6 {
-    font-family: var(--sans) !important;
-    font-variation-settings: 'wdth' 112;
-    letter-spacing: -.025em;
+/* ── Type: warm & rounded ── */
+h1, h2, h3, h4, h5, h6 {{
+    font-family: var(--heading) !important;
+    letter-spacing: -.01em;
     color: var(--ink);
-}
-h1 { font-weight: 800 !important; }
-h2 { font-weight: 700 !important; font-size: 30px !important; line-height: 1.05; }
-h3 { font-weight: 700 !important; font-size: 19px !important; }
-h4 { font-weight: 600 !important; font-size: 15.5px !important;
-     font-variation-settings: 'wdth' 100; letter-spacing: -.01em; }
-.stMarkdown p, .stMarkdown li { font-size: 15px; line-height: 1.62; max-width: 72ch; }
-code, kbd, pre, .stCode, [data-testid="stMetricValue"] { font-family: var(--mono) !important; }
+}}
+h1 {{ font-weight: 800 !important; }}
+h2 {{ font-weight: 700 !important; font-size: 27px !important; line-height: 1.15; }}
+h3 {{ font-weight: 700 !important; font-size: 19px !important; }}
+h4 {{ font-weight: 700 !important; font-size: 15.5px !important; letter-spacing: 0; }}
+.stMarkdown p, .stMarkdown li {{ font-size: 15.5px; line-height: 1.65; max-width: 72ch; }}
+code, kbd, pre, .stCode {{ font-family: var(--mono) !important; }}
+[data-testid="stMetricValue"] {{ font-family: var(--heading) !important; font-weight: 700; }}
 
-/* Datum line — a ruled measurement bar, cells divided by hairlines.
-   Replaces the tracked-caps eyebrow: the rule carries the label, not a label
-   floating above a heading. */
-.datum { display: flex; align-items: stretch; flex-wrap: wrap;
-         border-top: 1px solid var(--ink); border-bottom: 1px solid var(--rule);
-         margin: 0 0 1.5rem; }
-.datum .cell { padding: .5rem 1.1rem .5rem 0; margin-right: 1.1rem;
-               border-right: 1px solid var(--rule-faint); }
-.datum .cell:last-child { border-right: none; margin-right: 0; }
-.datum .k { font-size: 12px; color: var(--graphite); }
-.datum .v { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--ink); }
+/* ── Quick Facts bar ── */
+.datum {{ display: flex; align-items: stretch; flex-wrap: wrap;
+         background: var(--sheet); border: 1px solid var(--rule);
+         border-radius: var(--radius); box-shadow: var(--lift-sm);
+         margin: 0 0 1.5rem; overflow: hidden; }}
+.datum .cell {{ padding: .7rem 1.2rem; margin-right: 0;
+               border-right: 1px solid var(--rule-faint); }}
+.datum .cell:last-child {{ border-right: none; }}
+.datum .k {{ font-size: 12px; color: var(--graphite); font-weight: 600; }}
+.datum .v {{ font-family: var(--sans); font-size: 14px; font-weight: 700; color: var(--ink); margin-top: 2px; }}
 
-/* Section head — the title sits on its own rule, sentence case, no eyebrow. */
-.sect { margin: 2.2rem 0 1rem; border-bottom: 1px solid var(--ink);
-        padding-bottom: .4rem; }
-.sect:first-child { margin-top: .4rem; }
-.sect h2, .sect h3 { margin: 0; padding: 0; }
-.sect .note { font-size: 12.5px; color: var(--graphite); font-family: var(--mono);
-              margin-top: .25rem; }
+/* ── Section head ── */
+.sect {{ margin: 2.2rem 0 1.1rem; border-bottom: 2px solid var(--rule);
+        padding-bottom: .5rem; }}
+.sect:first-child {{ margin-top: .4rem; }}
+.sect h2, .sect h3 {{ margin: 0; padding: 0; }}
+.sect .note {{ font-size: 13px; color: var(--graphite); margin-top: .3rem; }}
 
-/* ── Hero — asymmetric: the headline holds the left, the plate bleeds right ── */
-.hero { padding: .2rem 0 1.1rem; }
-.hero h1 {
-    font-size: clamp(40px, 6.6vw, 78px);
-    font-variation-settings: 'wdth' 118;
+/* ── Hero ── */
+.hero {{ padding: .2rem 0 1rem; }}
+.hero h1 {{
+    font-size: clamp(36px, 5.6vw, 64px);
     font-weight: 800;
-    line-height: .93;
-    letter-spacing: -.038em;
+    line-height: 1.04;
+    letter-spacing: -.02em;
     margin: 0;
-    max-width: 14ch;
-    /* The one page-load moment: the headline is struck onto the sheet. */
-    animation: strike 900ms cubic-bezier(.16,.84,.34,1) both;
-}
-@keyframes strike {
-    from { clip-path: inset(0 100% 0 0); }
-    to   { clip-path: inset(0 0 0 0); }
-}
-.hero .hero-sub {
-    color: var(--graphite); font-size: 16px; line-height: 1.55;
-    margin: 1.1rem 0 0; max-width: 54ch;
-}
-@media (prefers-reduced-motion: reduce) { .hero h1 { animation: none; } }
+    max-width: 15ch;
+    animation: riseIn 650ms cubic-bezier(.16,.84,.34,1) both;
+}}
+@keyframes riseIn {{
+    from {{ opacity: 0; transform: translateY(10px); }}
+    to   {{ opacity: 1; transform: translateY(0); }}
+}}
+.hero .hero-sub {{
+    color: var(--graphite); font-size: 16px; line-height: 1.6;
+    margin: 1rem 0 0; max-width: 54ch;
+}}
+@media (prefers-reduced-motion: reduce) {{ .hero h1 {{ animation: none; }} }}
 
-/* The 3D plate sits in the right column and runs past the container edge. */
-.st-key-plate { border-left: 1px solid var(--ink); padding-left: 16px;
-                margin-right: -3.4rem; }
-@media (max-width: 900px) { .st-key-plate { margin-right: 0; border-left: none;
-                                            padding-left: 0; } }
+.st-key-plate {{ padding-left: 16px; margin-right: -2.8rem; }}
+@media (max-width: 900px) {{ .st-key-plate {{ margin-right: 0; padding-left: 0; }} }}
 
-/* ── Sidebar masthead ── */
-.side-brand { margin: .1rem 0 .2rem; }
-.side-title { font-family: var(--sans); font-variation-settings: 'wdth' 118;
-              font-weight: 800; font-size: 17px; line-height: 1.05;
-              letter-spacing: -.03em; color: var(--ink); }
-.side-sub { font-size: 12px; color: var(--graphite); margin-top: 4px;
-            max-width: 26ch; line-height: 1.4; }
-.side-head { font-family: var(--sans); font-weight: 700; font-size: 13px;
-             color: var(--ink); border-bottom: 1px solid var(--ink);
-             padding-bottom: .3rem; margin: 1.5rem 0 .7rem; }
-.side-head:first-of-type { margin-top: .6rem; }
+/* ── Sidebar masthead & Theme controls ── */
+.side-brand {{ margin: .1rem 0 .8rem; }}
+.side-title {{ font-family: var(--heading); font-weight: 800; font-size: 18px;
+              line-height: 1.15; color: var(--ink); }}
+.side-sub {{ font-size: 12.5px; color: var(--graphite); margin-top: 4px;
+            max-width: 26ch; line-height: 1.45; }}
+.side-head {{ font-family: var(--sans); font-weight: 700; font-size: 12.5px;
+             color: var(--graphite); margin: 1.5rem 0 .6rem; }}
+.side-head:first-of-type {{ margin-top: .5rem; }}
 
-/* ── Buttons — struck rectangles, not pills ── */
-.stButton button, .stDownloadButton button {
-    font-family: var(--sans); font-weight: 600; font-size: 14px;
-    border-radius: 0 !important; letter-spacing: -.01em;
+/* ── Buttons ── */
+.stButton button, .stDownloadButton button {{
+    font-family: var(--sans); font-weight: 700; font-size: 14.5px;
+    border-radius: var(--radius-pill) !important; letter-spacing: 0;
     transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
-}
-.stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {
-    background: var(--pen); color: var(--sheet); border: 1px solid var(--pen);
-    box-shadow: var(--lift);
-}
+}}
+.stButton button[kind="primary"], .stDownloadButton button[kind="primary"] {{
+    background: var(--pen); color: var(--sheet); border: none;
+    box-shadow: var(--lift-sm);
+}}
 .stButton button[kind="primary"]:hover:enabled,
-.stDownloadButton button[kind="primary"]:hover:enabled {
-    background: #0d3660; border-color: #0d3660; color: var(--sheet);
-    transform: translate(1px, 1px); box-shadow: 2px 2px 0 rgba(23,28,31,.09);
-}
-.stButton button[kind="primary"]:disabled {
-    background: transparent; color: var(--graphite);
+.stDownloadButton button[kind="primary"]:hover:enabled {{
+    background: var(--pen-hover); color: var(--sheet);
+    transform: translateY(-1px); box-shadow: var(--lift);
+}}
+.stButton button[kind="primary"]:disabled {{
+    background: var(--sheet-alt); color: var(--graphite);
     border: 1px dashed var(--rule); box-shadow: none;
-}
-.stButton button[kind="secondary"], .stDownloadButton button[kind="secondary"] {
-    background: var(--sheet); border: 1px solid var(--ink); color: var(--ink);
-    box-shadow: var(--lift);
-}
+}}
+.stButton button[kind="secondary"], .stDownloadButton button[kind="secondary"] {{
+    background: var(--sheet); border: 1px solid var(--rule); color: var(--ink);
+    box-shadow: var(--lift-sm);
+}}
 .stButton button[kind="secondary"]:hover:enabled,
-.stDownloadButton button[kind="secondary"]:hover:enabled {
-    background: var(--stock); color: var(--ink); border-color: var(--ink);
-    transform: translate(1px, 1px); box-shadow: 2px 2px 0 rgba(23,28,31,.09);
-}
-:focus-visible { outline: 2px solid var(--pen) !important; outline-offset: 2px; }
-.stButton button:focus-visible, .stDownloadButton button:focus-visible {
+.stDownloadButton button[kind="secondary"]:hover:enabled {{
+    background: var(--sheet-alt); color: var(--ink); border-color: var(--pen);
+    transform: translateY(-1px);
+}}
+:focus-visible {{ outline: 2px solid var(--pen) !important; outline-offset: 2px; }}
+.stButton button:focus-visible, .stDownloadButton button:focus-visible {{
     outline: 2px solid var(--pen) !important; outline-offset: 3px;
-}
+}}
 
-/* ── Tabs — an index strip ruled off the content below it ── */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 0; background: transparent; border-bottom: 1px solid var(--ink);
-    padding: 0; overflow-x: auto;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 0; padding: 5px 15px; background: transparent;
-    border-right: 1px solid var(--rule-faint);
-}
-.stTabs [data-baseweb="tab"] p { font-size: 14px; font-weight: 600;
-                                 color: var(--graphite); letter-spacing: -.01em; }
-.stTabs [data-baseweb="tab"]:hover p { color: var(--ink); }
-.stTabs [aria-selected="true"] { background: var(--ink) !important; }
-.stTabs [aria-selected="true"] p { color: var(--sheet) !important; }
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
-.stTabs [data-baseweb="tab-panel"] { padding-top: 1.3rem; }
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 6px; background: var(--sheet-alt); border-radius: var(--radius-pill);
+    padding: 5px; overflow-x: auto; border: none;
+}}
+.stTabs [data-baseweb="tab"] {{
+    border-radius: var(--radius-pill); padding: 8px 18px; background: transparent;
+    border: none; transition: all 0.14s ease;
+}}
+.stTabs [data-baseweb="tab"] p {{ font-size: 14px; font-weight: 700;
+                                 color: var(--graphite); letter-spacing: 0; }}
+.stTabs [data-baseweb="tab"]:hover p {{ color: var(--ink); }}
+.stTabs [aria-selected="true"] {{ background: var(--pen) !important; }}
+.stTabs [aria-selected="true"] p {{ color: var(--sheet) !important; }}
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {{ display: none; }}
+.stTabs [data-baseweb="tab-panel"] {{ padding-top: 1.5rem; }}
 
 /* ── Inputs ── */
-[data-testid="stFileUploaderDropzone"] {
-    background: var(--stock); border: 1px dashed var(--graphite); border-radius: 0;
-}
-[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--pen);
-                                               background: var(--sheet); }
-.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {
-    border-radius: 0 !important; border-color: var(--rule) !important;
-    background: var(--stock) !important;
-}
-.stTextInput input:focus, .stTextArea textarea:focus { border-color: var(--pen) !important; }
+[data-testid="stFileUploaderDropzone"] {{
+    background: var(--sheet-alt); border: 2px dashed var(--rule); border-radius: var(--radius);
+}}
+[data-testid="stFileUploaderDropzone"]:hover {{ border-color: var(--pen);
+                                               background: var(--sheet); }}
+.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {{
+    border-radius: 10px !important; border-color: var(--rule) !important;
+    background: var(--sheet) !important; color: var(--ink) !important;
+}}
+.stTextInput input:focus, .stTextArea textarea:focus {{ border-color: var(--pen) !important; }}
 
-/* ── Gauge strip — one ruled band, not a row of identical cards ── */
-.gauge { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--ink);
-         padding: .75rem 0 .7rem; height: 100%;
-         /* A cell with no sub-label must still rule out on the same line as
-            one that has it, or the strip stops reading as a single band. */
-         min-height: 96px; }
-.gauge .v { font-family: var(--mono); font-size: 27px; font-weight: 500;
-            line-height: 1.05; letter-spacing: -.03em; color: var(--ink);
-            overflow-wrap: anywhere; }
-.gauge.long .v   { font-size: 19px; letter-spacing: -.02em; }
-.gauge.longer .v { font-size: 14.5px; letter-spacing: -.01em; line-height: 1.2; }
-.gauge .k { font-size: 12.5px; color: var(--graphite); margin-top: .4rem; }
-.gauge .s { font-family: var(--mono); font-size: 11px; color: var(--graphite);
-            margin-top: 2px; }
-.gauge.flag { border-top-color: var(--risk); }
-.gauge.flag .v { color: var(--risk); }
+/* ── Stat tile ── */
+.gauge {{ background: var(--sheet); border: 1px solid var(--rule);
+         border-radius: var(--radius); box-shadow: var(--lift-sm);
+         padding: 1rem 1.1rem; height: 100%; min-height: 96px; position: relative; }}
+.gauge .v {{ font-family: var(--heading); font-size: 26px; font-weight: 700;
+            line-height: 1.1; letter-spacing: -.01em; color: var(--ink);
+            overflow-wrap: anywhere; }}
+.gauge.long .v   {{ font-size: 19px; }}
+.gauge.longer .v {{ font-size: 14.5px; line-height: 1.25; }}
+.gauge .k {{ font-size: 12.5px; color: var(--graphite); margin-top: .4rem; font-weight: 600; }}
+.gauge .s {{ font-size: 11.5px; color: var(--graphite); margin-top: 2px; }}
+.gauge.flag {{ border-color: var(--risk); background: color-mix(in srgb, var(--risk) 8%, var(--sheet)); }}
+.gauge.flag .v {{ color: var(--risk); }}
 
-/* st.metric picks up the same instrument readout */
-[data-testid="stMetric"] { background: transparent; border: none;
-                           border-top: 2px solid var(--ink);
-                           border-bottom: 1px solid var(--ink);
-                           border-radius: 0; padding: .7rem 0; }
-[data-testid="stMetricValue"] { font-family: var(--mono) !important; font-weight: 500;
-                                color: var(--ink); letter-spacing: -.03em; }
-[data-testid="stMetricLabel"] p { font-size: 12.5px; color: var(--graphite);
-                                  text-transform: none; letter-spacing: 0; }
+/* ── Callout cards ── */
+.defect-stamp {{
+    border: 1px solid var(--risk);
+    background: color-mix(in srgb, var(--risk) 8%, var(--sheet));
+    border-radius: var(--radius);
+    padding: 1.1rem 1.4rem;
+    margin: 1.2rem 0;
+    box-shadow: var(--lift-sm);
+}}
+.defect-stamp .stamp-tag {{
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    color: var(--risk); display: block; margin-bottom: 4px;
+}}
+.defect-stamp .stamp-title {{
+    font-family: var(--heading); font-size: 18px; font-weight: 800; color: var(--risk);
+    margin-bottom: 6px;
+}}
+.defect-stamp .stamp-desc {{
+    font-size: 14.5px; line-height: 1.58; color: var(--ink); max-width: 68ch;
+}}
 
-/* ── Plates — sheets laid on the table, square, hard-shadowed ── */
-[data-testid="stExpander"] details {
-    background: var(--sheet); border: 1px solid var(--ink) !important;
-    border-radius: 0; box-shadow: var(--lift);
-}
-[data-testid="stExpander"] summary { font-weight: 600; font-size: 14px; }
-[data-testid="stExpander"] summary:hover { color: var(--pen); }
-[data-testid="stCode"] pre, pre {
-    background: #e4e3dc !important; border: 1px solid var(--rule);
-    border-radius: 0; font-size: 12.5px;
-}
-[data-testid="stAlert"] { border-radius: 0; }
-[data-testid="stAlertContainer"] {
-    background: transparent !important; border-radius: 0;
-    border-left: 3px solid var(--graphite);
-    padding: .4rem .5rem .4rem 1rem; color: var(--ink) !important;
-}
-[data-testid="stAlertContainer"] p { color: inherit !important; font-size: 14.5px; }
-[data-testid="stAlertContainer"] svg { fill: currentColor; }
-[data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
-    border-left-color: var(--pen); color: var(--pen) !important;
-}
-[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]),
-[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
-    border-left-color: var(--risk); color: var(--risk) !important;
-}
-[data-testid="stDataFrame"], [data-testid="stTable"] {
-    border-radius: 0; box-shadow: var(--lift);
-}
+.cert-stamp {{
+    border: 1px solid var(--pen);
+    background: color-mix(in srgb, var(--pen) 8%, var(--sheet));
+    border-radius: var(--radius);
+    padding: 1.1rem 1.4rem;
+    margin: 1.2rem 0;
+    box-shadow: var(--lift-sm);
+}}
+.cert-stamp .stamp-tag {{
+    font-family: var(--sans); font-size: 12px; font-weight: 700;
+    color: var(--pen); display: block; margin-bottom: 4px;
+}}
+.cert-stamp .stamp-title {{
+    font-family: var(--heading); font-size: 18px; font-weight: 800; color: var(--pen);
+    margin-bottom: 6px;
+}}
+.cert-stamp .stamp-desc {{
+    font-size: 14.5px; line-height: 1.58; color: var(--ink); max-width: 68ch;
+}}
 
-/* ── Stage ledger — the pipeline as numbered rows, because it IS a sequence ── */
-.sc { display: flex; align-items: baseline; gap: 12px;
-      padding: .5rem 0; border-bottom: 1px solid var(--rule-faint);
-      font-size: 14px; color: var(--graphite); }
-.sc .sc-num { font-family: var(--mono); font-size: 12px; color: var(--graphite);
-              flex: none; width: 2.2em; }
-.sc .nm { color: var(--ink); font-weight: 600; }
-.sc .detail { margin-left: auto; font-family: var(--mono); font-size: 11.5px;
-              color: var(--graphite); text-align: right; padding-left: 1rem; }
-.sc.done  { border-left: 3px solid var(--pen); padding-left: .6rem; }
-.sc.active { border-left: 3px solid var(--pen); padding-left: .6rem;
-             background: rgba(18,70,126,.07); }
-.sc.active .nm::after { content: " — running"; font-weight: 400;
-                        color: var(--pen); font-size: 12.5px; }
-.sc.skip  { border-left: 3px solid var(--rule); padding-left: .6rem; }
-.sc.skip .nm { color: var(--graphite); font-weight: 400; }
-.sc.err   { border-left: 3px solid var(--risk); padding-left: .6rem; }
-.sc.err .nm { color: var(--risk); }
-
-/* ── Annotations — a reviewer's marginal note, not another rounded card ── */
-.ic, .rc, .wc {
-    border-left: 3px solid var(--rule); padding: .3rem 0 .3rem 1rem;
-    margin: 0 0 .75rem; font-size: 15px; line-height: 1.6; max-width: 74ch;
+/* ── Team grid & cards ── */
+.agent-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+    margin: 1.2rem 0;
+}}
+.agent-card {{
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    box-shadow: var(--lift-sm);
+    padding: 1rem 1.1rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}}
+.agent-card:hover {{
+    transform: translateY(-2px);
+    box-shadow: var(--lift);
+    border-color: var(--pen);
+}}
+.agent-card.agent-active {{
+    border-color: var(--pen);
+    background: color-mix(in srgb, var(--pen) 6%, var(--sheet));
+}}
+.agent-card.agent-flagged {{
+    border-color: var(--risk);
+}}
+.agent-header {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--rule-faint);
+}}
+.agent-role {{
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 14.5px;
     color: var(--ink);
-}
-.ic { border-left-color: var(--graphite); }
-.rc { border-left-color: var(--pen); }
-.wc { border-left-color: var(--risk); color: var(--risk); }
-.ic .mk, .rc .mk, .wc .mk {
-    font-family: var(--mono); font-size: 11px; color: var(--graphite);
-    display: block; margin-bottom: 1px;
-}
-.rc .mk { color: var(--pen); }
-.wc .mk { color: var(--risk); }
+}}
+.agent-badge {{
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: var(--radius-pill);
+    background: var(--sheet-alt);
+    color: var(--graphite);
+}}
+.agent-badge.running {{ background: color-mix(in srgb, var(--pen) 18%, var(--sheet)); color: var(--pen); }}
+.agent-badge.done {{ background: var(--pen); color: var(--sheet); }}
+.agent-badge.error {{ background: color-mix(in srgb, var(--risk) 18%, var(--sheet)); color: var(--risk); }}
+.agent-desc {{
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--graphite);
+    margin: 5px 0 9px;
+}}
+.agent-metric {{
+    font-family: var(--sans);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--graphite);
+    background: var(--sheet-alt);
+    padding: 4px 8px;
+    border-radius: 8px;
+    display: inline-block;
+}}
 
-/* Agent reasoning — a written finding, given room to read */
-.reason { background: var(--sheet); border: 1px solid var(--ink);
-          box-shadow: var(--lift); padding: 1.2rem 1.4rem;
-          font-size: 15px; color: var(--ink); line-height: 1.72; max-width: 72ch; }
+/* ── Handoff Stream Feed ── */
+.handoff-stream {{
+    margin: 1.5rem 0;
+    border-left: 2px solid var(--rule);
+    padding-left: 1.2rem;
+}}
+.handoff-item {{
+    margin-bottom: 1rem;
+    position: relative;
+}}
+.handoff-item::before {{
+    content: "";
+    position: absolute;
+    left: calc(-1.2rem - 5px);
+    top: 5px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--pen);
+}}
+.handoff-meta {{
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--pen);
+    font-weight: 700;
+    margin-bottom: 2px;
+}}
+.handoff-text {{
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--ink);
+}}
 
-/* Run banner — a strip of tape across the sheet */
-.run-banner { border-top: 2px solid var(--pen); border-bottom: 1px solid var(--pen);
-              background: rgba(18,70,126,.07); padding: .7rem 1rem;
-              color: var(--pen); font-size: 14px; font-weight: 600;
-              margin: .4rem 0 1.2rem; }
-.run-banner .sub { display: block; font-weight: 400; color: var(--graphite);
-                   font-size: 13px; margin-top: 2px; }
+/* ── Executive Directive ── */
+.exec-directive {{
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--pen);
+    border-radius: var(--radius);
+    box-shadow: var(--lift-sm);
+    padding: 1.3rem 1.5rem;
+    margin-bottom: 1.5rem;
+}}
+.exec-directive .dir-label {{
+    font-family: var(--sans);
+    font-size: 12px;
+    color: var(--pen);
+    font-weight: 700;
+    margin-bottom: 5px;
+}}
+.exec-directive .dir-content {{
+    font-size: 15.5px;
+    line-height: 1.65;
+    color: var(--ink);
+}}
 
-/* ── Empty state — a blank sheet with its own instruction ── */
-.empty { padding: 3.5rem 0 4rem; max-width: 58ch; }
-.empty h2 { font-size: clamp(30px, 4.4vw, 46px); font-variation-settings: 'wdth' 118;
-            font-weight: 800; line-height: .98; letter-spacing: -.035em;
-            margin: 0 0 1rem; }
-.empty p { color: var(--graphite); font-size: 16px; line-height: 1.62; margin: 0; }
-.empty .steps { display: flex; flex-wrap: wrap; margin-top: 2rem;
-                border-top: 1px solid var(--ink); }
-.empty .steps div { font-family: var(--mono); font-size: 12px; color: var(--graphite);
-                    padding: .5rem .9rem .5rem 0; margin-right: .9rem;
-                    border-right: 1px solid var(--rule-faint); }
-.empty .steps div:last-child { border-right: none; }
+/* ── Cards ── */
+[data-testid="stExpander"] details {{
+    background: var(--sheet); border: 1px solid var(--rule) !important;
+    border-radius: var(--radius); box-shadow: var(--lift-sm);
+}}
+[data-testid="stExpander"] summary {{ font-weight: 700; font-size: 14.5px; }}
+[data-testid="stExpander"] summary:hover {{ color: var(--pen); }}
+[data-testid="stCode"] pre, pre {{
+    background: var(--code-bg) !important; border: 1px solid var(--rule);
+    border-radius: 10px; font-size: 12.5px; color: var(--ink) !important;
+}}
+[data-testid="stAlert"] {{ border-radius: var(--radius); }}
+[data-testid="stAlertContainer"] {{
+    background: var(--sheet-alt) !important; border-radius: var(--radius);
+    border-left: 4px solid var(--graphite);
+    padding: .6rem .8rem .6rem 1.1rem; color: var(--ink) !important;
+}}
+[data-testid="stAlertContainer"] p {{ color: inherit !important; font-size: 14.5px; }}
+[data-testid="stAlertContainer"] svg {{ fill: currentColor; }}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {{
+    border-left-color: var(--positive); color: var(--positive) !important;
+}}
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]),
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {{
+    border-left-color: var(--risk); color: var(--risk) !important;
+}}
+[data-testid="stDataFrame"], [data-testid="stTable"] {{
+    border-radius: var(--radius); box-shadow: var(--lift-sm); overflow: hidden;
+}}
+
+/* ── Steps list ── */
+.sc {{ display: flex; align-items: center; gap: 12px;
+      padding: .6rem .2rem; border-bottom: 1px solid var(--rule-faint);
+      font-size: 14.5px; color: var(--graphite); }}
+.sc .sc-num {{ font-family: var(--sans); font-size: 12px; font-weight: 700; color: var(--sheet);
+              flex: none; width: 1.8em; height: 1.8em; display: flex; align-items: center;
+              justify-content: center; border-radius: 50%; background: var(--rule); }}
+.sc .nm {{ color: var(--ink); font-weight: 600; }}
+.sc .detail {{ margin-left: auto; font-size: 12px;
+              color: var(--graphite); text-align: right; padding-left: 1rem; }}
+.sc.done  .sc-num {{ background: var(--pen); }}
+.sc.active .sc-num {{ background: var(--pen); }}
+.sc.active {{ background: color-mix(in srgb, var(--pen) 6%, transparent); border-radius: 10px; }}
+.sc.active .nm::after {{ content: " — working"; font-weight: 400;
+                        color: var(--pen); font-size: 12.5px; }}
+.sc.skip  .sc-num {{ background: var(--rule); color: var(--graphite); }}
+.sc.skip .nm {{ color: var(--graphite); font-weight: 400; }}
+.sc.err   .sc-num {{ background: var(--risk); }}
+.sc.err .nm {{ color: var(--risk); }}
+
+/* ── Annotations ── */
+.ic, .rc, .wc {{
+    border-left: 3px solid var(--rule); border-radius: 0 10px 10px 0;
+    padding: .5rem .8rem .5rem 1rem;
+    margin: 0 0 .75rem; font-size: 15px; line-height: 1.6; max-width: 74ch;
+    color: var(--ink); background: var(--sheet-alt);
+}}
+.ic {{ border-left-color: var(--graphite); }}
+.rc {{ border-left-color: var(--pen); }}
+.wc {{ border-left-color: var(--risk); color: var(--risk); background: color-mix(in srgb, var(--risk) 6%, var(--sheet-alt)); }}
+.ic .mk, .rc .mk, .wc .mk {{
+    font-family: var(--sans); font-size: 11.5px; font-weight: 700; color: var(--graphite);
+    display: block; margin-bottom: 2px;
+}}
+.rc .mk {{ color: var(--pen); }}
+.wc .mk {{ color: var(--risk); }}
+
+.reason {{ background: var(--sheet); border: 1px solid var(--rule);
+          border-radius: var(--radius); box-shadow: var(--lift-sm); padding: 1.3rem 1.5rem;
+          font-size: 15.5px; color: var(--ink); line-height: 1.72; max-width: 72ch; }}
+
+.run-banner {{ border-radius: var(--radius);
+              background: color-mix(in srgb, var(--pen) 10%, var(--sheet)); padding: .8rem 1.1rem;
+              color: var(--pen); font-size: 14.5px; font-weight: 700;
+              margin: .4rem 0 1.2rem; }}
+.run-banner .sub {{ display: block; font-weight: 500; color: var(--graphite);
+                   font-size: 13px; margin-top: 2px; }}
+
+.empty {{ padding: 3rem 0 3.5rem; max-width: 58ch; }}
+.empty h2 {{ font-size: clamp(28px, 4vw, 42px); font-family: var(--heading);
+            font-weight: 800; line-height: 1.05;
+            margin: 0 0 1rem; }}
+.empty p {{ color: var(--graphite); font-size: 16px; line-height: 1.62; margin: 0; }}
+.empty .steps {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2rem; }}
+.empty .steps div {{ background: var(--sheet); border: 1px solid var(--rule);
+                     border-radius: var(--radius-pill); padding: .4rem 1rem;
+                     font-size: 13px; font-weight: 600; color: var(--graphite); }}
 </style>
 """, unsafe_allow_html=True)
 
 
 # ── Session-state initialisation ──────────────────────────────────────────────
 _DEFAULTS: dict[str, Any] = {
+    "theme":          "day",
     "preview_df":     None,   # pd.DataFrame
     "preview_name":   "",     # sanitised filename (safe for filesystem)
     "orig_name":      "",     # exact name as uploaded (change detection)
@@ -417,52 +584,73 @@ for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
+# ── Inject theme-aware CSS immediately (must run after session_state is ready) ─
+_inject_theme_css(st.session_state.get("theme", "day"))
+
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 STAGE_DEFS = [
-    ("1", "Dataset Ingestion"),
-    ("2", "Initial Reasoning"),
-    ("3", "Tool Execution"),
-    ("4", "Result Interpretation"),
-    ("5", "Iterative Refinement"),
-    ("6", "RLM Decomposition"),
-    ("7", "Report Generation"),
+    ("1", "Reading Your File"),
+    ("2", "Understanding Your Question"),
+    ("3", "Running the Numbers"),
+    ("4", "Making Sense of It"),
+    ("5", "Double-Checking"),
+    ("6", "Solving the Tricky Parts"),
+    ("7", "Writing Your Report"),
 ]
 
-# Shared Vega-Lite config — charts are plotted on the sheet in the same two
-# inks as the rest of the console (DESIGN.md). Blue is the measured series;
-# red is reserved for the series that carries risk.
-PLOT_INK = "#171c1f"
-PLOT_GRAPHITE = "#54585b"
-PLOT_RULE = "#c8c6bc"
-PEN_BLUE = "#12467e"
-PEN_RED = "#b5271a"
+# Shared Vega-Lite config — charts are plotted in the same warm ink palette
+# as the rest of the console (DESIGN.md). The terracotta pen is the measured
+# series; the warm red is reserved for the series that carries risk.
+PLOT_INK = "#3a2b1e"
+PLOT_GRAPHITE = "#8a7660"
+PLOT_RULE = "#e4d4bc"
+PEN_BLUE = "#a34f20"
+PEN_RED = "#a33526"
 
-VEGA_PLOT_CONFIG = {
-    "font": "Archivo, 'Segoe UI', sans-serif",
-    "axis": {
-        "labelColor": PLOT_GRAPHITE,
-        "titleColor": PLOT_GRAPHITE,
-        "gridColor": PLOT_RULE,
-        "gridDash": [2, 3],
-        "domainColor": PLOT_INK,
-        "tickColor": PLOT_INK,
-        "labelFont": "IBM Plex Mono, monospace",
-        "labelFontSize": 11,
-        "titleFont": "Archivo, sans-serif",
-        "titleFontWeight": 600,
-    },
-    "legend": {
-        "labelColor": PLOT_INK,
-        "titleColor": PLOT_GRAPHITE,
-        "labelFont": "Archivo, sans-serif",
-        "titleFont": "Archivo, sans-serif",
-        "symbolType": "square",
-    },
-    "view": {"stroke": "transparent"},
-    "range": {"category": [PEN_BLUE, PEN_RED, "#7a8b99",
-                           "#c08a2e", "#3f6f5b", "#8e6e9e"]},
-}
+def _get_vega_config(theme: str = "day") -> dict[str, Any]:
+    is_night = theme == "night"
+    p_ink = "#f3e9d8" if is_night else "#3a2b1e"
+    p_graphite = "#b8a688" if is_night else "#8a7660"
+    p_rule = "#4a3c28" if is_night else "#e4d4bc"
+    p_pen = "#f0a24a" if is_night else "#a34f20"
+    p_risk = "#e2685a" if is_night else "#a33526"
+
+    return {
+        "font": "Mukta, 'Segoe UI', sans-serif",
+        "axis": {
+            "labelColor": p_graphite,
+            "titleColor": p_graphite,
+            "gridColor": p_rule,
+            "gridDash": [2, 3],
+            "domainColor": p_ink,
+            "tickColor": p_ink,
+            "labelFont": "Mukta, sans-serif",
+            "labelFontSize": 11,
+            "titleFont": "Baloo 2, sans-serif",
+            "titleFontWeight": 600,
+        },
+        "legend": {
+            "labelColor": p_ink,
+            "titleColor": p_graphite,
+            "labelFont": "Mukta, sans-serif",
+            "titleFont": "Baloo 2, sans-serif",
+            "symbolType": "square",
+        },
+        "view": {"stroke": "transparent"},
+        "range": {
+            "category": [
+                p_pen,
+                p_risk,
+                "#d99a4e" if is_night else "#c08a2e",
+                "#7fb77e" if is_night else "#5b8c5a",
+                "#e2c58a" if is_night else "#8a7660",
+                "#c98a6b" if is_night else "#b5714a",
+            ]
+        },
+    }
+
+VEGA_PLOT_CONFIG = _get_vega_config("day")
 
 # OpenRouter slugs use DOT version notation for Claude (claude-sonnet-4.6,
 # not claude-sonnet-4-6). Every entry below is verified against the live
@@ -509,9 +697,17 @@ def _stage_card(num: str, name: str,
 
 
 def _datum(cells: list[tuple[str, str]]) -> str:
-    """A ruled measurement bar. Each reading gets its own cell and hairline."""
+    """A ruled measurement bar. Each reading gets its own cell and hairline.
+
+    Values can come straight from user input (e.g. the free-text "Custom
+    model string" field feeding the "Model" cell) — HTML-escape both key
+    and value before interpolating into markup rendered with
+    unsafe_allow_html=True, or a value like
+    `<img src=x onerror=alert(1)>` executes as-is (IMPROVEMENTS.md #10).
+    """
     body = "".join(
-        f'<div class="cell"><div class="k">{k}</div><div class="v">{v}</div></div>'
+        f'<div class="cell"><div class="k">{html.escape(k)}</div>'
+        f'<div class="v">{html.escape(v)}</div></div>'
         for k, v in cells
     )
     return f'<div class="datum">{body}</div>'
@@ -541,8 +737,9 @@ def _draw_pipeline_rig(slot: Any) -> list[Any]:
         )
         for num, name in STAGE_DEFS
     ]
+    cur_theme = st.session_state.get("theme", "day")
     with slot.container():
-        render_pipeline(stages)
+        render_pipeline(stages, height=420, theme=cur_theme)
     return stages
 
 
@@ -564,8 +761,15 @@ def _gauge(label: str, value: str, sub: str = "", *, flag: bool = False) -> str:
 
 
 def _gap_is_risky(gap: float) -> bool:
-    """A train-test gap above 10 points means the model memorised the split."""
-    return gap >= 0.10
+    """A train-test gap above 10 points means the model memorised the split.
+
+    Uses the same threshold the training tool itself warns on
+    (`src.tools.ml_pipeline.OVERFIT_THRESHOLD`, and the same strict `>`),
+    so the KPI gauge and the comparison table's overfit_warnings can never
+    disagree about the same model (IMPROVEMENTS.md #10).
+    """
+    from src.tools.ml_pipeline import OVERFIT_THRESHOLD
+    return gap > OVERFIT_THRESHOLD
 
 
 def _section(title: str, note: str = "", level: str = "h3") -> None:
@@ -605,6 +809,504 @@ def _find_tool(tool_results: list[dict[str, Any]],
     return None
 
 
+def _render_defect_stamp(gap_val: float | None) -> str:
+    """Render authentic engineering defect stamp or certification seal for generalization."""
+    if gap_val is None:
+        return ""
+    if _gap_is_risky(gap_val):
+        return f"""
+        <div class="defect-stamp">
+            <span class="stamp-tag">⚠ Heads up — this might not hold up</span>
+            <div class="stamp-title">THE MODEL MEMORISED THE EXAMPLES ({gap_val*100:.1f}% GAP)</div>
+            <div class="stamp-desc">
+                It did noticeably better on the data it trained on than on data it hadn't seen —
+                a sign it memorised quirks rather than learning the real pattern.
+                We've ranked it lower because of this.
+            </div>
+        </div>
+        """
+    else:
+        return f"""
+        <div class="cert-stamp">
+            <span class="stamp-tag">✓ Good news — this should hold up</span>
+            <div class="stamp-title">THE MODEL PERFORMED CONSISTENTLY ({gap_val*100:.1f}% GAP)</div>
+            <div class="stamp-desc">
+                It did about as well on new data as on the data it trained on —
+                a good sign the pattern it found is real, not a fluke.
+            </div>
+        </div>
+        """
+
+
+def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
+    """Render visual architecture cards for the autonomous multi-agent teamwork roster."""
+    log_map = {n: s for n, s, _ in stage_log}
+
+    agents = [
+        {
+            "icon": "🧭",
+            "name": "Planner",
+            "role": "Plans the approach",
+            "desc": "Reads your question and breaks it into a step-by-step plan, then decides when enough checking has been done.",
+            "stage": "2",
+            "tool": "Reasoning",
+        },
+        {
+            "icon": "🛡️",
+            "name": "File Checker",
+            "role": "Checks your file is safe and healthy",
+            "desc": "Makes sure your file is safe to open, figures out what each column means, spots anything unusual, and gives your data a health score out of 100.",
+            "stage": "1",
+            "tool": "Checks & cleans",
+        },
+        {
+            "icon": "📐",
+            "name": "Fact-Checker",
+            "role": "Tests what's actually true",
+            "desc": "Runs the right statistical tests to check whether a pattern is real or could just be chance, and finds which columns move together.",
+            "stage": "3",
+            "tool": "Statistical tests",
+        },
+        {
+            "icon": "⚡",
+            "name": "Model Builder",
+            "role": "Builds and tests prediction models",
+            "desc": "Trains several different prediction models and tests each one on different slices of your data, so a lucky guess doesn't get mistaken for a good model.",
+            "stage": "3",
+            "tool": "Model training",
+        },
+        {
+            "icon": "🔍",
+            "name": "Reality-Checker",
+            "role": "Catches models that just memorised",
+            "desc": "Compares how each model does on data it trained on versus data it's never seen. If a model only looks good because it memorised the examples, this agent flags it and marks it down.",
+            "stage": "4",
+            "tool": "Model checking",
+        },
+        {
+            "icon": "🔁",
+            "name": "Double-Checker",
+            "role": "Goes back for another pass",
+            "desc": "Looks at what's been found so far, and if there are loose ends or your question isn't fully answered yet, sends the work back for another round.",
+            "stage": "5",
+            "tool": "Another pass",
+        },
+        {
+            "icon": "🌐",
+            "name": "Detail Handler",
+            "role": "Handles the tricky, many-part questions",
+            "desc": "When a question has too many moving parts to answer in one go, this splits it into smaller pieces, solves each one separately, and brings the answers back together.",
+            "stage": "6",
+            "tool": "Splitting up work",
+        },
+        {
+            "icon": "📊",
+            "name": "Report Writer",
+            "role": "Builds your charts and report",
+            "desc": "Builds charts that fit your data, then puts everything together into the report you can download and share.",
+            "stage": "7",
+            "tool": "Charts & report",
+        },
+    ]
+
+    cards_html = []
+    for ag in agents:
+        st_val = log_map.get(ag["stage"], "pending")
+        if st_val == "done":
+            badge_cls = "done"
+            badge_txt = "Completed"
+            card_cls = "agent-card"
+        elif st_val == "active":
+            badge_cls = "running"
+            badge_txt = "Executing"
+            card_cls = "agent-card agent-active"
+        elif st_val == "error":
+            badge_cls = "error"
+            badge_txt = "Flagged"
+            card_cls = "agent-card agent-flagged"
+        else:
+            badge_cls = ""
+            badge_txt = "Standby"
+            card_cls = "agent-card"
+
+        cards_html.append(f"""
+        <div class="{card_cls}">
+            <div class="agent-header">
+                <span class="agent-role">{ag['icon']} {ag['name']}</span>
+                <span class="agent-badge {badge_cls}">[{badge_txt}]</span>
+            </div>
+            <div class="agent-desc">{ag['desc']}</div>
+            <div class="agent-metric">Role: {ag['role']} · Tool: {ag['tool']}</div>
+        </div>
+        """.strip())
+
+    return f'<div class="agent-grid">{"".join(cards_html)}</div>'
+
+
+def _render_handoff_stream(progress_lines: list[str], tool_results: list[dict[str, Any]]) -> str:
+    """Render timeline feed of inter-agent messages and handoffs."""
+    items_html = []
+    if progress_lines:
+        for line in progress_lines[:20]:
+            if not line.strip():
+                continue
+            meta = "Note"
+            if "[done]" in line:
+                meta = "Done"
+            elif "[run ]" in line:
+                meta = "Started"
+            elif "ok" in line:
+                meta = "Finished"
+            clean_text = line.replace("[done]", "").replace("[run ]", "").replace("[    ]", "").replace("[fail]", "⚠ ").strip()
+            items_html.append(f"""
+            <div class="handoff-item">
+                <div class="handoff-meta">{meta}</div>
+                <div class="handoff-text">{clean_text}</div>
+            </div>
+            """.strip())
+    elif tool_results:
+        for r in tool_results:
+            name = r.get("tool_name", "Step")
+            status = r.get("status", "success")
+            summary = r.get("output", {}).get("summary", "") or r.get("error", "")
+            time_ms = r.get("execution_time_ms", 0)
+            items_html.append(f"""
+            <div class="handoff-item">
+                <div class="handoff-meta">{name} · {status} · {time_ms:.0f}ms</div>
+                <div class="handoff-text">{summary}</div>
+            </div>
+            """.strip())
+    else:
+        items_html.append("""
+        <div class="handoff-item">
+            <div class="handoff-meta">Waiting</div>
+            <div class="handoff-text">Your helpers are ready. Upload a file to get started.</div>
+        </div>
+        """.strip())
+    return f'<div class="handoff-stream">{"".join(items_html)}</div>'
+
+
+def _render_agent_deep_dive(agent_name: str, tool_results: list[dict[str, Any]], report: dict[str, Any]) -> None:
+    """Render structured details for an inspected agent persona."""
+    details = {
+        "🧭 Planner": {
+            "mission": "Reads your question and turns it into a step-by-step plan — what to check first, what to try next, and when the plan needs adjusting.",
+            "directive": "Only works from summaries and statistics, never your raw data rows — the way a manager works from a report rather than the raw ledger.",
+            "tools": "Reasoning and planning",
+            "output": report.get("reasoning", "Waiting for a plan."),
+        },
+        "🛡️ File Checker": {
+            "mission": "Checks your file is safe to open, figures out what each column means, and gives your data a health score.",
+            "directive": "Scores your data 0–100 based on missing values, duplicate rows, and anything that looks off.",
+            "tools": "File safety checks, data profiling",
+            "output": f"Health score {st.session_state.get('profile', {}).get('quality_score', '—')}/100. Cleaned up any issues found.",
+        },
+        "📐 Fact-Checker": {
+            "mission": "Runs statistical tests to check whether a pattern in your data is real, or could just be chance.",
+            "directive": "Checks how your data is shaped before picking which test is fair to use — the right test depends on the shape.",
+            "tools": "Statistical tests, correlation checks",
+            "output": "Tests complete: checked which columns move together and whether the differences are real.",
+        },
+        "⚡ Model Builder": {
+            "mission": "Trains a few different prediction models on your data and scores each one.",
+            "directive": "Tests every model on several different slices of the data, not just one, so a lucky split doesn't make a bad model look good.",
+            "tools": "Model training (several approaches, tested against each other)",
+            "output": f"Best model so far: {report.get('best_model', 'N/A')}. Tested multiple times on different slices of your data.",
+        },
+        "🔍 Reality-Checker": {
+            "mission": "Compares how each model performs on data it trained on versus data it's never seen.",
+            "directive": "If a model does noticeably better on familiar data than new data, it's flagged as having memorised rather than learned — and marked down.",
+            "tools": "Model checking",
+            "output": "Checked every model for memorisation. Applied a penalty to any that didn't hold up.",
+        },
+        "🔁 Double-Checker": {
+            "mission": "Looks at what's been found so far and decides whether your question has really been answered.",
+            "directive": "Sends the work back for another pass if things haven't settled down yet, up to a set limit of tries.",
+            "tools": "Review and another pass",
+            "output": "Finished reviewing — went back for more passes where needed.",
+        },
+        "🌐 Detail Handler": {
+            "mission": "Splits a big, many-part question into smaller pieces, solves each on its own, then brings the answers back together.",
+            "directive": "Keeps each piece small and separate, so a complicated question doesn't overwhelm any single step.",
+            "tools": "Splitting up and recombining work",
+            "output": f"{len(report.get('rlm_sub_results', []))} smaller questions solved separately and combined.",
+        },
+        "📊 Report Writer": {
+            "mission": "Builds charts that fit your data and puts everything into a report you can download and share.",
+            "directive": "Uses the same easy-to-read style for the charts and the report as the rest of the app, and gives you both a written version and a webpage version.",
+            "tools": "Charts and report writing",
+            "output": "Report finished, with charts, key findings, and what to do next.",
+        },
+    }
+    info = details.get(agent_name, details["🧭 Planner"])
+    c1, c2 = st.columns([0.6, 0.4])
+    with c1:
+        st.markdown(f"**What it does:** {info['mission']}")
+        st.markdown(f"**Its rule:** {info['directive']}")
+    with c2:
+        st.markdown(f"**What it uses:** {info['tools']}")
+        st.markdown(f"**What it found:** {info['output']}")
+
+
+def _load_teamwork_preview() -> None:
+    """Populate full autonomous multi-agent teamwork demo with sample customer churn data."""
+    _reset_pipeline()
+    sample_path = ROOT / "data" / "sample_customer_churn.csv"
+    if sample_path.exists():
+        raw_bytes = sample_path.read_bytes()
+        df = pd.read_csv(sample_path)
+    else:
+        import numpy as np
+        np.random.seed(42)
+        df = pd.DataFrame({
+            "tenure": np.random.randint(1, 72, 100),
+            "monthly_charges": np.random.uniform(20, 120, 100).round(2),
+            "total_charges": np.random.uniform(100, 8000, 100).round(2),
+            "contract": np.random.choice(["Month-to-month", "One year", "Two year"], 100),
+            "internet_service": np.random.choice(["DSL", "Fiber optic", "No"], 100),
+            "payment_method": np.random.choice(["Electronic check", "Mailed check", "Bank transfer"], 100),
+            "churn": np.random.choice([0, 1], 100, p=[0.73, 0.27]),
+        })
+        raw_bytes = df.to_csv(index=False).encode("utf-8")
+
+    st.session_state["preview_df"] = df
+    st.session_state["preview_name"] = "sample_customer_churn.csv"
+    st.session_state["orig_name"] = "sample_customer_churn.csv"
+    st.session_state["preview_bytes"] = raw_bytes
+
+    tmp = tempfile.mkdtemp()
+    st.session_state["tmp_dir"] = tmp
+    out_dir = Path(tmp) / "output"
+    rep_dir = out_dir / "reports"
+    rep_dir.mkdir(parents=True, exist_ok=True)
+
+    st.session_state["stage_log"] = [
+        ("1", "done", "100 rows × 8 cols · task=classification · target=churn"),
+        ("2", "done", "5 steps planned by the Planner"),
+        ("3", "done", "6 tools executed: clean, outliers, corr, test, train, eval"),
+        ("4", "done", "Anti-overfit audit passed: gap 4.2% < 10%"),
+        ("5", "done", "Converged in 2 iterations (residual variance resolved)"),
+        ("6", "done", "2 RLM sub-tasks offloaded via REPL context"),
+        ("7", "done", "analysis_report.md & report.html compiled"),
+    ]
+
+    st.session_state["tool_results"] = [
+        {
+            "tool_name": "clean_data",
+            "status": "success",
+            "execution_time_ms": 42.0,
+            "output": {
+                "summary": "Cleaned dataset: 0 missing values found. Handled numeric types and standardized categorical levels.",
+                "strategy_used": "median",
+                "missing_before": 0,
+                "missing_after": 0,
+            },
+        },
+        {
+            "tool_name": "detect_outliers",
+            "status": "success",
+            "execution_time_ms": 58.0,
+            "output": {
+                "summary": "Detected 4 outlier rows across total_charges using IQR method (3.0 threshold). Kept in dataset.",
+                "total_outliers": 4,
+                "outlier_percentage": 4.0,
+                "per_column_outliers": {"total_charges": 4, "monthly_charges": 0, "tenure": 0},
+            },
+        },
+        {
+            "tool_name": "correlation_analysis",
+            "status": "success",
+            "execution_time_ms": 85.0,
+            "output": {
+                "summary": "Identified strongest correlation pairs with churn: tenure (-0.35) and monthly_charges (+0.28).",
+                "top_correlations": [
+                    {"col_a": "tenure", "col_b": "churn", "correlation": -0.352},
+                    {"col_a": "monthly_charges", "col_b": "churn", "correlation": 0.284},
+                    {"col_a": "monthly_charges", "col_b": "total_charges", "correlation": 0.651},
+                    {"col_a": "tenure", "col_b": "total_charges", "correlation": 0.824},
+                ],
+            },
+        },
+        {
+            "tool_name": "select_statistical_test",
+            "status": "success",
+            "execution_time_ms": 36.0,
+            "output": {
+                "summary": "Mann-Whitney U test confirmed statistically significant tenure difference between churners and retainers (p=0.0004).",
+                "test_name": "Mann-Whitney U Test",
+                "p_value": 0.00041,
+                "significant": True,
+                "interpretation": "Tenure of churned customers is significantly lower than retained customers (median 10 mos vs 38 mos, p < 0.001).",
+            },
+        },
+        {
+            "tool_name": "train_model",
+            "status": "success",
+            "execution_time_ms": 320.0,
+            "output": {
+                "summary": "Trained 3 stratified 5-fold models. Random Forest achieved highest CV accuracy (81.0% ± 3.2%).",
+                "task_type": "classification",
+                "best_model": "RandomForestClassifier",
+                "n_cv_folds": 5,
+                "test_size": 0.2,
+                "overfit_warnings": [],
+                "models_trained": {
+                    "RandomForestClassifier": {
+                        "cv_mean": 0.810,
+                        "cv_std": 0.032,
+                        "train_metrics": {"accuracy": 0.852, "f1_score": 0.840},
+                        "test_metrics": {"accuracy": 0.810, "f1_score": 0.795},
+                        "train_test_gap": 0.042,
+                    },
+                    "LogisticRegression": {
+                        "cv_mean": 0.790,
+                        "cv_std": 0.028,
+                        "train_metrics": {"accuracy": 0.800, "f1_score": 0.772},
+                        "test_metrics": {"accuracy": 0.780, "f1_score": 0.760},
+                        "train_test_gap": 0.020,
+                    },
+                    "GradientBoostingClassifier": {
+                        "cv_mean": 0.775,
+                        "cv_std": 0.035,
+                        "train_metrics": {"accuracy": 0.885, "f1_score": 0.871},
+                        "test_metrics": {"accuracy": 0.760, "f1_score": 0.735},
+                        "train_test_gap": 0.125,
+                    },
+                },
+            },
+        },
+        {
+            "tool_name": "evaluate_model",
+            "status": "success",
+            "execution_time_ms": 48.0,
+            "output": {
+                "summary": "Model evaluation complete. Precision 0.82, Recall 0.79 for Retained (0); Precision 0.78, Recall 0.74 for Churned (1).",
+                "classification_report": {
+                    "Retained (0)": {"precision": 0.824, "recall": 0.795, "f1-score": 0.809, "support": 15},
+                    "Churned (1)": {"precision": 0.780, "recall": 0.740, "f1-score": 0.759, "support": 5},
+                },
+            },
+        },
+    ]
+
+    st.session_state["profile"] = {
+        "quality_score": 92,
+        "duplicate_rows": 0,
+        "memory_mb": 0.12,
+        "column_count": len(df.columns),
+        "columns": [
+            {"name": c, "kind": "numeric" if pd.api.types.is_numeric_dtype(df[c]) else "categorical",
+             "dtype": str(df[c].dtype), "missing_pct": 0.0, "nunique": int(df[c].nunique()), "flags": []}
+            for c in df.columns
+        ],
+        "warnings": [],
+    }
+
+    st.session_state["dashboard"] = [
+        {
+            "chart_id": "model_comparison",
+            "title": "Cross-Validation Accuracy vs Generalization Gap",
+            "description": "Comparison of models ranking by 5-fold CV score and train-test gap to penalize memorization.",
+            "spec": {
+                "mark": "bar",
+                "data": {"values": [
+                    {"Model": "Random Forest", "Metric": "CV Accuracy", "Score": 81.0},
+                    {"Model": "Random Forest", "Metric": "Generalization Gap", "Score": 4.2},
+                    {"Model": "Logistic Regression", "Metric": "CV Accuracy", "Score": 79.0},
+                    {"Model": "Logistic Regression", "Metric": "Generalization Gap", "Score": 2.0},
+                    {"Model": "Gradient Boosting", "Metric": "CV Accuracy", "Score": 77.5},
+                    {"Model": "Gradient Boosting", "Metric": "Generalization Gap", "Score": 12.5},
+                ]},
+                "encoding": {
+                    "x": {"field": "Model", "type": "nominal", "axis": {"labelAngle": 0}},
+                    "xOffset": {"field": "Metric"},
+                    "y": {"field": "Score", "type": "quantitative", "title": "Percentage (%)"},
+                    "color": {"field": "Metric", "type": "nominal"},
+                },
+            },
+        },
+        {
+            "chart_id": "top_correlations",
+            "title": "Key Drivers: Feature Correlation with Customer Churn",
+            "description": "Tenure exhibits strong protective negative correlation (-0.35), while high monthly charges drive churn (+0.28).",
+            "spec": {
+                "mark": "bar",
+                "data": {"values": [
+                    {"Feature": "Tenure (Months)", "Correlation": -0.352},
+                    {"Feature": "Monthly Charges", "Correlation": 0.284},
+                    {"Feature": "Paperless Billing", "Correlation": 0.175},
+                    {"Feature": "Total Charges", "Correlation": -0.198},
+                ]},
+                "encoding": {
+                    "y": {"field": "Feature", "type": "nominal", "sort": "-x"},
+                    "x": {"field": "Correlation", "type": "quantitative", "scale": {"domain": [-0.5, 0.5]}},
+                    "color": {
+                        "condition": {"test": "datum.Correlation >= 0", "value": "#a34f20"},
+                        "value": "#8a7660",
+                    },
+                },
+            },
+        },
+    ]
+
+    st.session_state["final_report"] = {
+        "best_model": "RandomForestClassifier",
+        "reasoning": (
+            "Customer churn is primarily driven by tenure length and high monthly billing tiers. "
+            "Customers on month-to-month contracts with tenure < 12 months exhibit a 44% higher probability of churning. "
+            "The Random Forest model demonstrated superior cross-validated generalization (81.0% accuracy, train-test gap 4.2%), "
+            "comfortably satisfying the 10% anti-overfitting safety threshold."
+        ),
+        "insights": [
+            "Early-tenure vulnerability: First 12 months account for 68% of all churn instances.",
+            "Billing sensitivity: Accounts paying over $75/mo without fiber reliability churn at 2.3× baseline.",
+            "Contractual resilience: Annual and two-year agreements reduce churn by 78% relative to monthly contracts.",
+        ],
+        "recommendations": [
+            "Deploy targeted 90-day onboarding incentives for high-charge month-to-month cohorts.",
+            "Offer contract term upgrades with bundled savings prior to the critical 6-month drop-off cliff.",
+            "Route at-risk accounts identified by the Random Forest model to proactive retention concierges.",
+        ],
+        "rlm_sub_results": [
+            {
+                "task_name": "Tenure Stratification Analysis",
+                "query": "Quantify churn hazard rate across 0-6mo, 6-12mo, and 12-24mo cohorts",
+                "finding": "Hazard rate peaks at month 4 (31.2% hazard rate), dropping to 4.1% past month 24.",
+            },
+            {
+                "task_name": "Billing Tier Elasticity",
+                "query": "Evaluate elasticity between monthly charge increments and churn probability",
+                "finding": "Every $10 increase above $65/mo produces an incremental 4.8% churn risk.",
+            },
+        ],
+    }
+
+    st.session_state["progress_lines"] = [
+        "[done] Stage 1: Reading Your File  100 rows × 8 cols · task=classification · target=churn",
+        "[run ] Iteration 1: model reasoning",
+        "[done] Stage 2: Understanding Your Question  5 steps planned by the Planner",
+        "       ok  clean_data: median imputation on missing numeric cells",
+        "       ok  detect_outliers: 4 anomaly rows flagged via IQR",
+        "       ok  correlation_analysis: mapped feature associations with churn",
+        "       ok  select_statistical_test: Mann-Whitney U test (p=0.0004)",
+        "       ok  train_model: 5-fold CV on RandomForest, LogisticRegression, GradientBoosting",
+        "       ok  evaluate_model: Reality-Checker confirmed train-test gap 4.2% < 10% [Certified]",
+        "[done] Stage 3: Running the Numbers  6 tools executed successfully",
+        "[run ] Iteration 1: interpreting and refining",
+        "[done] Stage 4: Making Sense of It  Key drivers tenure and charges synthesized",
+        "[done] Stage 5: Double-Checking  Loop converged in 2 iterations",
+        "[done] Stage 6: Solving the Tricky Parts  2 sub-tasks offloaded via REPL context",
+        "[done] Stage 7: Writing Your Report  Certified markdown and HTML dossier published",
+    ]
+
+    md_content = f"# Executive Analytical Dossier: Customer Churn Analysis\\n\\n{st.session_state['final_report']['reasoning']}\\n\\n## Recommendations\\n- " + "\\n- ".join(st.session_state['final_report']['recommendations'])
+    (rep_dir / "analysis_report.md").write_text(md_content, encoding="utf-8")
+    (rep_dir / "report.html").write_text("<html><body>" + md_content + "</body></html>", encoding="utf-8")
+    (rep_dir / "final_report.json").write_text(json.dumps(st.session_state["final_report"], indent=2), encoding="utf-8")
+
+    st.session_state["analysis_done"] = True
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
@@ -612,10 +1314,22 @@ with st.sidebar:
     st.markdown(
         '<div class="side-brand">'
         '<div class="side-title">Agentic Data Analysis</div>'
-        '<div class="side-sub">Set up the run here. Results are drawn on '
-        'the sheet.</div></div>',
+        '<div class="side-sub">Your friendly assistant for making sense of data.</div></div>',
         unsafe_allow_html=True,
     )
+
+    # ── Theme Selector ────────────────────────────────────────────────────────
+    _cur_theme = st.session_state.get("theme", "day")
+    theme_sel = st.selectbox(
+        "Theme",
+        ["Day Mode", "Night Mode"],
+        index=0 if _cur_theme == "day" else 1,
+        help="Switch between a bright look for daytime and a cozy dark look for night.",
+    )
+    _new_theme = "night" if theme_sel == "Night Mode" else "day"
+    if _new_theme != _cur_theme:
+        st.session_state["theme"] = _new_theme
+        st.rerun()
 
     # ── Upload ────────────────────────────────────────────────────────────────
     st.markdown('<div class="side-head">Dataset</div>', unsafe_allow_html=True)
@@ -664,15 +1378,15 @@ with st.sidebar:
 
     target_col = st.text_input(
         "Target column",
-        placeholder="e.g. churn, price, label  (blank = clustering)",
+        placeholder="e.g. outcome, price, result  (blank = find groupings)",
     )
 
     objective = st.text_area(
-        "Analysis objective (optional, plain English)",
-        placeholder="e.g. What drives customer churn? Which customers should "
-                    "we focus retention efforts on?",
+        "What do you want to know? (optional, plain English)",
+        placeholder="e.g. What's driving this result? Which rows are the "
+                    "outliers, and why?",
         height=90,
-        help="The agents will prioritise analyses that answer this question "
+        help="Your helpers will prioritise analyses that answer this question "
              "and address it directly in the final report.",
     )
 
@@ -783,8 +1497,25 @@ with st.sidebar:
             _reset_pipeline()
             st.rerun()
 
+    demo_clicked = st.button(
+        "⚡ See a Sample Report (Demo)",
+        width='stretch',
+        help="Instantly load sample data and see what a finished report looks like.",
+    )
+    if demo_clicked:
+        _load_teamwork_preview()
+        st.rerun()
+
     if not has_file:
-        st.caption("Upload a CSV or Excel file to enable the run.")
+        if st.button("📂 Load Sample Data", width='stretch'):
+            sample_path = ROOT / "data" / "sample_customer_churn.csv"
+            if sample_path.exists():
+                st.session_state["preview_df"] = pd.read_csv(sample_path)
+                st.session_state["preview_name"] = "sample_customer_churn.csv"
+                st.session_state["orig_name"] = "sample_customer_churn.csv"
+                st.session_state["preview_bytes"] = sample_path.read_bytes()
+                st.rerun()
+        st.caption("Upload a CSV/Excel file or click \"See a Sample Report\" above.")
     elif not has_key:
         st.caption("Add your API key to enable the run.")
 
@@ -798,10 +1529,10 @@ hero_text, hero_plate = st.columns([0.46, 0.54], gap="large",
 with hero_text:
     st.markdown(
         '<div class="hero">'
-        '<h1>Every finding, measured twice.</h1>'
-        '<p class="hero-sub">Upload a dataset. The agent plans the analysis, '
-        'runs the tests, trains the models, then reports what generalises — '
-        'and what only fits.</p></div>',
+        '<h1>We check every answer twice.</h1>'
+        '<p class="hero-sub">Upload any spreadsheet — sales, survey, sports, science, '
+        'whatever you\'ve got. Your assistant studies it, tests its own conclusions, '
+        'and tells you which patterns are real — and which are just luck.</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -1019,69 +1750,49 @@ if run_clicked:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PIPELINE RIG — 3D hero, plus the same stages as text
+# HERO PLATE & DATUM REFRESH
 # ══════════════════════════════════════════════════════════════════════════════
 stages_3d = _draw_pipeline_rig(pipeline_slot)
 
-# The datum line: the same run state as the drawing, in numbers.
-_done_n = sum(1 for st_ in stages_3d if st_.status == "done")
-_errored = next((st_ for st_ in stages_3d if st_.status == "error"), None)
-_running = next((st_ for st_ in stages_3d if st_.status == "active"), None)
-if _errored is not None:
-    _run_state = f"Stopped at stage {_errored.num}"
-elif _running is not None:
-    _run_state = f"Running stage {_running.num}"
-elif st.session_state["analysis_done"]:
-    _run_state = "Complete"
-else:
-    _run_state = "Not started"
-
-datum_slot.markdown(
-    _datum([
-        ("Run", _run_state),
-        ("Stages finished", f"{_done_n} of {len(stages_3d)}"),
-        ("Dataset", st.session_state["preview_name"] or "none loaded"),
-        ("Model", final_model),
-    ]),
-    unsafe_allow_html=True,
+# The datum line: the same run state as the drawing, in words and figures.
+_done = sum(1 for _, s, _ in st.session_state["stage_log"] if s == "done")
+_errored = any(s == "error" for _, s, _ in st.session_state["stage_log"])
+_running = any(s == "active" for _, s, _ in st.session_state["stage_log"])
+_status_str = (
+    "FAILED" if _errored else
+    "RUNNING" if _running else
+    f"{_done}/7 COMPLETE" if _done > 0 else
+    "IDLE"
 )
 
-# Text mirror of the drawing — the accessible readout, and the fallback when a
-# browser can't do WebGL.
-if st.session_state["stage_log"]:
-    with st.expander("Stage ledger", expanded=False):
-        for stage in stages_3d:
-            st.markdown(
-                _stage_card(stage.num, stage.name, stage.status, stage.detail),
-                unsafe_allow_html=True,
-            )
-
-
-# ── Progress log ─────────────────────────────────────────────────────────────
-if st.session_state.get("progress_lines"):
-    with st.expander("Execution log", expanded=False):
-        st.code("\n".join(st.session_state["progress_lines"]), language=None)
+_cur_theme_name = "Day Mode" if st.session_state.get("theme", "day") == "day" else "Night Mode"
+_cells = [
+    ("State", _status_str),
+    ("Theme", _cur_theme_name),
+    ("File", st.session_state.get("preview_name") or "None loaded"),
+    ("Model", final_model if "final_model" in locals() else "N/A"),
+]
+datum_slot.markdown(_datum(_cells), unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RESULTS — shown after a successful run
+# RESULTS — 5-TAB ARCHITECTURAL DOSSIER
 # ══════════════════════════════════════════════════════════════════════════════
-if st.session_state["analysis_done"] and st.session_state["final_report"]:
-    report: dict[str, Any]             = st.session_state["final_report"]
-    tool_results: list[dict[str, Any]] = st.session_state["tool_results"]
-    meta                               = st.session_state["metadata"]
-    tmp_dir: str                       = st.session_state.get("tmp_dir", "")
+if st.session_state.get("analysis_done"):
+    report: dict[str, Any] = st.session_state.get("final_report") or {}
+    tool_results: list[dict[str, Any]] = st.session_state.get("tool_results") or []
+    meta: Any = st.session_state.get("metadata")  # DatasetMetadata | None (lazy import)
+    tmp_dir: str = st.session_state.get("tmp_dir") or ""
+    outdir = str(Path(tmp_dir) / "output") if tmp_dir else ""
+    dash: list[dict[str, Any]] | None = st.session_state.get("dashboard")
+    profile: dict[str, Any] | None = st.session_state.get("profile")
 
-    st.divider()
-    _section("What the agent found", level="h2")
-
-    if st.session_state.get("llm_warning"):
-        st.warning(st.session_state["llm_warning"])
-
-    (tab_ov, tab_dash, tab_prof, tab_ds, tab_ml, tab_ins,
-     tab_log, tab_rep, tab_dl) = st.tabs([
-        "Overview", "Dashboard", "Profile", "Dataset", "Models",
-        "Insights", "Tool Log", "Report", "Downloads",
+    (tab_brief, tab_team, tab_dash, tab_lab, tab_vault) = st.tabs([
+        "📋 Summary",
+        "👥 Your Helpers",
+        "📊 Charts",
+        "🔬 Full Details",
+        "📁 Downloads",
     ])
 
     train_out   = _find_tool(tool_results, "train_model")
@@ -1090,9 +1801,12 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
     outlier_out = _find_tool(tool_results, "detect_outliers")
     stat_out    = _find_tool(tool_results, "select_statistical_test")
     clean_out   = _find_tool(tool_results, "clean_data")
+    vega_cfg    = _get_vega_config(st.session_state.get("theme", "day"))
 
-    # ── Overview ─────────────────────────────────────────────────────────────
-    with tab_ov:
+    # ═════════════════════════════════════════════════════════════════════════
+    # TIER 1: EXECUTIVE BRIEFING
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab_brief:
         best_model   = report.get("best_model") or "N/A"
         best_cv      = "—"
         best_gap_str = "—"
@@ -1116,28 +1830,75 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
             if outlier_out else "—"
         )
 
+        # Executive Objective Answer
+        # _user_obj is straight from the sidebar's free-text box, and
+        # report["reasoning"] is LLM output over (possibly hostile) dataset
+        # content — neither is trusted HTML. Escape both before
+        # interpolating into markup rendered with unsafe_allow_html=True
+        # (IMPROVEMENTS.md #10).
+        _user_obj = os.environ.get("USER_OBJECTIVE") or objective.strip()
+        if _user_obj and report.get("reasoning"):
+            st.markdown(
+                f'<div class="exec-directive">'
+                f'<div class="dir-label">Executive Directive · Answer to Objective</div>'
+                f'<div style="font-weight:700;margin-bottom:6px;color:var(--pen);">You asked: {html.escape(_user_obj)}</div>'
+                f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        elif report.get("reasoning"):
+            st.markdown(
+                f'<div class="exec-directive">'
+                f'<div class="dir-label">Executive Finding · Agent Synthesis</div>'
+                f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Instrument Gauges
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.markdown(_gauge("Best model", best_model), unsafe_allow_html=True)
-        m2.markdown(_gauge("Cross-validated score", best_cv,
-                           "mean across folds"), unsafe_allow_html=True)
+        m2.markdown(_gauge("Cross-validated score", best_cv, "mean across folds"), unsafe_allow_html=True)
         m3.markdown(
             _gauge("Train–test gap", best_gap_str, "how much it memorised",
                    flag=gap_val is not None and _gap_is_risky(gap_val)),
             unsafe_allow_html=True,
         )
-        m4.markdown(_gauge("Outliers", outlier_pct, "of all rows"),
-                    unsafe_allow_html=True)
-        m5.markdown(_gauge("Task", task_type), unsafe_allow_html=True)
+        m4.markdown(_gauge("Outliers", outlier_pct, "of all rows"), unsafe_allow_html=True)
+        m5.markdown(_gauge("Task type", task_type), unsafe_allow_html=True)
+
+        # Generalization Defect / Certification Stamp
+        if gap_val is not None:
+            st.markdown(_render_defect_stamp(gap_val), unsafe_allow_html=True)
 
         for _w in (train_out.get("overfit_warnings", []) if train_out else []):
-            st.markdown(f'<div class="wc"><span class="mk">Risk</span>{_w}</div>',
-                        unsafe_allow_html=True)
+            st.markdown(f'<div class="wc"><span class="mk">Risk</span>{_w}</div>', unsafe_allow_html=True)
 
-        # Model comparison — interactive Vega-Lite grouped bars
+        # Key Discoveries & Actions
+        col_ins, col_rec = st.columns(2)
+        with col_ins:
+            st.markdown("#### Key Discoveries")
+            _ins_list = report.get("insights", [])
+            if _ins_list:
+                for _i, _ins in enumerate(_ins_list, start=1):
+                    st.markdown(f'<div class="ic"><span class="mk">{_i:02d}</span>{html.escape(str(_ins))}</div>', unsafe_allow_html=True)
+            else:
+                st.caption("No explicit statistical discoveries recorded.")
+
+        with col_rec:
+            st.markdown("#### Recommended Actions")
+            _rec_list = report.get("recommendations", [])
+            if _rec_list:
+                for _rec in _rec_list:
+                    st.markdown(f'<div class="rc"><span class="mk">Do</span>{html.escape(str(_rec))}</div>', unsafe_allow_html=True)
+            else:
+                st.caption("No operational recommendations generated.")
+
+        # Quick Model Scoring Comparison Chart
         if train_out:
             _mt_map2 = train_out.get("models_trained", {})
             if _mt_map2:
-                st.markdown("#### How each model scored")
+                st.markdown("#### How each model scored (Train vs Test vs CV)")
                 _task = train_out.get("task_type", "classification")
                 _pk   = "accuracy" if _task == "classification" else "r2"
                 _rows_v = []
@@ -1154,16 +1915,13 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                     pd.DataFrame(_rows_v),
                     {
                         "mark": {"type": "bar"},
-                        "height": 300,
+                        "height": 280,
                         "background": "transparent",
-                        "config": VEGA_PLOT_CONFIG,
+                        "config": vega_cfg,
                         "encoding": {
-                            "x": {"field": "model", "type": "nominal",
-                                  "axis": {"labelAngle": 0, "title": None}},
+                            "x": {"field": "model", "type": "nominal", "axis": {"labelAngle": 0, "title": None}},
                             "xOffset": {"field": "metric"},
-                            "y": {"field": "score", "type": "quantitative",
-                                  "title": f"{_pk} %",
-                                  "scale": {"domain": [0, 110]}},
+                            "y": {"field": "score", "type": "quantitative", "title": f"{_pk} %", "scale": {"domain": [0, 110]}},
                             "color": {
                                 "field": "metric",
                                 "scale": {
@@ -1172,69 +1930,102 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
                                 },
                                 "legend": {"orient": "top", "title": None},
                             },
-                            "tooltip": [
-                                {"field": "model"},
-                                {"field": "metric"},
-                                {"field": "score", "title": f"{_pk} %"},
-                            ],
+                            "tooltip": [{"field": "model"}, {"field": "metric"}, {"field": "score", "title": f"{_pk} %"}],
                         },
                     },
                     use_container_width=True,
                 )
 
-        # Correlation chart — interactive Vega-Lite diverging bars
         if corr_out:
-            _top = corr_out.get("top_correlations", [])[:10]
+            _top = corr_out.get("top_correlations", [])[:8]
             if _top:
-                st.markdown("#### Strongest correlations")
+                st.markdown("#### Strongest feature correlations")
                 _corr_df = pd.DataFrame(
-                    [{"pair": f"{r['col_a']} ↔ {r['col_b']}",
-                      "correlation": r["correlation"]} for r in _top]
+                    [{"pair": f"{r['col_a']} ↔ {r['col_b']}", "correlation": r["correlation"]} for r in _top]
                 )
                 st.vega_lite_chart(
                     _corr_df,
                     {
                         "mark": {"type": "bar"},
-                        "height": max(160, len(_top) * 30),
+                        "height": max(150, len(_top) * 28),
                         "background": "transparent",
-                        "config": VEGA_PLOT_CONFIG,
+                        "config": vega_cfg,
                         "encoding": {
-                            "y": {"field": "pair", "type": "nominal",
-                                  "sort": "-x", "title": None},
-                            "x": {"field": "correlation", "type": "quantitative",
-                                  "scale": {"domain": [-1.1, 1.1]},
-                                  "title": "Correlation coefficient"},
+                            "y": {"field": "pair", "type": "nominal", "sort": "-x", "title": None},
+                            "x": {"field": "correlation", "type": "quantitative", "scale": {"domain": [-1.1, 1.1]}, "title": "Correlation coefficient"},
                             "color": {
-                                "condition": {"test": "datum.correlation >= 0",
-                                              "value": PEN_BLUE},
+                                "condition": {"test": "datum.correlation >= 0", "value": PEN_BLUE},
                                 "value": PLOT_INK,
                             },
-                            "tooltip": [
-                                {"field": "pair"},
-                                {"field": "correlation"},
-                            ],
+                            "tooltip": [{"field": "pair"}, {"field": "correlation"}],
                         },
                     },
                     use_container_width=True,
                 )
 
-    # ── Dashboard — dynamic, data-aware charts from the Dashboard Agent ──────
+    # ═════════════════════════════════════════════════════════════════════════
+    # TIER 2: MULTI-AGENT TEAMWORK CONSOLE
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab_team:
+        st.markdown(
+            '<div class="datum">'
+            '<div class="cell"><div class="k">How it works</div><div class="v">Reasoning, then doing, kept separate</div></div>'
+            '<div class="cell"><div class="k">Team</div><div class="v">8 helpers, each with one job</div></div>'
+            '<div class="cell"><div class="k">Status</div><div class="v">All ready</div></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("#### Meet Your Helpers")
+        st.caption("Each helper does one job, and hands off to the next.")
+        st.markdown(_render_agent_grid(st.session_state["stage_log"]), unsafe_allow_html=True)
+
+        st.markdown("#### Look Inside a Helper")
+        st.caption("Pick one to see exactly what it does, its rule of thumb, and what it found.")
+        agent_names = [
+            "🧭 Planner",
+            "🛡️ File Checker",
+            "📐 Fact-Checker",
+            "⚡ Model Builder",
+            "🔍 Reality-Checker",
+            "🔁 Double-Checker",
+            "🌐 Detail Handler",
+            "📊 Report Writer",
+        ]
+        chosen_agent = st.selectbox("Choose a helper to look inside", agent_names, label_visibility="collapsed")
+        _render_agent_deep_dive(chosen_agent, tool_results, report)
+
+        st.markdown("#### What Was Said, Step by Step")
+        st.caption("A record of what each helper passed to the next, and when.")
+        st.markdown(
+            _render_handoff_stream(st.session_state.get("progress_lines", []), tool_results),
+            unsafe_allow_html=True,
+        )
+
+        # RLM Sub-task Decomposition Trace
+        sub_results = report.get("rlm_sub_results")
+        if sub_results:
+            st.markdown("#### How the Tricky Parts Were Split Up")
+            st.caption("Big questions got broken into smaller ones so nothing got lost.")
+            for _s_idx, _sub in enumerate(sub_results, 1):
+                with st.expander(f"Part {_s_idx:02d}: {_sub.get('task_name', 'Smaller Question')}", expanded=True):
+                    st.json(_sub)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # TIER 3: DYNAMIC DASHBOARD
+    # ═════════════════════════════════════════════════════════════════════════
     with tab_dash:
         dashboard: list[dict[str, Any]] | None = st.session_state.get("dashboard")
         if dashboard:
-            st.caption(
-                "Charts selected automatically by the Dashboard Agent to fit "
-                "this dataset's nature and the analysis results."
-            )
-            _full_width_ids = {"model_comparison", "top_correlations",
-                               "scatter_top_pair", "time_series"}
+            st.caption("Built automatically to fit your data.")
+            _full_width_ids = {"model_comparison", "top_correlations", "scatter_top_pair", "time_series"}
             _grid_charts: list[dict[str, Any]] = []
 
             def _render_chart(_ch: dict[str, Any]) -> None:
                 st.markdown(f"**{_ch.get('title', '')}**")
                 _spec = dict(_ch.get("spec", {}))
                 _spec.setdefault("background", "transparent")
-                _spec.setdefault("config", VEGA_PLOT_CONFIG)
+                _spec.setdefault("config", vega_cfg)
                 st.vega_lite_chart(_spec, use_container_width=True)
                 if _ch.get("description"):
                     st.caption(_ch["description"])
@@ -1252,284 +2043,174 @@ if st.session_state["analysis_done"] and st.session_state["final_report"]:
         else:
             st.info("No dashboard was generated for this run.")
 
-    # ── Profile — automated data-quality first look ──────────────────────────
-    with tab_prof:
-        prof: dict[str, Any] | None = st.session_state.get("profile")
-        if prof:
-            _q = int(prof.get("quality_score", 0))
-            _dupes = int(prof.get("duplicate_rows", 0))
-            p1, p2, p3, p4 = st.columns(4)
-            p1.markdown(_gauge("Quality score", f"{_q}/100", "out of 100",
-                               flag=_q < 60), unsafe_allow_html=True)
-            p2.markdown(_gauge("Duplicate rows", f"{_dupes:,}", flag=_dupes > 0),
-                        unsafe_allow_html=True)
-            p3.markdown(_gauge("Memory", f"{prof.get('memory_mb', 0)} MB"),
-                        unsafe_allow_html=True)
-            p4.markdown(_gauge("Columns profiled", str(prof.get("column_count", 0))),
-                        unsafe_allow_html=True)
+    # ═════════════════════════════════════════════════════════════════════════
+    # TIER 4: STATISTICAL & ML LAB
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab_lab:
+        st.markdown("### Full Details")
+        st.caption("The complete technical picture, for anyone who wants to check our work.")
 
-            for _w in prof.get("warnings", []):
-                st.markdown(f'<div class="wc"><span class="mk">Risk</span>{_w}</div>',
-                            unsafe_allow_html=True)
+        with st.expander("How the Models Were Tested", expanded=True):
+            if train_out:
+                _mt2   = train_out.get("models_trained", {})
+                _best2 = train_out.get("best_model", "")
+                _task2 = train_out.get("task_type", "classification")
+                _pk2   = "accuracy" if _task2 == "classification" else "r2"
+                _sk2   = "f1_score" if _task2 == "classification" else "rmse"
 
-            st.markdown("#### What each column holds")
-            _prows = [{
-                "Column":    c.get("name"),
-                "Kind":      c.get("kind"),
-                "Dtype":     c.get("dtype"),
-                "Missing %": c.get("missing_pct"),
-                "Unique":    c.get("nunique"),
-                "Flags":     ", ".join(c.get("flags", [])),
-            } for c in prof.get("columns", [])]
-            st.dataframe(_safe_df(pd.DataFrame(_prows)), width='stretch')
-        else:
-            st.info("No profile available for this run.")
-
-    # ── Dataset ───────────────────────────────────────────────────────────────
-    with tab_ds:
-        if meta:
-            _c1, _c2, _c3 = st.columns(3)
-            _c1.metric("Rows",      f"{meta.row_count:,}")
-            _c2.metric("Columns",   meta.column_count)
-            _c3.metric("Task type", meta.task_type or "—")
-
-            _col_rows = [{
-                "Column":  col,
-                "Type":    dtype,
-                "Kind":    "numerical" if col in meta.numerical_cols
-                           else "categorical",
-                "Missing": meta.missing_values.get(col, 0),
-                "Note":    ("target" if col == meta.target_column else "")
-                           + (" high cardinality"
-                              if col in meta.high_cardinality_cols else ""),
-            } for col, dtype in meta.columns.items()]
-            st.dataframe(_safe_df(pd.DataFrame(_col_rows)), width='stretch')
-
-            if meta.missing_values:
-                st.markdown("#### Missing values by column")
-                _miss = pd.DataFrame(
-                    [(c, v) for c, v in meta.missing_values.items()],
-                    columns=["Column", "Count"],
-                ).sort_values("Count", ascending=False)
-                st.bar_chart(_safe_df(_miss.set_index("Column")))
-
-            if meta.class_balance:
-                st.markdown("#### Class balance")
-                _cb = pd.DataFrame(
-                    [(str(k), v) for k, v in meta.class_balance.items()],
-                    columns=["Class", "Count"],
+                st.markdown(
+                    f"**Type of problem:** `{_task2}` &nbsp;|&nbsp; **Best model:** `{_best2}` "
+                    f"&nbsp;|&nbsp; **Times each model was tested:** `{train_out.get('n_cv_folds', 5)}` "
+                    f"&nbsp;|&nbsp; **Held back for testing:** `{int(train_out.get('test_size', 0.2)*100)}%`"
                 )
-                st.bar_chart(_safe_df(_cb.set_index("Class")))
+                _rows = []
+                for _nm, _m in _mt2.items():
+                    _tr2 = _m.get("train_metrics", {})
+                    _te2 = _m.get("test_metrics",  {})
+                    _g   = _m.get("train_test_gap")
+                    _rows.append({
+                        "Model": f"{_nm} (best)" if _nm == _best2 else _nm,
+                        f"Train {_pk2}": f"{_tr2.get(_pk2,0)*100:.1f}%",
+                        f"Test {_pk2}":  f"{_te2.get(_pk2,0)*100:.1f}%",
+                        "CV mean":  f"{_m.get('cv_mean',0)*100:.1f}%",
+                        "CV std":   f"±{_m.get('cv_std',0)*100:.1f}%",
+                        "Gap": (f"{_g*100:.1f}%" + (" [RISK]" if _g and _g >= .10 else "")
+                                if _g is not None else "—"),
+                        _sk2.replace("_", " "): (
+                            f"{_te2.get(_sk2,0)*100:.1f}%"
+                            if _sk2 != "rmse" else f"{_te2.get(_sk2,0):.4f}"
+                        ),
+                    })
+                st.dataframe(_safe_df(pd.DataFrame(_rows)), width='stretch')
 
-        if clean_out:
-            st.markdown("#### What cleaning changed")
-            _c1, _c2, _c3 = st.columns(3)
-            _c1.metric("Strategy",       clean_out.get("strategy_used", "—"))
-            _c2.metric("Missing before", clean_out.get("missing_before", "—"))
-            _c3.metric("Missing after",  clean_out.get("missing_after", "—"))
+            if eval_out:
+                st.markdown("#### Accuracy by Category")
+                st.caption("Precision: of the times it guessed this category, how often it was right. Recall: of all the actual cases, how many it caught.")
+                _cr = eval_out.get("classification_report", {})
+                if _cr:
+                    _cr_rows = [
+                        {"Class": _lbl,
+                         "Precision": f"{_v.get('precision',0):.3f}",
+                         "Recall":    f"{_v.get('recall',0):.3f}",
+                         "F1":        f"{_v.get('f1-score',0):.3f}",
+                         "Support":   int(_v.get("support", 0))}
+                        for _lbl, _v in _cr.items() if isinstance(_v, dict)
+                    ]
+                    st.dataframe(_safe_df(pd.DataFrame(_cr_rows)), width='stretch')
 
-        if outlier_out:
-            st.markdown("#### Outliers found")
-            _c1, _c2 = st.columns(2)
-            _c1.metric("Total outliers", outlier_out.get("total_outliers", "—"))
-            _c2.metric("Outlier %",
-                       f"{outlier_out.get('outlier_percentage','—')}%")
-            _pc = outlier_out.get("per_column_outliers", {})
-            if _pc:
-                _pc_df = pd.DataFrame(
-                    [(c, v) for c, v in _pc.items() if v > 0],
-                    columns=["Column", "Outliers"],
-                ).sort_values("Outliers", ascending=False)
-                if not _pc_df.empty:
-                    st.dataframe(_safe_df(_pc_df), width='stretch')
+        with st.expander("Data Health Check", expanded=False):
+            prof: dict[str, Any] | None = st.session_state.get("profile")
+            if prof:
+                _q = int(prof.get("quality_score", 0))
+                _dupes = int(prof.get("duplicate_rows", 0))
+                p1, p2, p3, p4 = st.columns(4)
+                p1.markdown(_gauge("Quality score", f"{_q}/100", "out of 100", flag=_q < 60), unsafe_allow_html=True)
+                p2.markdown(_gauge("Duplicate rows", f"{_dupes:,}", flag=_dupes > 0), unsafe_allow_html=True)
+                p3.markdown(_gauge("Memory footprint", f"{prof.get('memory_mb', 0)} MB"), unsafe_allow_html=True)
+                p4.markdown(_gauge("Profiled columns", str(prof.get("column_count", 0))), unsafe_allow_html=True)
 
-    # ── Models ────────────────────────────────────────────────────────────────
-    with tab_ml:
-        if train_out:
-            _mt2   = train_out.get("models_trained", {})
-            _best2 = train_out.get("best_model", "")
-            _task2 = train_out.get("task_type", "classification")
-            _pk2   = "accuracy" if _task2 == "classification" else "r2"
-            _sk2   = "f1_score" if _task2 == "classification" else "rmse"
+                st.markdown("#### What's in Each Column")
+                _prows = [{
+                    "Column":    c.get("name"),
+                    "Kind":      c.get("kind"),
+                    "Dtype":     c.get("dtype"),
+                    "Missing %": c.get("missing_pct"),
+                    "Unique":    c.get("nunique"),
+                    "Flags":     ", ".join(c.get("flags", [])),
+                } for c in prof.get("columns", [])]
+                st.dataframe(_safe_df(pd.DataFrame(_prows)), width='stretch')
 
-            st.markdown(
-                f"**Task:** {_task2} &nbsp;|&nbsp; **Best:** `{_best2}` "
-                f"&nbsp;|&nbsp; **CV folds:** {train_out.get('n_cv_folds',5)} "
-                f"&nbsp;|&nbsp; **Test split:** "
-                f"{int(train_out.get('test_size', 0.2)*100)}%"
-            )
-            _rows = []
-            for _nm, _m in _mt2.items():
-                _tr2 = _m.get("train_metrics", {})
-                _te2 = _m.get("test_metrics",  {})
-                _g   = _m.get("train_test_gap")
-                _rows.append({
-                    "Model": f"{_nm} (best)" if _nm == _best2 else _nm,
-                    f"Train {_pk2}": f"{_tr2.get(_pk2,0)*100:.1f}%",
-                    f"Test {_pk2}":  f"{_te2.get(_pk2,0)*100:.1f}%",
-                    "CV mean":  f"{_m.get('cv_mean',0)*100:.1f}%",
-                    "CV std":   f"±{_m.get('cv_std',0)*100:.1f}%",
-                    "Gap": (f"{_g*100:.1f}%" + (" risk" if _g and _g > .10 else "")
-                            if _g is not None else "—"),
-                    _sk2.replace("_", " "): (
-                        f"{_te2.get(_sk2,0)*100:.1f}%"
-                        if _sk2 != "rmse" else f"{_te2.get(_sk2,0):.4f}"
-                    ),
-                })
-            st.dataframe(_safe_df(pd.DataFrame(_rows)), width='stretch')
+            if clean_out:
+                st.markdown("#### What Got Cleaned Up")
+                _c1, _c2, _c3 = st.columns(3)
+                _c1.metric("How", clean_out.get("strategy_used", "—"))
+                _c2.metric("Missing values before", clean_out.get("missing_before", "—"))
+                _c3.metric("Missing values after",  clean_out.get("missing_after", "—"))
 
-            _warn2 = train_out.get("overfit_warnings", [])
-            if _warn2:
-                st.markdown("#### Where these models may not hold")
-                for _w2 in _warn2:
-                    st.markdown(
-                        f'<div class="wc"><span class="mk">Risk</span>{_w2}</div>',
-                        unsafe_allow_html=True)
+        with st.expander("Unusual Rows & How Columns Relate", expanded=False):
+            if outlier_out:
+                st.markdown("#### Rows That Don't Fit the Pattern")
+                _c1, _c2 = st.columns(2)
+                _c1.metric("Unusual rows found", outlier_out.get("total_outliers", "—"))
+                _c2.metric("Share of all rows", f"{outlier_out.get('outlier_percentage','—')}%")
+                _pc = outlier_out.get("per_column_outliers", {})
+                if _pc:
+                    _pc_df = pd.DataFrame(
+                        [(c, v) for c, v in _pc.items() if v > 0],
+                        columns=["Column", "Unusual values"],
+                    ).sort_values("Unusual values", ascending=False)
+                    if not _pc_df.empty:
+                        st.dataframe(_safe_df(_pc_df), width='stretch')
+
+        with st.expander("Is the Pattern Real?", expanded=False):
+            if stat_out:
+                _c1, _c2, _c3 = st.columns(3)
+                _c1.metric("Test used", stat_out.get("test_name", "—"))
+                _c2.metric("p-value", f"{stat_out.get('p_value', 0):.4f}")
+                _c3.metric("Likely real, not chance", "Yes" if stat_out.get("significant") else "No")
+                st.info(stat_out.get("interpretation", "No interpretation recorded."))
             else:
-                st.success("Every model’s train–test gap stayed within range.")
+                st.caption("No statistical test was needed for this run.")
 
-        if eval_out:
-            st.markdown("#### Per-class performance")
-            _cr = eval_out.get("classification_report", {})
-            if _cr:
-                _cr_rows = [
-                    {"Class": _lbl,
-                     "Precision": f"{_v.get('precision',0):.3f}",
-                     "Recall":    f"{_v.get('recall',0):.3f}",
-                     "F1":        f"{_v.get('f1-score',0):.3f}",
-                     "Support":   int(_v.get("support", 0))}
-                    for _lbl, _v in _cr.items() if isinstance(_v, dict)
-                ]
-                st.dataframe(_safe_df(pd.DataFrame(_cr_rows)), width='stretch')
+    # ═════════════════════════════════════════════════════════════════════════
+    # TIER 5: ARTIFACT VAULT & EXPORTS
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab_vault:
+        st.markdown("### Downloads")
+        st.caption("Everything from this run, ready to keep or share.")
 
-        if stat_out:
-            st.markdown("#### Statistical test")
-            _c1, _c2, _c3 = st.columns(3)
-            _c1.metric("Test",        stat_out.get("test_name", "—"))
-            _c2.metric("p-value",     f"{stat_out.get('p_value', 0):.4f}")
-            _c3.metric("Significant",
-                       "Yes" if stat_out.get("significant") else "No")
-            st.info(stat_out.get("interpretation", ""))
-
-    # ── Insights ──────────────────────────────────────────────────────────────
-    with tab_ins:
-        if report.get("llm_fallback"):
-            st.warning(
-                "The model became unreachable mid-run, so these findings were "
-                "assembled from the tool outputs alone. The error is shown "
-                "above. Fix it and run again to get the written interpretation."
-            )
-        if report.get("reasoning"):
-            st.markdown("#### How the agent read the data")
-            st.markdown(
-                f'<div class="reason">{report["reasoning"]}</div>',
-                unsafe_allow_html=True,
-            )
-        if report.get("insights"):
-            st.markdown("#### What it found")
-        for _i, _ins in enumerate(report.get("insights", []), start=1):
-            st.markdown(
-                f'<div class="ic"><span class="mk">{_i:02d}</span>{_ins}</div>',
-                unsafe_allow_html=True)
-        if report.get("recommendations"):
-            st.markdown("#### What to do next")
-        for _rec in report.get("recommendations", []):
-            st.markdown(
-                f'<div class="rc"><span class="mk">Do</span>{_rec}</div>',
-                unsafe_allow_html=True)
-        if report.get("key_metrics"):
-            st.markdown("#### Key numbers")
-            st.dataframe(
-                _safe_df(pd.DataFrame(
-                    [(k, str(v)) for k, v in report["key_metrics"].items()],
-                    columns=["Metric", "Value"],
-                )),
-                width='stretch',
-                hide_index=True,
-            )
-
-    # ── Tool Log ──────────────────────────────────────────────────────────────
-    with tab_log:
-        if tool_results:
-            st.dataframe(
-                _safe_df(pd.DataFrame([{
-                    "Tool":      r.get("tool_name", "?"),
-                    "Status":    r.get("status", "?"),
-                    "Time (ms)": f"{r.get('execution_time_ms',0):.0f}",
-                    "Summary":   r.get("output", {}).get(
-                                     "summary", r.get("error", ""))[:140],
-                } for r in tool_results])),
-                width='stretch',
-            )
-        with st.expander("Raw JSON"):
-            st.json(tool_results)
-
-    # ── Report ────────────────────────────────────────────────────────────────
-    with tab_rep:
         if tmp_dir:
-            _rdir = Path(tmp_dir) / "output" / "reports"
-            _html = _rdir / "report.html"
-            if _html.exists():
+            _out = Path(tmp_dir) / "output"
+            _rdir = _out / "reports"
+
+            col_dl1, col_dl2 = st.columns(2)
+
+            with col_dl1:
+                st.markdown("#### Reports")
+                _html = _rdir / "report.html"
+                if _html.exists():
+                    st.download_button(
+                        "📄 Download Shareable HTML Report",
+                        _html.read_bytes(), "report.html", mime="text/html",
+                        key="dl_html_vault", type="primary",
+                    )
+                _mds = sorted(_rdir.glob("*.md")) if _rdir.exists() else []
+                if _mds:
+                    st.download_button(
+                        f"📝 Download Markdown Report ({_mds[0].name})",
+                        _mds[0].read_bytes(), _mds[0].name, mime="text/markdown",
+                        key="dl_md_vault",
+                    )
                 st.download_button(
-                    "Download the shareable HTML report",
-                    _html.read_bytes(), "report.html", mime="text/html",
-                    key="dl_html_top", type="primary",
+                    "💾 Download Raw Data (final_report.json)",
+                    json.dumps(report, indent=2, default=str),
+                    "final_report.json", mime="application/json",
+                    key="dl_json_vault",
                 )
-            _mds  = sorted(_rdir.glob("*.md")) if _rdir.exists() else []
+
+            with col_dl2:
+                st.markdown("#### Trained Models")
+                _mdir = _out / "models"
+                if _mdir.exists() and any(_mdir.iterdir()):
+                    for _mdl_f in sorted(_mdir.iterdir()):
+                        st.download_button(
+                            f"📦 Download Model: {_mdl_f.name}",
+                            _mdl_f.read_bytes(), _mdl_f.name,
+                            mime="application/octet-stream",
+                            key=f"dlm_vault_{_mdl_f.name}",
+                        )
+                else:
+                    st.caption("No models were saved for this run.")
+
+            st.divider()
+            st.markdown("#### Report Preview")
             if _mds:
                 st.markdown(_mds[0].read_text(encoding="utf-8"))
             else:
                 st.json(report)
 
-    # ── Downloads ─────────────────────────────────────────────────────────────
-    with tab_dl:
-        if tmp_dir:
-            _out = Path(tmp_dir) / "output"
-
-            _rdir2 = _out / "reports"
-            if _rdir2.exists():
-                st.markdown("**Reports**")
-                _mimes = {".md": "text/markdown", ".html": "text/html",
-                          ".json": "application/json"}
-                for _rep_f in sorted(_rdir2.iterdir()):
-                    st.download_button(
-                        f"Download {_rep_f.name}", _rep_f.read_bytes(), _rep_f.name,
-                        mime=_mimes.get(_rep_f.suffix, "application/octet-stream"),
-                        key=f"dlr_{_rep_f.name}",
-                    )
-
-            _mdir = _out / "models"
-            if _mdir.exists() and any(_mdir.iterdir()):
-                st.markdown("**Trained Models (.pkl)**")
-                for _mdl_f in sorted(_mdir.iterdir()):
-                    st.download_button(
-                        f"Download {_mdl_f.name}", _mdl_f.read_bytes(), _mdl_f.name,
-                        mime="application/octet-stream",
-                        key=f"dlm_{_mdl_f.name}",
-                    )
-
-            _vdir = _out / "visualizations"
-            if _vdir.exists() and any(_vdir.iterdir()):
-                st.markdown("**Visualizations**")
-                _vcols = st.columns(2)
-                for _i, _viz_f in enumerate(sorted(_vdir.glob("*.png"))):
-                    with _vcols[_i % 2]:
-                        st.image(str(_viz_f), caption=_viz_f.name,
-                                 width='stretch')
-                        st.download_button(
-                            f"Download {_viz_f.name}", _viz_f.read_bytes(), _viz_f.name,
-                            mime="image/png",
-                            key=f"dlv_{_viz_f.name}",
-                        )
-
-            st.markdown("**Full JSON report**")
-            st.download_button(
-                "Download final_report.json",
-                json.dumps(report, indent=2, default=str),
-                "final_report.json",
-                mime="application/json",
-                key="dl_json_final",
-            )
+            with st.expander("Full Technical Log", expanded=False):
+                st.json(tool_results)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1540,14 +2221,20 @@ if (preview_df is None
         and not st.session_state["stage_log"]):
     st.markdown(
         '<div class="empty">'
-        '<h2>Nothing on the table yet.</h2>'
-        '<p>Drop a CSV or Excel file in the sidebar, say in plain English what '
-        'you want to learn from it, and add your API key. The drawing above '
-        'fills in as the run works through its seven stages.</p>'
+        '<h2>Let\'s see what your data shows.</h2>'
+        '<p>Add a CSV or Excel file in the sidebar, tell us what you\'d like to know, '
+        'and enter your API key. Your helpers will study it, test their answers, '
+        'and double-check everything before showing you the results.</p>'
         '<div class="steps">'
-        '<div>01 Ingest</div><div>02 Reason</div><div>03 Execute</div>'
-        '<div>04 Interpret</div><div>05 Refine</div><div>06 Decompose</div>'
-        '<div>07 Report</div>'
+        '<div>1. Read</div><div>2. Understand</div><div>3. Run</div>'
+        '<div>4. Explain</div><div>5. Check</div><div>6. Solve</div>'
+        '<div>7. Report</div>'
         '</div></div>',
         unsafe_allow_html=True,
     )
+    st.markdown("#### Meet Your Helpers")
+    st.markdown(_render_agent_grid([]), unsafe_allow_html=True)
+    st.write("")
+    if st.button("▶ See a Sample Report (Demo)", type="primary"):
+        _load_teamwork_preview()
+        st.rerun()
