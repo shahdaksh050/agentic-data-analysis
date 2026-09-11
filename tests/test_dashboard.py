@@ -151,6 +151,58 @@ class TestChartSelection:
         charts = build_dashboard(churn_df, profile, tool_results=[cluster_result])
         assert "cluster_scatter" not in _ids(charts)
 
+    def test_geospatial_chart_from_tool_results(self, churn_df: pd.DataFrame) -> None:
+        geo_result = {
+            "tool_name": "geospatial_analysis",
+            "status": "success",
+            "output": {
+                "densest_cells": [
+                    {"lat_range": [10.0, 11.0], "lon_range": [20.0, 21.0], "count": 42},
+                    {"lat_range": [11.0, 12.0], "lon_range": [21.0, 22.0], "count": 17},
+                ],
+            },
+        }
+        profile = profile_dataframe(churn_df)
+        charts = build_dashboard(churn_df, profile, tool_results=[geo_result])
+        ids = _ids(charts)
+        assert "geospatial_hotspots" in ids
+        spec = next(c for c in charts if c.chart_id == "geospatial_hotspots").spec
+        assert spec["data"]["values"][0] == {"lat": 10.5, "lon": 20.5, "count": 42}
+
+    def test_geospatial_chart_skipped_without_cells(self, churn_df: pd.DataFrame) -> None:
+        geo_result = {"tool_name": "geospatial_analysis", "status": "success", "output": {"densest_cells": []}}
+        profile = profile_dataframe(churn_df)
+        charts = build_dashboard(churn_df, profile, tool_results=[geo_result])
+        assert "geospatial_hotspots" not in _ids(charts)
+
+    def test_scree_chart_from_tool_results(self, churn_df: pd.DataFrame) -> None:
+        dim_result = {
+            "tool_name": "dimensionality_analysis",
+            "status": "success",
+            "output": {
+                "explained_variance_ratio": [0.5, 0.3, 0.2],
+                "cumulative_variance": [0.5, 0.8, 1.0],
+                "n_components_for_threshold": 2,
+                "variance_threshold": 0.8,
+            },
+        }
+        profile = profile_dataframe(churn_df)
+        charts = build_dashboard(churn_df, profile, tool_results=[dim_result])
+        ids = _ids(charts)
+        assert "pca_scree" in ids
+        chart = next(c for c in charts if c.chart_id == "pca_scree")
+        assert len(chart.spec["data"]["values"]) == 3
+        assert "2 component(s)" in chart.description
+
+    def test_scree_chart_skipped_without_variance_ratio(self, churn_df: pd.DataFrame) -> None:
+        dim_result = {
+            "tool_name": "dimensionality_analysis", "status": "success",
+            "output": {"explained_variance_ratio": []},
+        }
+        profile = profile_dataframe(churn_df)
+        charts = build_dashboard(churn_df, profile, tool_results=[dim_result])
+        assert "pca_scree" not in _ids(charts)
+
     def test_time_series_chart_for_datetime_data(self) -> None:
         n = 400
         df = pd.DataFrame({
@@ -159,6 +211,34 @@ class TestChartSelection:
         })
         profile = profile_dataframe(df)
         assert "time_series" in _ids(build_dashboard(df, profile))
+
+    def test_time_series_chart_uses_tool_columns_and_findings(self) -> None:
+        """The chart must reflect time_series_analysis's own column choice
+        and findings, not silently re-derive a possibly different series."""
+        n = 400
+        df = pd.DataFrame({
+            "date": pd.date_range("2023-01-01", periods=n, freq="D"),
+            "sales": RNG.normal(1000, 150, n),
+            "other_metric": RNG.normal(50, 5, n),
+        })
+        profile = profile_dataframe(df)
+        ts_result = {
+            "tool_name": "time_series_analysis",
+            "status": "success",
+            "output": {
+                "date_column": "date",
+                "value_column": "other_metric",
+                "trend_direction": "upward",
+                "is_stationary": False,
+                "seasonal_lags_detected": ["7"],
+            },
+        }
+        charts = build_dashboard(df, profile, tool_results=[ts_result])
+        ts_chart = next(c for c in charts if c.chart_id == "time_series")
+        assert "other_metric" in ts_chart.title
+        assert "upward" in ts_chart.description
+        assert "Non-stationary" in ts_chart.description
+        assert "7" in ts_chart.description
 
 
 class TestSpecQuality:

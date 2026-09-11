@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -10,6 +11,12 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console()
+
+#: Bounded worker pool for parallel sub-task invocation in
+#: decompose_and_invoke(). These are I/O-bound HTTP calls, so threads are
+#: correct and the GIL is irrelevant; bounded by policy (not hardware) so a
+#: wide decomposition doesn't slam the provider's own rate limits.
+_MAX_DECOMPOSE_WORKERS = 6
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +166,16 @@ class RLMEngine:
         """
         Stage 6: run one LLM call per sub-task and aggregate results.
 
-        Each sub-task's context is stored in the REPL environment under the
-        key ``subtask_ctx_<task_id>`` so downstream calls can reference it.
+        Sub-tasks are independent — prompt_builder only ever reads a
+        sub-task's own task_id/description/context, never a sibling's
+        REPL-stored result — so they run concurrently on a small bounded
+        thread pool instead of one LLM round trip at a time. Each
+        sub-task's context is stored in the REPL environment under
+        ``subtask_ctx_<task_id>`` before any call starts, and every
+        result under ``subtask_result_<task_id>`` once all calls finish
+        (written back in ``sub_tasks`` order, not completion order, so the
+        REPL env's final state is deterministic regardless of which
+        thread happened to finish first).
 
         Args:
             sub_tasks:      List of RLMSubTask instances to process.
@@ -170,21 +185,24 @@ class RLMEngine:
         Returns:
             Dict mapping task_id -> LLM response dict.
         """
-        results: dict[str, dict[str, Any]] = {}
-
         for sub_task in sub_tasks:
-            # Store sub-task context in REPL env before invoking
             self.repl_env.set(f"subtask_ctx_{sub_task.task_id}", sub_task.context)
 
+        def _run(sub_task: RLMSubTask) -> dict[str, Any]:
             prompt = prompt_builder(sub_task)
-            response = self.invoke(
-                prompt,
-                depth=depth,
-                stage=f"stage6:decompose:{sub_task.task_id}",
+            return self.invoke(
+                prompt, depth=depth, stage=f"stage6:decompose:{sub_task.task_id}"
             )
-            results[sub_task.task_id] = response
 
-            # Store the result too so later sub-tasks can reference it
+        if len(sub_tasks) <= 1:
+            responses = [_run(t) for t in sub_tasks]
+        else:
+            with ThreadPoolExecutor(max_workers=min(_MAX_DECOMPOSE_WORKERS, len(sub_tasks))) as pool:
+                responses = list(pool.map(_run, sub_tasks))
+
+        results: dict[str, dict[str, Any]] = {}
+        for sub_task, response in zip(sub_tasks, responses, strict=True):
+            results[sub_task.task_id] = response
             self.repl_env.set(f"subtask_result_{sub_task.task_id}", response)
 
         return results

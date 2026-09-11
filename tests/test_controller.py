@@ -73,15 +73,15 @@ FINAL_RESPONSE: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 class TestParseSteps:
-    def test_valid_steps_parsed(self) -> None:
-        steps = AgentController._parse_steps(
+    def test_valid_steps_parsed(self, agent: AgentController) -> None:
+        steps = agent._parse_steps(
             {"steps": [{"step_number": 1, "tool_name": "clean_data", "parameters": {"a": 1}}]}
         )
         assert len(steps) == 1
         assert steps[0].tool_name == "clean_data"
 
-    def test_malformed_entries_skipped(self) -> None:
-        steps = AgentController._parse_steps(
+    def test_malformed_entries_skipped(self, agent: AgentController) -> None:
+        steps = agent._parse_steps(
             {
                 "steps": [
                     "not a dict",
@@ -95,14 +95,14 @@ class TestParseSteps:
         assert steps[0].tool_name == "detect_outliers"
         assert steps[0].parameters == {}
 
-    def test_missing_step_number_defaults_to_index(self) -> None:
-        steps = AgentController._parse_steps(
+    def test_missing_step_number_defaults_to_index(self, agent: AgentController) -> None:
+        steps = agent._parse_steps(
             {"steps": [{"tool_name": "clean_data"}, {"tool_name": "detect_outliers"}]}
         )
         assert [s.step_number for s in steps] == [1, 2]
 
-    def test_non_list_steps_returns_empty(self) -> None:
-        assert AgentController._parse_steps({"steps": "garbage"}) == []
+    def test_non_list_steps_returns_empty(self, agent: AgentController) -> None:
+        assert agent._parse_steps({"steps": "garbage"}) == []
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +154,9 @@ class TestAnalyzeWorkflow:
         # Fallback plan must have actually executed tools
         executed = {r.tool_name for r in agent.memory.tool_results}
         assert {"clean_data", "detect_outliers", "correlation_analysis"} <= executed
+        # _deterministic_final only ever echoes numbers straight out of real
+        # tool output — it must never trip its own verbatim-metric validator.
+        assert not agent.memory.get_context("unverified_claims")
         # Deterministic synthesis must reference real results
         assert final["insights"]
 
@@ -192,6 +195,97 @@ class TestAnalyzeWorkflow:
     def test_analyze_without_dataset_raises(self, agent: AgentController) -> None:
         with pytest.raises(RuntimeError, match="No dataset loaded"):
             agent.analyze()
+
+    def test_identical_replanned_step_is_served_from_cache(
+        self, agent: AgentController, sample_csv: str
+    ) -> None:
+        """A step the LLM re-plans verbatim must be reused, not re-executed —
+        otherwise a repeated train_model step can silently overwrite the
+        model file a prior step already pointed memory context at."""
+        clean_step = {
+            "status": "in_progress",
+            "reasoning": "Clean, then clean again (redundant replan).",
+            "steps": [
+                {
+                    "step_number": 1,
+                    "tool_name": "clean_data",
+                    "parameters": {"file_path": sample_csv, "strategy": "median"},
+                    "rationale": "Handle missing values.",
+                }
+            ],
+        }
+        agent.llm_client = _ScriptedLLM(  # type: ignore[assignment]
+            [clean_step, clean_step, FINAL_RESPONSE]
+        )
+        agent.load_dataset(sample_csv, target_hint="label", interactive=False)
+        agent.analyze()
+
+        clean_results = [
+            r for r in agent.memory.tool_results if r.tool_name == "clean_data"
+        ]
+        assert len(clean_results) == 2, "both planning cycles must record a result"
+        assert clean_results[0] is clean_results[1], (
+            "second occurrence must be the cached object, not a fresh execution"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Verbatim-metric validation (P0.7)
+# ---------------------------------------------------------------------------
+
+class TestVerbatimMetricValidation:
+    """SYSTEM_PROMPT_CORE tells the LLM to cite only numbers that appear in
+    tool results; these assert the rule is actually enforced, not just
+    stated."""
+
+    def test_number_present_in_tool_results_is_not_flagged(
+        self, agent: AgentController
+    ) -> None:
+        from src.core.memory import ToolResult
+
+        agent.memory.append_tool_result(
+            ToolResult(
+                tool_name="train_model",
+                status="success",
+                output={"models_trained": {"logistic_regression": {"cv_mean": 0.8123}}},
+            )
+        )
+        final = {"insights": ["Accuracy of 0.8123 is strong."], "recommendations": []}
+        flagged = agent._flag_unverified_claims(final)
+        assert flagged == []
+        assert final["insights"][0] == "Accuracy of 0.8123 is strong."
+
+    def test_fabricated_number_is_flagged_and_annotated(
+        self, agent: AgentController
+    ) -> None:
+        from src.core.memory import ToolResult
+
+        agent.memory.append_tool_result(
+            ToolResult(
+                tool_name="train_model",
+                status="success",
+                output={"models_trained": {"logistic_regression": {"cv_mean": 0.8123}}},
+            )
+        )
+        final = {"insights": ["The model reaches 0.999 accuracy."], "recommendations": []}
+        flagged = agent._flag_unverified_claims(final)
+        assert len(flagged) == 1
+        assert "[unverified: 0.999]" in final["insights"][0]
+
+    def test_small_integer_counts_are_not_flagged(
+        self, agent: AgentController
+    ) -> None:
+        """'3 models' etc. are structural counts, not cited metrics —
+        flagging every small integer would drown the real signal."""
+        final = {"insights": ["Trained 3 models on 2 splits."], "recommendations": []}
+        flagged = agent._flag_unverified_claims(final)
+        assert flagged == []
+
+    def test_unverified_key_metric_is_flagged(self, agent: AgentController) -> None:
+        final = {"insights": [], "recommendations": [], "key_metrics": {"cv_mean": "0.9999"}}
+        flagged = agent._flag_unverified_claims(final)
+        assert len(flagged) == 1
+        assert "cv_mean" in flagged[0]
 
 
 # ---------------------------------------------------------------------------

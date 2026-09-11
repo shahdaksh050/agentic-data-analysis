@@ -162,6 +162,7 @@ class CleanDataTool(BaseTool):
         "Returns cleaned_file_path for use by subsequent tools."
     )
     uses_cleaned_file = False  # this IS the tool that produces cleaned_file_path
+    output_subdir = "data"
 
     STRATEGIES = frozenset({"mean", "median", "mode", "drop_rows", "forward_fill"})
 
@@ -264,6 +265,7 @@ class DetectOutliersTool(BaseTool):
         "Methods: 'iqr' (default), 'zscore', 'isolation_forest'. "
         "Returns per-column counts and an outlier-flagged dataset path."
     )
+    output_subdir = "data"
 
     def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
         if profile is None:

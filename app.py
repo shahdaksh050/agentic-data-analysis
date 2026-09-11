@@ -809,6 +809,81 @@ def _find_tool(tool_results: list[dict[str, Any]],
     return None
 
 
+#: Tool names already given a bespoke section elsewhere in the UI — the
+#: generic renderer below only covers what's left, so a successful tool
+#: result is never reachable *only* via the raw "Full Technical Log" JSON.
+_BESPOKE_RENDERED_TOOLS = frozenset({
+    "ingest_dataset", "clean_data", "detect_outliers", "correlation_analysis",
+    "select_statistical_test", "train_model", "evaluate_model",
+    "generate_report", "generate_visualizations", "planner",
+})
+
+
+def _render_other_findings(tool_results: list[dict[str, Any]]) -> None:
+    """
+    Fallback card for any successful tool result without a bespoke section
+    (cluster_data, time_series_analysis, text_analysis, geospatial_analysis,
+    dimensionality_analysis, and any future tool). Each already writes a
+    well-formed sentence into output.summary; this surfaces that plus a few
+    headline numbers per known shape instead of leaving the finding
+    reachable only via the raw JSON log at the bottom of Downloads.
+    """
+    seen: set[str] = set()
+    shown_any = False
+    for r in tool_results:
+        name = r.get("tool_name", "")
+        if name in _BESPOKE_RENDERED_TOOLS or name in seen or r.get("status") != "success":
+            continue
+        out = r.get("output")
+        if not isinstance(out, dict):
+            continue
+        seen.add(name)
+        shown_any = True
+        st.markdown(f"#### {name.replace('_', ' ').title()}")
+        summary = out.get("summary")
+        if summary:
+            st.info(str(summary))
+
+        if name == "cluster_data":
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Clusters found", out.get("n_clusters", "—"))
+            c2.metric("Silhouette score", out.get("silhouette_score", "—"))
+            c3.metric("Separation", out.get("separation_quality", "—"))
+        elif name == "time_series_analysis":
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Trend", str(out.get("trend_direction", "—")).title())
+            c2.metric("Stationary?", "Yes" if out.get("is_stationary") else "No")
+            lags = out.get("seasonal_lags_detected") or []
+            c3.metric("Seasonal lag(s)", ", ".join(str(x) for x in lags) or "None found")
+        elif name == "text_analysis":
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Vocabulary size", out.get("vocab_size", "—"))
+            c2.metric("Avg. words / row", out.get("avg_word_count", "—"))
+            top = out.get("top_tokens") or []
+            words = [t.get("token", t) if isinstance(t, dict) else t for t in top[:6]]
+            if words:
+                st.caption("Most frequent words: " + ", ".join(str(w) for w in words))
+        elif name == "geospatial_analysis":
+            c1, c2 = st.columns(2)
+            c1.metric("Points mapped", out.get("n_points", "—"))
+            centroid = out.get("centroid") or {}
+            if centroid:
+                c2.metric("Centroid", f"{centroid.get('lat', '—')}, {centroid.get('lon', '—')}")
+        elif name == "dimensionality_analysis":
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Numeric features", out.get("n_features", "—"))
+            threshold = out.get("variance_threshold")
+            c2.metric(
+                f"Components for {threshold:.0%} variance" if threshold else "Components needed",
+                out.get("n_components_for_threshold", "—"),
+            )
+            pairs = out.get("high_correlation_pairs") or []
+            c3.metric("Highly correlated pairs", len(pairs))
+
+    if not shown_any:
+        st.caption("No additional analyses ran for this dataset.")
+
+
 def _render_defect_stamp(gap_val: float | None) -> str:
     """Render authentic engineering defect stamp or certification seal for generalization."""
     if gap_val is None:
@@ -1855,6 +1930,21 @@ if st.session_state.get("analysis_done"):
                 unsafe_allow_html=True,
             )
 
+        # When there's no ML target, the gauges below are mostly "—" —
+        # promote whatever analysis actually ran (segments, trend, map,
+        # text) to the top instead of leaving it findable only in Full
+        # Details, since for a no-target dataset it usually *is* the story.
+        if not train_out:
+            _dominant = (
+                _find_tool(tool_results, "cluster_data")
+                or _find_tool(tool_results, "time_series_analysis")
+                or _find_tool(tool_results, "geospatial_analysis")
+                or _find_tool(tool_results, "text_analysis")
+                or _find_tool(tool_results, "dimensionality_analysis")
+            )
+            if _dominant and _dominant.get("summary"):
+                st.info(f"**What we found:** {_dominant['summary']}")
+
         # Instrument Gauges
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.markdown(_gauge("Best model", best_model), unsafe_allow_html=True)
@@ -2151,6 +2241,10 @@ if st.session_state.get("analysis_done"):
                 st.info(stat_out.get("interpretation", "No interpretation recorded."))
             else:
                 st.caption("No statistical test was needed for this run.")
+
+        with st.expander("Other Analyses", expanded=False):
+            st.caption("Segmentation, trends, text, and geography — run when your data called for them.")
+            _render_other_findings(tool_results)
 
     # ═════════════════════════════════════════════════════════════════════════
     # TIER 5: ARTIFACT VAULT & EXPORTS

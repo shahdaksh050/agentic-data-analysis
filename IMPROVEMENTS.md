@@ -16,6 +16,100 @@ performance claim, to a measurement taken on this machine (method in
 
 ---
 
+## Round 2 status — landed this pass
+
+Items below are fixed in the working tree, each with an invariant test
+added alongside it (`tests/test_controller.py`, `tests/test_ml_enhancements.py`,
+`tests/test_pipeline_3d.py`). `ruff check .`, `mypy src/`, and `pytest tests/`
+are green (217 passed).
+
+| # | Item | What changed |
+| :-- | :--- | :--- |
+| §0 | Stale tests | `_parse_steps` calls bound to a controller instance; palette assertion re-pointed at the current Ledger tokens (`ink=#3a2b1e`, `pen=#a34f20`, `risk=#a33526`, plus `accent`/`grid`). |
+| P0.2 | CV leakage | `cross_val_score` now fits `X_train`/`y_train`, never the full `X`/`y`. |
+| P1.2(1) | Redundant CV after tuning | `_tune` returns `cv_mean`/`cv_std` from `search.best_score_`/`cv_results_`; the separate `cross_val_score` call is skipped when tuning ran. |
+| P0.8 | `max_iterations` env override | Explicit constructor argument now wins over `MAX_ITERATIONS`, mirroring `enable_rlm`. |
+| P2.3 | `clean_data`/`detect_outliers` write next to input | Both now declare `output_subdir = "data"`, routing writes under the run's output root by default. |
+| P1.7 | New HTTP client per LLM call | `LLMClient` builds the SDK client once (lazily) and reuses it. |
+| P0.9 / P1.4 | Re-executing already-succeeded steps | `AgentController._step_cache` keyed on `(tool_name, resolved params, input file mtime+size)` — an identical re-planned step is served from cache instead of re-run (closes the `train_model` overwrite race). |
+| P0.3 | Time-series/panel structure never reached the splitter | `TrainModelTool.prepare_params` reads `is_time_series`/`panel_group_cols` from `data_profile` and sets `split_strategy`; `execute` branches (via shared `_resolve_split_strategy`/`_split_train_test` helpers) to a chronological split + `TimeSeriesSplit`, or `GroupShuffleSplit`/`GroupKFold` on the entity column, which is also dropped from the feature matrix (it's a split key, not a feature). Reported in output as `split_strategy`/`time_column`/`group_column`, and **persisted to memory context so `EvaluateModelTool` recreates the identical partition** — the two tools now share one split implementation instead of `evaluate_model` silently reverting to a random split on the exact datasets this fix targets. |
+| P0.4 | Datetime columns dropped before modelling | `_prepare_features` now expands them into `year/month/day/dayofweek/hour/is_weekend/days_since_min` instead of dropping (ordered *after* P0.3's chronological sort, so the raw column still orders the split first). |
+| P0.7 | "Cite only verbatim metrics" unenforced | `AgentController._flag_unverified_claims` runs between the reasoning loop and Stage 7: any numeric literal in `insights`/`recommendations`/`key_metrics` not traceable to an actual tool result is annotated `[unverified: ...]` in place and logged to `memory.set_context("unverified_claims", ...)`. Verified the deterministic fallback path can't trip its own validator (it only ever echoes real tool numbers) with an explicit test. |
+
+**Caught in self-review before landing (worth recording — both were introduced
+by the P0.2/P1.2 and P0.3 fixes above, not pre-existing):**
+- `_tune`'s `cv_std` initially computed `std(mean_test_score)` — the spread
+  *between candidate configurations* — instead of `std_test_score[best_index_]`,
+  the fold-to-fold variability of the actually-selected model. Fixed to read
+  the latter, which is what the untuned path's `cross_val_score(...).std()`
+  has always meant.
+- `EvaluateModelTool` still called a bare `train_test_split` after P0.3 landed
+  in `TrainModelTool` — meaning evaluate's "held-out" rows on a time-series or
+  panel dataset would include rows the model *had* trained on, inflating
+  exactly the metric P0.3 was fixing. Extracted `_resolve_split_strategy`/
+  `_split_train_test` as shared helpers and wired `EvaluateModelTool` to use
+  the same persisted `split_strategy` train_model resolved.
+
+**Not done this pass — deliberately deferred, not silently dropped:**
+
+- **P0.1 / P0.5 / P0.6** (the `Pipeline`/`ColumnTransformer` refactor —
+  imputation/encoding/log-transform fit on train-only, self-contained
+  saved models, one-hot for linear models). This is the single largest
+  remaining correctness gap and the right next target, but it's a
+  multi-file refactor touching `CleanDataTool`, `_prepare_features`,
+  every model's save/load path, and `EvaluateModelTool`'s re-derivation
+  logic — too large to land safely in the same pass as everything above.
+- **P1.5** (parallelise RLM sub-tasks) — `src/rlm/engine.py` is
+  AGENTS.md "Ask First" territory.
+- **P2.1, P2.2, P2.4, P2.5, P2.6, P2.7** — structural cleanup, best done
+  once the above settle.
+- **P3.x, P4.1, P4.2** — observability, lockfile, coverage measurement,
+  tests for the four untested tools.
+- **P2.3's second half** — `resolve_output_path` is still not called from
+  any tool's write path; only the default-location half of the finding
+  (`output_subdir`) is fixed. An LLM-supplied `output_dir` can still point
+  outside the output root.
+
+---
+
+## Round 3 — data-flow/tool-value audit, landed items
+
+Separate exercise from the correctness audit above: traced what each of
+the 14 registered tools produces against what actually reaches a user
+(Streamlit tabs in `app.py`, the Vega dashboard in `dashboard.py`, the
+HTML/Markdown reports). Two real findings, both fixed and covered by tests
+(`tests/test_dashboard.py::test_time_series_chart_uses_tool_columns_and_findings`):
+
+1. **`generate_visualizations`'s PNGs reached nobody.** Grepped `.png` /
+   `chart_path` / `image_path` across `app.py`, `html_report.py`,
+   `report_generator.py` — zero consumers; the interactive Vega dashboard
+   already covers the same ground better. Yet the deterministic no-target
+   fallback plan still called it every run
+   (`controller.py`, `_build_fallback_plan`). **Fixed:** removed that step;
+   the tool stays registered for the LLM planner to call deliberately.
+2. **Five tools' findings had no narrated UI surface.** `cluster_data`,
+   `time_series_analysis`, `text_analysis`, `geospatial_analysis`,
+   `dimensionality_analysis` results were reachable only via the raw
+   "Full Technical Log" JSON dump — no dedicated tab section, and only
+   `cluster_data` got a dashboard chart. **Fixed:**
+   - `app.py`: `_render_other_findings()` — a generic "Other Analyses"
+     card in the Full Details tab covering all five, so a future tool
+     without a bespoke renderer is never JSON-only again.
+   - `dashboard.py`: the time-series chart now reads
+     `time_series_analysis`'s actual `date_column`/`value_column` (instead
+     of independently re-guessing) and its description states the tool's
+     trend/stationarity/seasonality findings, not just the axis labels.
+
+Deferred from the same audit (lower value/effort, natural follow-ons once
+the above shapes existed) — not implemented, ranked below the two items
+above: a dedicated geospatial chart, a PCA scree-plot chart for
+`dimensionality_analysis`, promoting these findings into the Summary tab
+when they're a dataset's dominant story, and pointing
+`report_generator.py`'s Markdown log at the same richer formatting instead
+of a one-line-per-tool log.
+
+---
+
 ## Round 1 status — verified fixed
 
 The previous `IMPROVEMENTS.md` (deleted in the working tree) listed ten

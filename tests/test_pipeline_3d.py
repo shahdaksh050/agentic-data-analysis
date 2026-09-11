@@ -132,10 +132,12 @@ def test_hostile_stage_name_is_escaped(captured: list[dict[str, Any]]) -> None:
 # ── Design system ────────────────────────────────────────────────────────────
 def test_palette_matches_design_tokens() -> None:
     """DESIGN.md rations these inks; the scene may not invent others."""
-    assert PALETTE["ink"] == "#171c1f"
-    assert PALETTE["pen"] == "#12467e"
-    assert PALETTE["risk"] == "#b5271a"
-    assert set(PALETTE) == {"stock", "sheet", "ink", "graphite", "pen", "risk"}
+    assert PALETTE["ink"] == "#3a2b1e"
+    assert PALETTE["pen"] == "#a34f20"
+    assert PALETTE["risk"] == "#a33526"
+    assert set(PALETTE) == {
+        "stock", "sheet", "ink", "graphite", "pen", "risk", "accent", "grid",
+    }
 
 
 def test_stage_is_immutable() -> None:

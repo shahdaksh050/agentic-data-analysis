@@ -323,12 +323,31 @@ def _box_plot_chart(
 
 
 def _time_series_chart(
-    df: pd.DataFrame, profile: DatasetProfile, ranked_numeric: list[str]
+    df: pd.DataFrame,
+    profile: DatasetProfile,
+    ranked_numeric: list[str],
+    ts_output: dict[str, Any] | None = None,
 ) -> ChartSpec | None:
     datetime_cols = _chartable(profile, "datetime")
     if not datetime_cols or not ranked_numeric:
         return None
-    time_col, value_col = datetime_cols[0], ranked_numeric[0]
+    # Prefer the columns time_series_analysis actually examined (it may have
+    # auto-detected a different pair than "first datetime, top-ranked
+    # numeric") so the chart matches the trend/stationarity findings below
+    # instead of silently re-deriving its own, possibly different, series.
+    time_col = datetime_cols[0]
+    value_col = ranked_numeric[0]
+    if ts_output:
+        ts_time_col = ts_output.get("date_column")
+        ts_value_col = ts_output.get("value_column")
+        if isinstance(ts_time_col, str) and ts_time_col in datetime_cols:
+            time_col = ts_time_col
+        if (
+            isinstance(ts_value_col, str)
+            and ts_value_col in df.columns
+            and pd.api.types.is_numeric_dtype(df[ts_value_col])
+        ):
+            value_col = ts_value_col
 
     frame = df[[time_col, value_col]].dropna()
     if frame.empty:
@@ -351,10 +370,21 @@ def _time_series_chart(
     ]
     if len(values) < 2:
         return None
+    description = f"'{value_col}' aggregated by month over '{time_col}'."
+    if ts_output:
+        direction = ts_output.get("trend_direction")
+        is_stationary = ts_output.get("is_stationary")
+        seasonal_lags = ts_output.get("seasonal_lags_detected") or []
+        if direction:
+            description += f" Trend: {direction}."
+        if is_stationary is not None:
+            description += f" {'Stationary' if is_stationary else 'Non-stationary'} (ADF test)."
+        if seasonal_lags:
+            description += f" Seasonal signal at lag(s) {', '.join(str(x) for x in seasonal_lags)}."
     return ChartSpec(
         chart_id="time_series",
         title=f"Trend — monthly mean {value_col}",
-        description=f"'{value_col}' aggregated by month over '{time_col}'.",
+        description=description,
         spec={
             "data": {"values": values},
             "mark": {"type": "line", "point": True},
@@ -449,6 +479,94 @@ def _cluster_chart(cluster_output: dict[str, Any] | None) -> ChartSpec | None:
     )
 
 
+def _geospatial_chart(geo_output: dict[str, Any] | None) -> ChartSpec | None:
+    if not geo_output:
+        return None
+    cells = geo_output.get("densest_cells", [])
+    if not isinstance(cells, list) or not cells:
+        return None
+    values = [
+        {
+            "lat": round((c["lat_range"][0] + c["lat_range"][1]) / 2, 5),
+            "lon": round((c["lon_range"][0] + c["lon_range"][1]) / 2, 5),
+            "count": c["count"],
+        }
+        for c in cells
+        if isinstance(c, dict) and c.get("lat_range") and c.get("lon_range")
+    ]
+    if not values:
+        return None
+    return ChartSpec(
+        chart_id="geospatial_hotspots",
+        title="Geographic Hotspots",
+        description="Densest grid cells by point count — bubble size and color show concentration.",
+        spec={
+            "data": {"values": values},
+            "mark": {"type": "circle", "opacity": 0.75},
+            "height": 300,
+            "encoding": {
+                "x": {"field": "lon", "type": "quantitative", "title": "Longitude", "scale": {"zero": False}},
+                "y": {"field": "lat", "type": "quantitative", "title": "Latitude", "scale": {"zero": False}},
+                "size": {"field": "count", "type": "quantitative", "title": "Points",
+                         "scale": {"range": [50, 800]}},
+                "color": {"field": "count", "type": "quantitative", "title": "Points",
+                          "scale": {"range": ["#8aa6c2", "#12467e"]}},
+                "tooltip": [{"field": "lat"}, {"field": "lon"}, {"field": "count"}],
+            },
+        },
+    )
+
+
+def _scree_chart(dim_output: dict[str, Any] | None) -> ChartSpec | None:
+    if not dim_output:
+        return None
+    explained = dim_output.get("explained_variance_ratio", [])
+    cumulative = dim_output.get("cumulative_variance", [])
+    if not isinstance(explained, list) or not explained:
+        return None
+    values = [
+        {
+            "component": f"PC{i + 1}",
+            "order": i,
+            "explained": round(float(e) * 100, 2),
+            "cumulative": round(float(cumulative[i]) * 100, 2) if i < len(cumulative) else None,
+        }
+        for i, e in enumerate(explained)
+    ]
+    n_needed = dim_output.get("n_components_for_threshold")
+    threshold = dim_output.get("variance_threshold")
+    description = "Variance explained per principal component (bars) and running total (line)."
+    if n_needed and threshold:
+        description += f" {n_needed} component(s) reach {threshold:.0%} of total variance."
+    return ChartSpec(
+        chart_id="pca_scree",
+        title="Dimensionality — PCA Scree Plot",
+        description=description,
+        spec={
+            "data": {"values": values},
+            "height": 280,
+            "layer": [
+                {
+                    "mark": {"type": "bar", "color": "#8aa6c2"},
+                    "encoding": {
+                        "x": {"field": "component", "type": "ordinal", "sort": {"field": "order"}, "title": None},
+                        "y": {"field": "explained", "type": "quantitative", "title": "Variance explained %"},
+                        "tooltip": [{"field": "component"}, {"field": "explained"}],
+                    },
+                },
+                {
+                    "mark": {"type": "line", "point": True, "color": "#171c1f"},
+                    "encoding": {
+                        "x": {"field": "component", "type": "ordinal", "sort": {"field": "order"}},
+                        "y": {"field": "cumulative", "type": "quantitative", "title": "Cumulative %"},
+                        "tooltip": [{"field": "component"}, {"field": "cumulative"}],
+                    },
+                },
+            ],
+        },
+    )
+
+
 def _correlation_chart(corr_output: dict[str, Any] | None) -> ChartSpec | None:
     if not corr_output:
         return None
@@ -513,6 +631,9 @@ def build_dashboard(
     train_out = _find_tool_output(results, "train_model")
     corr_out = _find_tool_output(results, "correlation_analysis")
     cluster_out = _find_tool_output(results, "cluster_data")
+    ts_out = _find_tool_output(results, "time_series_analysis")
+    geo_out = _find_tool_output(results, "geospatial_analysis")
+    dim_out = _find_tool_output(results, "dimensionality_analysis")
 
     candidates: list[ChartSpec | None] = [
         _model_comparison_chart(train_out),
@@ -521,7 +642,9 @@ def build_dashboard(
         _class_balance_chart(df, target_column, task_type),
         _box_plot_chart(df, ranked, target_column, task_type),
         _scatter_chart(df, ranked, target_column, task_type, corr_out),
-        _time_series_chart(df, profile, ranked),
+        _time_series_chart(df, profile, ranked, ts_out),
+        _geospatial_chart(geo_out),
+        _scree_chart(dim_out),
     ]
     charts = [c for c in candidates if c is not None]
     charts.extend(_histogram_charts(df, ranked))

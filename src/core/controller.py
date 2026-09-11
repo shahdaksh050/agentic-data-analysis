@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -49,6 +50,50 @@ def _read_dataframe(file_path: str) -> pd.DataFrame:
 
 # Max retries before abandoning a failed step
 MAX_STEP_RETRIES = 2
+
+# ---------------------------------------------------------------------------
+# Verbatim-metric validation (P0.7) — SYSTEM_PROMPT_CORE tells the LLM to
+# cite only numbers that appear in tool results, but nothing checked that
+# rule. These turn it into a mechanism: any numeric literal the LLM's
+# synthesis states that cannot be traced back to an actual tool result is
+# flagged, not trusted silently.
+# ---------------------------------------------------------------------------
+
+#: Matches numeric literals (integers, decimals, negatives) in free text.
+_NUMBER_RE = re.compile(r"-?\d+\.\d+|-?\d+")
+
+#: Single-digit integers are almost always counts ("3 models", "top 5
+#: features") rather than cited metrics, and are cheap to satisfy by
+#: coincidence — excluding them keeps the flag meaningful.
+_UNVERIFIABLE_SKIP_ABS_INT = 9
+
+
+def _canon_number(value: Any) -> str:
+    """Normalise a number to a fixed-precision canonical string for
+    set-membership comparison, so '0.8', '0.80' and 0.7999999999999999
+    (float round-trip noise) all match."""
+    try:
+        return f"{round(float(value), 4):g}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _collect_numbers(obj: Any, into: set[str]) -> None:
+    """Recursively flatten every numeric leaf/substring in a JSON-like
+    structure into canonical form."""
+    if isinstance(obj, bool):
+        return
+    if isinstance(obj, (int, float)):
+        into.add(_canon_number(obj))
+    elif isinstance(obj, str):
+        for match in _NUMBER_RE.finditer(obj):
+            into.add(_canon_number(match.group()))
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            _collect_numbers(v, into)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            _collect_numbers(v, into)
 
 # Target auto-detection confidence thresholds
 _AUTODETECT_HIGH = 0.75   # proceed autonomously above this
@@ -87,6 +132,10 @@ class LLMClient:
         self.temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.2"))
         self.max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
         self.timeout: float = float(os.getenv("LLM_TIMEOUT", "120"))
+        # Built lazily on first call and reused — the SDK clients are
+        # long-lived and thread-safe, and re-pooling per call was costing
+        # every invocation a fresh TCP+TLS handshake (~100-300ms).
+        self._client: Any = None
 
     def ping(self) -> tuple[bool, str]:
         """
@@ -181,7 +230,9 @@ class LLMClient:
             client_kwargs["base_url"] = base_url
         if extra_headers:
             client_kwargs["default_headers"] = extra_headers
-        client = OpenAI(**client_kwargs)
+        if self._client is None:
+            self._client = OpenAI(**client_kwargs)
+        client = self._client
         create_kwargs: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -269,7 +320,9 @@ class LLMClient:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("No API key set for provider 'anthropic'. Set ANTHROPIC_API_KEY.")
-        client = anthropic.Anthropic(api_key=api_key, timeout=self.timeout, max_retries=2)
+        if self._client is None:
+            self._client = anthropic.Anthropic(api_key=api_key, timeout=self.timeout, max_retries=2)
+        client = self._client
         msg = client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -479,7 +532,11 @@ class AgentController:
         enable_rlm: bool | None = None,
         memory_persist_path: str | None = None,
     ) -> None:
-        self.max_iterations = int(os.getenv("MAX_ITERATIONS", str(max_iterations or 15)))
+        self.max_iterations = (
+            max_iterations
+            if max_iterations is not None
+            else int(os.getenv("MAX_ITERATIONS", "15"))
+        )
         self.enable_rlm = (
             enable_rlm
             if enable_rlm is not None
@@ -503,6 +560,13 @@ class AgentController:
         # Failures per tool across iterations — LLM-replanned steps are new
         # objects each cycle, so retry budgets must be tracked here.
         self._tool_failure_counts: dict[str, int] = {}
+        # Cache of successful step results, keyed on (tool_name, resolved
+        # params, input-file mtime+size) — the LLM replans from scratch each
+        # iteration, so an identical step (same clean_data call, same
+        # correlation_analysis params) would otherwise re-execute in full,
+        # burning time and — for train_model — silently overwriting an
+        # already-referenced model file with a fresh random draw.
+        self._step_cache: dict[str, ToolResult] = {}
         # Optional callback fired after each tool: (tool_name, status, detail) -> None
         self.on_step_callback: Any = None
         # Optional callback fired after each LLM iteration: (iteration, stage) -> None
@@ -765,6 +829,16 @@ class AgentController:
                     self.memory.set_context("llm_error", f"{type(exc).__name__}: {exc}")
                     final_result = self._deterministic_final()
 
+        # ---- Verbatim-metric validation: enforce "cite only verbatim
+        # metrics" as a mechanism, not just a prompt instruction ----
+        unverified = self._flag_unverified_claims(final_result)
+        if unverified:
+            self.memory.set_context("unverified_claims", unverified)
+            console.print(
+                f"[yellow]⚠ {len(unverified)} unverified metric claim(s) in the "
+                f"final synthesis — see memory context 'unverified_claims'.[/]"
+            )
+
         # ---- Stage 7: Report Generation ----
         self._generate_final_report(final_result)
         self._generate_dashboard()
@@ -925,12 +999,6 @@ class AgentController:
                     "parameters": {"file_path": fp},
                     "rationale": "Fallback plan: no target — discover natural segments.",
                 },
-                {
-                    "step_number": len(steps) + 2,
-                    "tool_name": "generate_visualizations",
-                    "parameters": {"file_path": fp, "chart_type": "correlation_heatmap"},
-                    "rationale": "Fallback plan: EDA visualisation without a target.",
-                },
             ]
         return {
             "status": "in_progress",
@@ -1089,6 +1157,24 @@ class AgentController:
     # Stage 3 execution helper
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _step_cache_key(tool_name: str, params: dict[str, Any]) -> str:
+        """
+        Content-address a step: same tool, same resolved params, same input
+        file content → same key. File-valued params are stamped with
+        mtime+size (not just path) so an in-place edit still invalidates.
+        """
+        parts = [tool_name]
+        for key in sorted(params):
+            value = params[key]
+            parts.append(f"{key}={value!r}")
+            if isinstance(value, str):
+                candidate = Path(value)
+                if candidate.is_file():
+                    stat = candidate.stat()
+                    parts.append(f"{key}.stat={stat.st_mtime_ns}:{stat.st_size}")
+        return "|".join(parts)
+
     def _execute_steps(self, steps: list[AnalysisStep]) -> None:
         """
         Stage 3 — execute each tool in the plan with retry budgets.
@@ -1150,7 +1236,18 @@ class AgentController:
             # every time a new tool needs to plug into the pipeline.
             params = tool.prepare_params(step.parameters, self.memory, self._output_dir)
 
-            result = tool.run(**params)
+            cache_key = self._step_cache_key(step.tool_name, params)
+            cached = self._step_cache.get(cache_key)
+            if cached is not None:
+                console.print(
+                    f"  [dim]↺ Step {step.step_number}: {step.tool_name} — "
+                    f"identical to a prior successful step, reusing its result.[/]"
+                )
+                result = cached
+            else:
+                result = tool.run(**params)
+                if result.status == "success":
+                    self._step_cache[cache_key] = result
             self.memory.append_tool_result(result)
             self.memory.mark_step_complete(step.step_number, result)
 
@@ -1172,6 +1269,16 @@ class AgentController:
                 trained_test_size = result.output.get("test_size")
                 if trained_test_size is not None:
                     self.memory.set_context("train_test_size", trained_test_size)
+                # evaluate_model must recreate the exact same partition —
+                # persist the strategy train_model actually resolved to
+                # (may differ from what was requested if a column was
+                # missing) so evaluate isn't left shuffling data that was
+                # split chronologically or by group.
+                trained_split_strategy = result.output.get("split_strategy")
+                if trained_split_strategy in ("random", "time_series", "panel"):
+                    self.memory.set_context("split_strategy", trained_split_strategy)
+                    self.memory.set_context("split_time_column", result.output.get("time_column"))
+                    self.memory.set_context("split_group_column", result.output.get("group_column"))
 
             # If cleaning produced a cleaned file, store it for downstream tools
             if step.tool_name == "clean_data" and result.status == "success":
@@ -1262,6 +1369,60 @@ class AgentController:
     # ------------------------------------------------------------------
     # Stage 7 — Report generation
     # ------------------------------------------------------------------
+
+    def _verified_number_pool(self) -> set[str]:
+        """Every numeric literal that actually appears in accumulated tool
+        results, canonicalised for verbatim-citation checking."""
+        pool: set[str] = set()
+        for r in self.memory.tool_results:
+            _collect_numbers(r.to_dict(), pool)
+        return pool
+
+    def _flag_unverified_claims(self, final_result: dict[str, Any]) -> list[str]:
+        """
+        Enforce SYSTEM_PROMPT_CORE's "cite only verbatim metrics" rule.
+
+        Any numeric literal in `insights`/`recommendations`/`key_metrics`
+        that doesn't trace back to a real tool result is annotated
+        in-place with `[unverified: ...]` (never silently trusted) and
+        returned so the caller can log/report the hallucination rate.
+        """
+        verified = self._verified_number_pool()
+        flagged: list[str] = []
+
+        for field in ("insights", "recommendations"):
+            items = final_result.get(field)
+            if not isinstance(items, list):
+                continue
+            for i, item in enumerate(items):
+                if not isinstance(item, str):
+                    continue
+                claimed = [
+                    m.group() for m in _NUMBER_RE.finditer(item)
+                    if not (
+                        "." not in m.group()
+                        and abs(int(m.group())) <= _UNVERIFIABLE_SKIP_ABS_INT
+                    )
+                ]
+                bad = sorted({n for n in claimed if _canon_number(n) not in verified})
+                if bad:
+                    items[i] = f"{item} [unverified: {', '.join(bad)}]"
+                    flagged.append(f"{field}[{i}]: {', '.join(bad)}")
+
+        key_metrics = final_result.get("key_metrics")
+        if isinstance(key_metrics, dict):
+            for k, v in key_metrics.items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    nums = [str(v)]
+                elif isinstance(v, str):
+                    nums = _NUMBER_RE.findall(v)
+                else:
+                    continue
+                bad = sorted({n for n in nums if _canon_number(n) not in verified})
+                if bad:
+                    flagged.append(f"key_metrics.{k}={v!r} [unverified: {', '.join(bad)}]")
+
+        return flagged
 
     def _generate_final_report(self, llm_final: dict[str, Any]) -> None:
         """

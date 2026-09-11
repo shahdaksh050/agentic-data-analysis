@@ -69,10 +69,21 @@ def _prepare_features(
     Deterministic given the same data, so a saved model always sees the
     same feature matrix at train, evaluate, and visualisation time:
       - drops rows with a missing target
-      - drops datetime columns and ID-like columns (near-unique strings,
-        and near-unique integer identifiers)
+      - expands datetime columns into year/month/day/dayofweek/hour/
+        is_weekend/days_since_min trend features, and drops ID-like
+        columns (near-unique strings, and near-unique integer identifiers)
       - log1p-transforms severely skewed non-negative numerics
       - label-encodes remaining categoricals
+
+    NOTE (IMPROVEMENTS.md P0.1): the log1p/label-encoding decisions below
+    are currently computed over whatever frame is passed in — train/test
+    leakage if that frame spans both splits. A `Pipeline`/`ColumnTransformer`
+    refactor to fit these exclusively on the training fold was attempted
+    and reverted mid-session (see IMPROVEMENTS.md Round 2 status); it is
+    the documented next step, not yet safe to re-attempt without the
+    consumers listed there (visualization.py's `_feature_importance`,
+    TrainModelTool's clustering branch, `_tune`'s grid keys) updated in
+    the same change.
 
     Returns:
         (features, target, treatments) — treatments is a human-readable
@@ -90,8 +101,21 @@ def _prepare_features(
     for col in list(features.columns):
         series = features[col]
         if pd.api.types.is_datetime64_any_dtype(series):
+            dt = pd.to_datetime(series)
+            days_since_min = (dt - dt.min()).dt.days
+            features[f"{col}_year"] = dt.dt.year.fillna(-1).astype(int)
+            features[f"{col}_month"] = dt.dt.month.fillna(-1).astype(int)
+            features[f"{col}_day"] = dt.dt.day.fillna(-1).astype(int)
+            features[f"{col}_dayofweek"] = dt.dt.dayofweek.fillna(-1).astype(int)
+            features[f"{col}_hour"] = dt.dt.hour.fillna(-1).astype(int)
+            features[f"{col}_is_weekend"] = dt.dt.dayofweek.isin([5, 6]).astype(int)
+            fill_days = days_since_min.median()
+            features[f"{col}_days_since_min"] = days_since_min.fillna(fill_days).astype(float)
             features = features.drop(columns=[col])
-            treatments.append(f"Dropped datetime column '{col}' (not model-ready).")
+            treatments.append(
+                f"Expanded datetime column '{col}' into year/month/day/dayofweek/"
+                f"hour/is_weekend/days_since_min trend features."
+            )
         elif (
             not pd.api.types.is_numeric_dtype(series)
             and series.nunique() / n_rows > 0.5
@@ -124,6 +148,106 @@ def _prepare_features(
         if not pd.api.types.is_numeric_dtype(features[col]):
             features[col] = LabelEncoder().fit_transform(features[col].astype(str))
     return features, y, treatments
+
+
+def _resolve_split_strategy(
+    df: pd.DataFrame, split_strategy: str, time_column: str | None, group_column: str | None
+) -> tuple[pd.DataFrame, str, list[str]]:
+    """
+    Validate the requested split strategy against this dataframe and, for
+    time-series, sort chronologically *before* feature prep so a later
+    positional split is a chronological split (train on the past, test on
+    the future). Falls back to "random" with a note — never a hard error —
+    since this is often an auto-injected hint, not an explicit user choice.
+
+    Returns (possibly-resorted df, resolved split_strategy, notes).
+    """
+    notes: list[str] = []
+    if split_strategy == "time_series":
+        if time_column and time_column in df.columns:
+            sort_key = pd.to_datetime(df[time_column], errors="coerce")
+            df = df.assign(**{time_column: sort_key}).sort_values(time_column).reset_index(drop=True)
+        else:
+            notes.append(
+                f"split_strategy='time_series' requested but time_column="
+                f"'{time_column}' not found — fell back to a random split."
+            )
+            split_strategy = "random"
+    if split_strategy == "panel" and (not group_column or group_column not in df.columns):
+        notes.append(
+            f"split_strategy='panel' requested but group_column="
+            f"'{group_column}' not found — fell back to a random split."
+        )
+        split_strategy = "random"
+    return df, split_strategy, notes
+
+
+def _split_train_test(
+    X: pd.DataFrame,
+    y: pd.Series[Any],
+    df: pd.DataFrame,
+    split_strategy: str,
+    group_column: str | None,
+    task_type: str,
+    test_size: float,
+    n_cv_folds: int = 5,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series[Any], pd.Series[Any], Any, pd.Series[Any] | None]:
+    """
+    Shared by TrainModelTool and EvaluateModelTool so both ever partition
+    the data the same way for a given split_strategy — evaluate's whole
+    purpose is to score a model on the exact rows it didn't train on.
+
+    ``df`` must be the same (already time-sorted, if applicable) frame X/y
+    were derived from, so the group column can be recovered by index even
+    though _prepare_features may have transformed or dropped it.
+
+    Returns (X_train, X_test, y_train, y_test, cv, groups_train). ``cv`` is
+    unused by EvaluateModelTool but costs nothing extra to compute here.
+    """
+    from sklearn.model_selection import (
+        GroupKFold,
+        GroupShuffleSplit,
+        KFold,
+        StratifiedKFold,
+        TimeSeriesSplit,
+        train_test_split,
+    )
+
+    groups = df.loc[X.index, group_column] if split_strategy == "panel" and group_column else None
+    groups_train: pd.Series[Any] | None = None
+    if groups is not None and group_column in X.columns:
+        # The group column is the split key, not a feature — a customer/
+        # store/device id a linear or tree model would otherwise see as an
+        # arbitrary label-encoded number is meaningless as model input and,
+        # under a group split, the test fold carries codes train never saw.
+        X = X.drop(columns=[group_column])
+
+    if split_strategy == "time_series":
+        # X is already sorted by time_column (see _resolve_split_strategy).
+        split_idx = max(1, min(len(X) - 1, int(len(X) * (1 - test_size))))
+        X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
+        y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+        cv = TimeSeriesSplit(n_splits=min(n_cv_folds, max(2, split_idx - 1)))
+    elif split_strategy == "panel" and groups is not None:
+        # Same entity never appears in both train and test.
+        gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
+        train_idx, test_idx = next(gss.split(X, y, groups=groups))
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        groups_train = groups.iloc[train_idx]
+        n_groups = int(groups_train.nunique())
+        cv = GroupKFold(n_splits=max(2, min(n_cv_folds, n_groups)))
+    else:
+        stratify = y if task_type == "classification" else None
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=42, stratify=stratify
+        )
+        cv = (
+            StratifiedKFold(n_splits=n_cv_folds, shuffle=True, random_state=42)
+            if task_type == "classification"
+            else KFold(n_splits=n_cv_folds, shuffle=True, random_state=42)
+        )
+    return X_train, X_test, y_train, y_test, cv, groups_train
 
 
 def _encode_target(y: pd.Series[Any]) -> tuple[pd.Series[Any], list[str]]:
@@ -169,6 +293,33 @@ class TrainModelTool(BaseTool):
     def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
         return 1.0 if metadata and metadata.target_column and metadata.task_type in ("classification", "regression") else 0.0
 
+    def prepare_params(
+        self, params: dict[str, Any], memory: MemorySystem, output_root: str
+    ) -> dict[str, Any]:
+        """
+        Wire the profiler's dataset-nature detection into the splitter.
+
+        The profiler already flags time-series and panel/grouped structure
+        (`DatasetProfile.is_time_series`, `.panel_group_cols`), but until now
+        nothing downstream consumed those facts — `train_test_split` shuffled
+        rows regardless, training on the future and testing on the past for
+        time-series data, or leaking the same entity into both splits for
+        panel data. Only fills in when the planner didn't already choose a
+        strategy, and time-series takes priority when a dataset is both.
+        """
+        params = super().prepare_params(params, memory, output_root)
+        if not params.get("split_strategy"):
+            profile = memory.get_context("data_profile") or {}
+            datetime_cols = profile.get("datetime_cols") or []
+            panel_cols = profile.get("panel_group_cols") or []
+            if profile.get("is_time_series") and datetime_cols:
+                params["split_strategy"] = "time_series"
+                params.setdefault("time_column", datetime_cols[0])
+            elif panel_cols:
+                params["split_strategy"] = "panel"
+                params.setdefault("group_column", panel_cols[0])
+        return params
+
     def execute(  # type: ignore[override]
         self,
         file_path: str,
@@ -180,21 +331,23 @@ class TrainModelTool(BaseTool):
         max_depth: int = 6,
         tune_hyperparameters: bool = True,
         output_dir: str = "output/models",
+        split_strategy: str = "random",
+        time_column: str | None = None,
+        group_column: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
-        from sklearn.model_selection import (
-            KFold,
-            StratifiedKFold,
-            cross_val_score,
-            train_test_split,
-        )
+        from sklearn.model_selection import cross_val_score
 
         df = _read_df(file_path)
 
         if target_column not in df.columns:
             raise ToolExecutionError(f"Target column '{target_column}' not in dataset.")
 
+        df, split_strategy, split_notes = _resolve_split_strategy(
+            df, split_strategy, time_column, group_column
+        )
         X, y, treatments = _prepare_features(df, target_column)
+        treatments.extend(split_notes)
 
         # Auto-detect task type
         if task_type == "auto":
@@ -247,14 +400,8 @@ class TrainModelTool(BaseTool):
         build_errors: list[str] = []
 
         if task_type in {"classification", "regression"}:
-            stratify = y if task_type == "classification" else None
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=test_size, random_state=42, stratify=stratify
-            )
-            cv = (
-                StratifiedKFold(n_splits=n_cv_folds, shuffle=True, random_state=42)
-                if task_type == "classification"
-                else KFold(n_splits=n_cv_folds, shuffle=True, random_state=42)
+            X_train, X_test, y_train, y_test, cv, groups_train = _split_train_test(
+                X, y, df, split_strategy, group_column, task_type, test_size, n_cv_folds
             )
             scoring = "f1_weighted" if task_type == "classification" else "r2"
 
@@ -276,18 +423,30 @@ class TrainModelTool(BaseTool):
 
                 try:
                     best_params: dict[str, Any] = {}
+                    cv_mean: float | None = None
+                    cv_std: float | None = None
                     if do_tune:
-                        model, best_params = self._tune(
-                            model, model_name, X_train, y_train, cv, scoring, max_depth
+                        model, best_params, cv_mean, cv_std = self._tune(
+                            model, model_name, X_train, y_train, cv, scoring, max_depth,
+                            groups=groups_train,
                         )
                     model.fit(X_train, y_train)
                     train_metrics = self._evaluate(model, X_train, y_train, task_type)
                     test_metrics = self._evaluate(model, X_test, y_test, task_type)
 
-                    # Cross-validation (anti-overfitting measure)
-                    cv_scores = cross_val_score(model, X, y, cv=cv, scoring=scoring, n_jobs=1)
-                    cv_mean = round(float(cv_scores.mean()), 4)
-                    cv_std = round(float(cv_scores.std()), 4)
+                    # Cross-validation (anti-overfitting measure). Fit only on the
+                    # training fold — X/y here would leak the held-out test rows
+                    # into every CV fold. When tuning ran, RandomizedSearchCV
+                    # already measured this with the same splitter/scorer, so
+                    # _tune's cv_mean/cv_std above are reused instead of paying
+                    # for a second cross_val_score pass.
+                    if cv_mean is None:
+                        cv_scores = cross_val_score(
+                            model, X_train, y_train, groups=groups_train,
+                            cv=cv, scoring=scoring, n_jobs=1,
+                        )
+                        cv_mean = round(float(cv_scores.mean()), 4)
+                        cv_std = round(float(cv_scores.std()), 4)
 
                     # Train–test gap check
                     primary_train = train_metrics.get("accuracy", train_metrics.get("r2", 0.0))
@@ -352,7 +511,8 @@ class TrainModelTool(BaseTool):
 
         return {
             "summary": (
-                f"Trained {len(results)} model(s) [{task_type}]. "
+                f"Trained {len(results)} model(s) [{task_type}, "
+                f"split={split_strategy}]. "
                 f"Best: {best_model} | "
                 f"CV mean={best_summary.get('cv_mean', 'N/A')} "
                 f"± {best_summary.get('cv_std', 'N/A')}."
@@ -368,6 +528,9 @@ class TrainModelTool(BaseTool):
             "n_cv_folds": n_cv_folds,
             "train_samples": len(X_train),
             "test_samples": len(X_test),
+            "split_strategy": split_strategy if task_type in {"classification", "regression"} else "n/a",
+            "time_column": time_column if split_strategy == "time_series" else None,
+            "group_column": group_column if split_strategy == "panel" else None,
         }
 
     # ------------------------------------------------------------------
@@ -468,20 +631,27 @@ class TrainModelTool(BaseTool):
         cv: Any,
         scoring: str,
         max_depth: int = 6,
-    ) -> tuple[Any, dict[str, Any]]:
+        groups: pd.Series[Any] | None = None,
+    ) -> tuple[Any, dict[str, Any], float | None, float | None]:
         """
-        Light randomized hyperparameter search; returns (best_model, best_params).
+        Light randomized hyperparameter search; returns
+        (best_model, best_params, cv_mean, cv_std).
 
         Bounded by design: n_iter ≤ 8, the caller's CV splitter, seeded. Models
         without a defined grid pass through untuned. Depth-bearing grids are
         clamped to the user's max_depth so tuning can never undo the
         anti-overfitting cap.
+
+        ``cv_mean``/``cv_std`` are derived from the search's own CV results
+        (``best_score_`` and the spread of ``mean_test_score``) rather than a
+        second ``cross_val_score`` call — same splitter, same scorer, so a
+        separate call would just re-measure what the search already measured.
         """
         from sklearn.model_selection import RandomizedSearchCV
 
         grid = self.TUNING_GRIDS.get(model_name)
         if not grid:
-            return model, {}
+            return model, {}, None, None
         grid = dict(grid)
         if "max_depth" in grid:
             grid["max_depth"] = sorted({max(2, max_depth // 2), max(2, max_depth - 1), max_depth})
@@ -497,8 +667,15 @@ class TrainModelTool(BaseTool):
             random_state=42,
             n_jobs=1,
         )
-        search.fit(X_train, y_train)
-        return search.best_estimator_, dict(search.best_params_)
+        search.fit(X_train, y_train, groups=groups)
+        cv_mean = round(float(search.best_score_), 4)
+        # std_test_score at best_index_, not std(mean_test_score) across all
+        # candidates — the latter is spread *between configurations*, not the
+        # fold-to-fold variability of the selected one, which is what the
+        # untuned cross_val_score() path (and the "± X" summary text) means.
+        std_scores = np.asarray(search.cv_results_["std_test_score"], dtype=float)
+        cv_std = round(float(std_scores[search.best_index_]), 4)
+        return search.best_estimator_, dict(search.best_params_), cv_mean, cv_std
 
     def _evaluate(
         self, model: Any, X: pd.DataFrame, y: pd.Series, task_type: str
@@ -572,6 +749,25 @@ class TrainModelTool(BaseTool):
                 "description": "Run a light randomized hyperparameter search (auto-skipped above 20k rows). Default: true.",
                 "required": False,
             },
+            "split_strategy": {
+                "type": "string",
+                "description": (
+                    "'random' | 'time_series' | 'panel'. Auto-filled from the data "
+                    "profile when the dataset is time-series or has grouped/panel "
+                    "structure — leave unset to use the detected strategy."
+                ),
+                "required": False,
+            },
+            "time_column": {
+                "type": "string",
+                "description": "Datetime column to sort by for split_strategy='time_series'. Auto-filled from the profile.",
+                "required": False,
+            },
+            "group_column": {
+                "type": "string",
+                "description": "Entity/group column for split_strategy='panel' (e.g. customer_id). Auto-filled from the profile.",
+                "required": False,
+            },
         }
 
 
@@ -610,12 +806,19 @@ class EvaluateModelTool(BaseTool):
             if not raw_mp or not Path(raw_mp).exists():
                 params["model_path"] = best_path
         # evaluate_model's whole purpose is to recreate train_model's exact
-        # split ("held-out data only") — a different test_size produces a
-        # different partition under the same random_state, so this is a
-        # forced override, never a fill-if-absent.
+        # split ("held-out data only") — a different test_size, or a
+        # different split_strategy/time_column/group_column, produces a
+        # different partition, so these are forced overrides, never a
+        # fill-if-absent: a plan step naming a stale value must still lose
+        # to what train_model actually used.
         trained_test_size = memory.get_context("train_test_size")
         if trained_test_size is not None:
             params["test_size"] = trained_test_size
+        split_strategy = memory.get_context("split_strategy")
+        if split_strategy is not None:
+            params["split_strategy"] = split_strategy
+            params["time_column"] = memory.get_context("split_time_column")
+            params["group_column"] = memory.get_context("split_group_column")
         return params
 
     def execute(  # type: ignore[override]
@@ -625,10 +828,12 @@ class EvaluateModelTool(BaseTool):
         target_column: str,
         task_type: str = "classification",
         test_size: float = 0.2,
+        split_strategy: str = "random",
+        time_column: str | None = None,
+        group_column: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
         from sklearn.metrics import classification_report
-        from sklearn.model_selection import train_test_split
 
         if not Path(model_path).exists():
             raise ToolExecutionError(f"Model file not found: {model_path}")
@@ -637,6 +842,9 @@ class EvaluateModelTool(BaseTool):
         if target_column not in df.columns:
             raise ToolExecutionError(f"Target column '{target_column}' not in dataset.")
 
+        df, split_strategy, _notes = _resolve_split_strategy(
+            df, split_strategy, time_column, group_column
+        )
         X, y, _treatments = _prepare_features(df, target_column)
         class_labels: list[str] = []
         if task_type == "classification":
@@ -645,10 +853,10 @@ class EvaluateModelTool(BaseTool):
         with open(model_path, "rb") as f:
             model = pickle.load(f)
 
-        # Recreate the training split so evaluation runs on unseen data only
-        stratify = y if task_type == "classification" else None
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42, stratify=stratify
+        # Recreate train_model's exact split so evaluation runs on rows the
+        # model never trained on, whichever strategy produced them.
+        X_train, X_test, y_train, y_test, _cv, _groups_train = _split_train_test(
+            X, y, df, split_strategy, group_column, task_type, test_size
         )
         y_pred_test = model.predict(X_test)
         y_pred_train = model.predict(X_train)
@@ -780,4 +988,14 @@ class EvaluateModelTool(BaseTool):
                 "description": "Held-out fraction — must match train_model. Default: 0.2.",
                 "required": False,
             },
+            "split_strategy": {
+                "type": "string",
+                "description": (
+                    "'random' | 'time_series' | 'panel' — must match the train_model "
+                    "call that produced model_path. Auto-filled from that step's result."
+                ),
+                "required": False,
+            },
+            "time_column": {"type": "string", "description": "Must match train_model. Auto-filled.", "required": False},
+            "group_column": {"type": "string", "description": "Must match train_model. Auto-filled.", "required": False},
         }

@@ -97,7 +97,7 @@ Every tool added to `src/tools/` must satisfy:
 
 All ML training tools must implement:
 
-- **Stratified K-Fold cross-validation** (k=5 minimum) — use `cv_mean` as the primary ranking metric, not train accuracy.
+- **Stratified K-Fold cross-validation** (k=5 minimum) for i.i.d. data — use `cv_mean` as the primary ranking metric, not train accuracy. Time-series data uses `TimeSeriesSplit` and panel/grouped data uses `GroupKFold` instead — shuffling a chronological or repeated-entity dataset would leak the test partition into training (see `TrainModelTool.prepare_params` in `src/tools/ml_pipeline.py`).
 - **Train/test gap monitoring** — compute `train_metric - test_metric` and surface it as `train_test_gap` in the output.
 - **Overfit warnings** — if `train_test_gap > 0.10`, add a human-readable warning to `overfit_warnings` list in the output.
 - **Max depth capping** — tree-based models must accept and respect `max_depth` parameter (default: 6).

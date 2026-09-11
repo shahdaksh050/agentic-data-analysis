@@ -92,3 +92,43 @@ class TestGenerateReportTool:
             dataset_name="x", tool_results_json="[]", llm_insights={}, output_dir=report_dir
         )
         assert "summary" in result.output
+
+    def test_additional_analyses_section_for_unbespoke_tools(self, report_dir: str) -> None:
+        """cluster_data (and text/geo/time-series/dimensionality) must get a
+        real subsection, not survive only as a truncated Tool Execution Log
+        row — the file-based report has the same gap the Streamlit UI had."""
+        results = [
+            *TOOL_RESULTS,
+            {
+                "tool_name": "cluster_data",
+                "status": "success",
+                "output": {
+                    "summary": "Found 3 clusters (silhouette=0.61, strong separation).",
+                    "n_clusters": 3,
+                    "silhouette_score": 0.61,
+                    "separation_quality": "strong",
+                },
+                "error": None,
+            },
+        ]
+        result = GenerateReportTool().run(
+            dataset_name="with_cluster",
+            tool_results_json=json.dumps(results),
+            llm_insights=LLM_INSIGHTS,
+            output_dir=report_dir,
+        )
+        content = Path(result.output["markdown_path"]).read_text(encoding="utf-8")
+        assert "## Additional Analyses" in content
+        assert "### Cluster Data" in content
+        assert "Clusters found: 3" in content
+        assert "Silhouette score: 0.61" in content
+
+    def test_no_additional_analyses_section_when_nothing_else_ran(self, report_dir: str) -> None:
+        result = GenerateReportTool().run(
+            dataset_name="unit_test",
+            tool_results_json=json.dumps(TOOL_RESULTS),
+            llm_insights=LLM_INSIGHTS,
+            output_dir=report_dir,
+        )
+        content = Path(result.output["markdown_path"]).read_text(encoding="utf-8")
+        assert "## Additional Analyses" not in content

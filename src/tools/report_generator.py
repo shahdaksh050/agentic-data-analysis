@@ -22,6 +22,72 @@ from src.tools.base import BaseTool
 if TYPE_CHECKING:
     from src.core.memory import MemorySystem
 
+#: Tools already covered by a dedicated report section (Model Performance)
+#: or not an analytical finding at all — everything else gets a rich
+#: subsection below instead of surviving only as one truncated line in the
+#: flat Tool Execution Log table.
+_BESPOKE_REPORTED_TOOLS = frozenset({
+    "ingest_dataset", "clean_data", "detect_outliers", "correlation_analysis",
+    "select_statistical_test", "train_model", "evaluate_model",
+    "generate_report", "generate_visualizations", "planner",
+})
+
+
+def _format_additional_analyses(tool_results: list[dict[str, Any]]) -> list[str]:
+    """
+    Markdown subsection per successful tool result without a bespoke
+    section above — cluster_data, time_series_analysis, text_analysis,
+    geospatial_analysis, dimensionality_analysis, and any future tool.
+    Mirrors app.py's `_render_other_findings` so the file-based report and
+    the Streamlit UI agree on what "the full picture" contains.
+    """
+    lines: list[str] = []
+    seen: set[str] = set()
+    for r in tool_results:
+        name = r.get("tool_name", "")
+        if name in _BESPOKE_REPORTED_TOOLS or name in seen or r.get("status") != "success":
+            continue
+        out = r.get("output")
+        if not isinstance(out, dict):
+            continue
+        seen.add(name)
+        lines.append(f"### {name.replace('_', ' ').title()}")
+        lines.append("")
+        summary = out.get("summary")
+        if summary:
+            lines.append(str(summary))
+            lines.append("")
+
+        if name == "cluster_data":
+            lines.append(f"- Clusters found: {out.get('n_clusters', '—')}")
+            lines.append(f"- Silhouette score: {out.get('silhouette_score', '—')}")
+            lines.append(f"- Separation: {out.get('separation_quality', '—')}")
+        elif name == "time_series_analysis":
+            lines.append(f"- Trend: {out.get('trend_direction', '—')}")
+            lines.append(f"- Stationary: {'Yes' if out.get('is_stationary') else 'No'}")
+            lags = out.get("seasonal_lags_detected") or []
+            lines.append(f"- Seasonal lag(s): {', '.join(str(x) for x in lags) or 'None found'}")
+        elif name == "text_analysis":
+            lines.append(f"- Vocabulary size: {out.get('vocab_size', '—')}")
+            lines.append(f"- Avg. words/row: {out.get('avg_word_count', '—')}")
+            top = out.get("top_tokens") or []
+            words = [t.get("token", t) if isinstance(t, dict) else t for t in top[:6]]
+            if words:
+                lines.append(f"- Most frequent words: {', '.join(str(w) for w in words)}")
+        elif name == "geospatial_analysis":
+            lines.append(f"- Points mapped: {out.get('n_points', '—')}")
+            centroid = out.get("centroid") or {}
+            if centroid:
+                lines.append(f"- Centroid: {centroid.get('lat', '—')}, {centroid.get('lon', '—')}")
+        elif name == "dimensionality_analysis":
+            lines.append(f"- Numeric features: {out.get('n_features', '—')}")
+            lines.append(f"- Components for target variance: {out.get('n_components_for_threshold', '—')}")
+            pairs = out.get("high_correlation_pairs") or []
+            lines.append(f"- Highly correlated pairs: {len(pairs)}")
+
+        lines.append("")
+    return lines
+
 
 class GenerateReportTool(BaseTool):
     """
@@ -141,6 +207,12 @@ class GenerateReportTool(BaseTool):
                 for k, v in key_metrics.items():
                     md_lines.append(f"| {k} | {v} |")
             md_lines.append("")
+
+        # Additional analyses (cluster/time-series/text/geo/dimensionality —
+        # anything without a bespoke section above)
+        additional = _format_additional_analyses(tool_results)
+        if additional:
+            md_lines += ["## Additional Analyses", "", *additional]
 
         # Tool execution log
         if tool_results:

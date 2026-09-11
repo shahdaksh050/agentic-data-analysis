@@ -69,3 +69,34 @@ class TestRLMEngine:
         engine.decompose_and_invoke(tasks, lambda t: t.description, depth=1)
         assert engine.repl_env.get("subtask_ctx_grp") == {"cols": ["a", "b"]}
         assert engine.repl_env.get("subtask_result_grp") is not None
+
+    def test_decompose_runs_sub_tasks_concurrently(self) -> None:
+        """P1.5: sub-tasks are independent LLM round trips and must run in
+        parallel, not one at a time — this is what makes it worth having a
+        thread pool at all rather than the old sequential loop."""
+        import time as _time
+
+        def _slow_llm(system_prompt: str, user_prompt: str) -> dict[str, Any]:
+            _time.sleep(0.05)
+            return {"status": "complete"}
+
+        engine = RLMEngine(llm_callable=_slow_llm, system_prompt="s", max_depth=2)
+        tasks = [RLMSubTask(f"t{i}", f"task {i}", {}) for i in range(5)]
+
+        start = _time.perf_counter()
+        results = engine.decompose_and_invoke(tasks, lambda t: t.description, depth=1)
+        elapsed = _time.perf_counter() - start
+
+        assert set(results.keys()) == {t.task_id for t in tasks}
+        # Serial would take >= 0.25s (5 * 0.05s); a shared bounded pool
+        # keeps it well under that even with scheduling overhead.
+        assert elapsed < 0.20, f"expected concurrent execution, took {elapsed:.3f}s"
+
+    def test_decompose_result_order_is_deterministic(self, engine: RLMEngine) -> None:
+        """Results and REPL-stored state must not depend on which thread
+        happens to finish first."""
+        tasks = [RLMSubTask(f"t{i}", f"task {i}", {"n": i}) for i in range(8)]
+        results = engine.decompose_and_invoke(tasks, lambda t: t.description, depth=1)
+        assert list(results.keys()) == [f"t{i}" for i in range(8)]
+        for i in range(8):
+            assert engine.repl_env.get(f"subtask_ctx_t{i}") == {"n": i}
