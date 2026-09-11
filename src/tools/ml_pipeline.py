@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, OneToOneFeatureMixin, TransformerMixin
 
+from src.core.io import DatasetReadError, read_any
 from src.tools.base import BaseTool, ToolExecutionError
 
 if TYPE_CHECKING:
@@ -29,17 +31,12 @@ if TYPE_CHECKING:
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
-    """Read CSV or Excel robustly with explicit engines."""
-    path = Path(file_path)
-    suffix = path.suffix.lower()
-    if suffix in {".csv", ".tsv"}:
-        return pd.read_csv(path)
-    elif suffix == ".xlsx":
-        return pd.read_excel(path, engine="openpyxl")
-    elif suffix == ".xls":
-        return pd.read_excel(path, engine="xlrd")
-    else:
-        raise ValueError(f"Unsupported file extension '{path.suffix}'. Use .csv, .tsv, .xlsx, or .xls.")
+    """Read a dataset via the unified reader (src.core.io.read_any)."""
+    try:
+        df, _report = read_any(file_path)
+    except DatasetReadError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+    return df
 
 # Overfitting warning threshold: gap between train and test accuracy
 OVERFIT_THRESHOLD = 0.10
@@ -63,8 +60,7 @@ def _prepare_features(
     df: pd.DataFrame, target_column: str
 ) -> tuple[pd.DataFrame, pd.Series[Any], list[str]]:
     """
-    Shared train/evaluate/visualise feature preparation with automatic
-    treatment of profiler-detected data problems.
+    Shared train/evaluate/visualise feature preparation.
 
     Deterministic given the same data, so a saved model always sees the
     same feature matrix at train, evaluate, and visualisation time:
@@ -72,25 +68,20 @@ def _prepare_features(
       - expands datetime columns into year/month/day/dayofweek/hour/
         is_weekend/days_since_min trend features, and drops ID-like
         columns (near-unique strings, and near-unique integer identifiers)
-      - log1p-transforms severely skewed non-negative numerics
-      - label-encodes remaining categoricals
 
-    NOTE (IMPROVEMENTS.md P0.1): the log1p/label-encoding decisions below
-    are currently computed over whatever frame is passed in — train/test
-    leakage if that frame spans both splits. A `Pipeline`/`ColumnTransformer`
-    refactor to fit these exclusively on the training fold was attempted
-    and reverted mid-session (see IMPROVEMENTS.md Round 2 status); it is
-    the documented next step, not yet safe to re-attempt without the
-    consumers listed there (visualization.py's `_feature_importance`,
-    TrainModelTool's clustering branch, `_tune`'s grid keys) updated in
-    the same change.
+    This is purely structural feature engineering — no statistic is fit
+    here. Skew-based log1p and categorical encoding (IMPROVEMENTS.md P0.1/
+    P0.5/P0.6) are decided and fit exclusively on the training fold, inside
+    the `Pipeline` built by `_build_preprocessor` — fitting them here, over
+    whatever frame is passed in, would leak test-fold statistics into
+    "held-out" metrics. Returned features therefore still contain raw
+    categorical (string) columns and NaNs; every consumer feeds them
+    through a fitted Pipeline rather than using them directly.
 
     Returns:
         (features, target, treatments) — treatments is a human-readable
         list of every automatic action taken, for the report.
     """
-    from sklearn.preprocessing import LabelEncoder
-
     treatments: list[str] = []
     df = df.dropna(subset=[target_column])
     y = df[target_column]
@@ -129,25 +120,106 @@ def _prepare_features(
             features = features.drop(columns=[col])
             treatments.append(f"Dropped identifier column '{col}' (~100% unique integers).")
 
-    # Severely skewed non-negative numerics → log1p (a data scientist's reflex)
-    for col in features.columns:
-        series = features[col]
-        if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
-            continue
-        clean = series.dropna()
-        if len(clean) < 3 or float(clean.min()) < 0:
-            continue
-        skew = float(clean.skew())
-        if abs(skew) >= SKEW_TREATMENT_THRESHOLD:
-            features[col] = np.log1p(series.astype(float))
-            treatments.append(
-                f"Applied log1p to '{col}' (skew={skew:.2f} — heavy tail compressed)."
-            )
-
-    for col in features.columns:
-        if not pd.api.types.is_numeric_dtype(features[col]):
-            features[col] = LabelEncoder().fit_transform(features[col].astype(str))
     return features, y, treatments
+
+
+class _SkewLog1pTransformer(OneToOneFeatureMixin, TransformerMixin, BaseEstimator):  # type: ignore[misc]
+    """
+    log1p-transforms whichever numeric columns look severely skewed — but
+    the skew is decided once, at `fit`, from whatever frame `fit` is called
+    on. Used inside a Pipeline fit only on the training fold (IMPROVEMENTS.md
+    P0.1), so the decision — and the values it's based on — never see the
+    test fold.
+
+    Must inherit BaseEstimator/TransformerMixin/OneToOneFeatureMixin rather
+    than duck-typing fit/transform: sklearn 1.8's Pipeline requires
+    `__sklearn_tags__` on every step, which only BaseEstimator provides.
+    """
+
+    def fit(self, X: pd.DataFrame, y: Any = None) -> _SkewLog1pTransformer:
+        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        self.n_features_in_ = X.shape[1]
+        self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        skewed: list[str] = []
+        skew_values: dict[str, float] = {}
+        for col in X.columns:
+            clean = X[col].dropna()
+            if len(clean) < 3 or float(clean.min()) < 0:
+                continue
+            skew = float(clean.skew())
+            if abs(skew) >= SKEW_TREATMENT_THRESHOLD:
+                skewed.append(str(col))
+                skew_values[str(col)] = skew
+        self.skewed_cols_ = skewed
+        self.skew_values_ = skew_values
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X, columns=self.feature_names_in_)
+        X = X.copy()
+        for col in self.skewed_cols_:
+            # Clip: a test-fold negative in a column the training fold saw
+            # as non-negative must not silently produce NaN.
+            X[col] = np.log1p(X[col].clip(lower=0))
+        return X
+
+    def describe(self) -> list[str]:
+        """Human-readable treatment strings for the report, one per column
+        log1p was applied to (decided at fit time)."""
+        return [
+            f"Applied log1p to '{col}' (skew={self.skew_values_[col]:.2f} — heavy tail compressed)."
+            for col in self.skewed_cols_
+        ]
+
+
+#: Linear models get OneHotEncoder (no fake ordinality); tree/ensemble models
+#: get OrdinalEncoder (cheaper, and trees can recover from arbitrary codes).
+LINEAR_MODELS = {"logistic_regression", "linear_regression", "ridge"}
+
+
+def _build_preprocessor(X: pd.DataFrame, encoding: str) -> Any:
+    """
+    Build the ColumnTransformer that becomes a Pipeline's "prep" step,
+    fit exclusively on whatever frame is passed to it (the training fold).
+
+    ``encoding``: "onehot" for linear models, "ordinal" for tree/ensemble
+    and clustering models (IMPROVEMENTS.md P0.6).
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder
+
+    numeric_cols = [
+        c for c in X.columns
+        if pd.api.types.is_numeric_dtype(X[c]) and not pd.api.types.is_bool_dtype(X[c])
+    ]
+    bool_cols = [c for c in X.columns if pd.api.types.is_bool_dtype(X[c])]
+    cat_cols = [c for c in X.columns if c not in numeric_cols and c not in bool_cols]
+
+    encoder: Any = (
+        OneHotEncoder(handle_unknown="ignore")
+        if encoding == "onehot"
+        else OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
+    )
+
+    transformers: list[tuple[str, Any, list[str]]] = []
+    if numeric_cols:
+        numeric_pipe = Pipeline([
+            ("impute", SimpleImputer(strategy="median")),
+            ("skew", _SkewLog1pTransformer()),
+        ]).set_output(transform="pandas")
+        transformers.append(("num", numeric_pipe, numeric_cols))
+    if bool_cols:
+        transformers.append(("bool", SimpleImputer(strategy="most_frequent"), bool_cols))
+    if cat_cols:
+        cat_pipe = Pipeline([
+            ("impute", SimpleImputer(strategy="most_frequent")),
+            ("encode", encoder),
+        ])
+        transformers.append(("cat", cat_pipe, cat_cols))
+
+    return ColumnTransformer(transformers, remainder="drop")
 
 
 def _resolve_split_strategy(
@@ -405,16 +477,28 @@ class TrainModelTool(BaseTool):
             )
             scoring = "f1_weighted" if task_type == "classification" else "r2"
 
+            # The skew decision only depends on X_train's numeric columns, not
+            # on which encoder a given model's preprocessor uses — identical
+            # across every model trained in this call, so it's reported once
+            # here rather than once per model.
+            numeric_cols = [
+                c for c in X_train.columns
+                if pd.api.types.is_numeric_dtype(X_train[c]) and not pd.api.types.is_bool_dtype(X_train[c])
+            ]
+            if numeric_cols:
+                skew_probe = _SkewLog1pTransformer().fit(X_train[numeric_cols])
+                treatments.extend(skew_probe.describe())
+
             for model_name in models:
                 try:
-                    model = self._build_model(
+                    estimator = self._build_model(
                         model_name, task_type, max_depth,
                         balanced=balanced, scale_pos_weight=scale_pos_weight,
                     )
                 except Exception as exc:
                     build_errors.append(f"{model_name}: build failed — {exc}")
                     continue
-                if model is None:
+                if estimator is None:
                     build_errors.append(
                         f"{model_name}: unknown model name for task_type='{task_type}'. "
                         f"Valid names: {self.CLASSIFICATION_MODELS if task_type == 'classification' else self.REGRESSION_MODELS}"
@@ -422,6 +506,13 @@ class TrainModelTool(BaseTool):
                     continue
 
                 try:
+                    from sklearn.pipeline import Pipeline
+
+                    preprocessor = _build_preprocessor(
+                        X_train, "onehot" if model_name in LINEAR_MODELS else "ordinal"
+                    )
+                    model: Any = Pipeline([("prep", preprocessor), ("model", estimator)])
+
                     best_params: dict[str, Any] = {}
                     cv_mean: float | None = None
                     cv_std: float | None = None
@@ -488,10 +579,14 @@ class TrainModelTool(BaseTool):
             X_train, X_test = X, X
             for model_name in models:
                 try:
-                    model = self._build_model(model_name, task_type, max_depth)
-                    if model is None:
+                    from sklearn.pipeline import Pipeline
+
+                    estimator = self._build_model(model_name, task_type, max_depth)
+                    if estimator is None:
                         build_errors.append(f"{model_name}: unknown clustering model name.")
                         continue
+                    preprocessor = _build_preprocessor(X_train, "ordinal")
+                    model = Pipeline([("prep", preprocessor), ("model", estimator)])
                     model.fit(X_train)
                     model_path = Path(output_dir) / f"{model_name}.pkl"
                     with open(model_path, "wb") as f:
@@ -637,6 +732,11 @@ class TrainModelTool(BaseTool):
         Light randomized hyperparameter search; returns
         (best_model, best_params, cv_mean, cv_std).
 
+        ``model`` is a `Pipeline([("prep", ...), ("model", estimator)])` —
+        the grid keys are prefixed `model__` so `RandomizedSearchCV` tunes
+        the estimator step, not the whole pipeline; the prefix is stripped
+        from the returned `best_params` so the report shows plain names.
+
         Bounded by design: n_iter ≤ 8, the caller's CV splitter, seeded. Models
         without a defined grid pass through untuned. Depth-bearing grids are
         clamped to the user's max_depth so tuning can never undo the
@@ -658,9 +758,10 @@ class TrainModelTool(BaseTool):
         n_combos = 1
         for values in grid.values():
             n_combos *= len(values)
+        prefixed_grid = {f"model__{k}": v for k, v in grid.items()}
         search = RandomizedSearchCV(
             model,
-            param_distributions=grid,
+            param_distributions=prefixed_grid,
             n_iter=min(8, n_combos),
             cv=cv,
             scoring=scoring,
@@ -675,7 +776,10 @@ class TrainModelTool(BaseTool):
         # untuned cross_val_score() path (and the "± X" summary text) means.
         std_scores = np.asarray(search.cv_results_["std_test_score"], dtype=float)
         cv_std = round(float(std_scores[search.best_index_]), 4)
-        return search.best_estimator_, dict(search.best_params_), cv_mean, cv_std
+        best_params = {
+            k.removeprefix("model__"): v for k, v in search.best_params_.items()
+        }
+        return search.best_estimator_, best_params, cv_mean, cv_std
 
     def _evaluate(
         self, model: Any, X: pd.DataFrame, y: pd.Series, task_type: str
@@ -927,6 +1031,12 @@ class EvaluateModelTool(BaseTool):
         split, with effect direction from feature-target correlation, rendered
         as plain-language driver sentences for the report.
 
+        X_test carries raw (post-P0.1) columns, including string categoricals
+        for a Pipeline-wrapped model — `.corr()` only makes sense on numeric
+        columns, so direction is omitted for categoricals rather than raising
+        inside the blanket except below (which would silently drop every
+        driver, not just the categorical one).
+
         Failure here must never fail evaluation — returns empty results instead.
         """
         try:
@@ -950,18 +1060,26 @@ class EvaluateModelTool(BaseTool):
                 if importance <= 0:
                     continue
                 feature = str(X_test.columns[idx])
-                corr = float(X_test.iloc[:, idx].corr(pd.Series(y_test).astype(float)))
-                direction = "increases" if corr >= 0 else "decreases"
+                col = X_test.iloc[:, idx]
+                direction: str | None = None
+                if pd.api.types.is_numeric_dtype(col):
+                    corr = float(col.corr(pd.Series(y_test).astype(float)))
+                    direction = "increases" if corr >= 0 else "decreases"
                 drivers.append({
                     "feature": feature,
                     "importance": round(importance, 4),
                     "direction": direction,
                 })
-                if task_type == "classification":
+                if direction is None:
+                    narrative.append(
+                        f"#{rank} driver: '{feature}' — a categorical feature "
+                        f"(permutation importance {importance:.3f})."
+                    )
+                elif task_type == "classification":
                     toward = f"'{positive_label}'" if positive_label else "the higher-encoded class"
                     narrative.append(
                         f"#{rank} driver: '{feature}' — higher values "
-                        f"{'push predictions toward ' + toward if corr >= 0 else 'push predictions away from ' + toward}"
+                        f"{'push predictions toward ' + toward if direction == 'increases' else 'push predictions away from ' + toward}"
                         f" (permutation importance {importance:.3f})."
                     )
                 else:

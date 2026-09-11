@@ -18,6 +18,8 @@ import json
 import time
 from typing import Any
 
+from src.core.multiple_testing import apply_benjamini_hochberg
+
 # "Ledger" (DESIGN.md): warm paper, friendly ink, one terracotta pen.
 # The shared report is the same warm sheet as the console, printed.
 _CSS = """
@@ -133,6 +135,13 @@ def build_html_report(
     charts: list[dict[str, Any]],
     objective: str = "",
     profile: dict[str, Any] | None = None,
+    read_report: dict[str, Any] | None = None,
+    coercions: list[dict[str, Any]] | None = None,
+    plan_rationales: list[dict[str, Any]] | None = None,
+    statistical_test_pvalues: list[dict[str, Any]] | None = None,
+    unverified_claims: list[str] | None = None,
+    profile_status: str | None = None,
+    degradations: list[str] | None = None,
 ) -> str:
     """
     Assemble the full self-contained HTML report.
@@ -144,6 +153,13 @@ def build_html_report(
         charts:       Dashboard ChartSpec dicts ({chart_id,title,description,spec}).
         objective:    The user's natural-language goal, if any.
         profile:      DatasetProfile.to_dict(), if available.
+        read_report:  src.core.io.ReadReport as a dict, if available (item 2).
+        coercions:    src.core.coercion.Coercion dicts, if any (item 3).
+        plan_rationales: [{step_number, tool_name, rationale}, ...] (item 6).
+        statistical_test_pvalues: p-values accumulated this run, for the
+            Benjamini-Hochberg correction (item 4).
+        unverified_claims: Numeric literals P0.7 couldn't trace to a tool result.
+        profile_status: "ok" or "failed: <reason>" (item 7).
     """
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     sections: list[str] = []
@@ -240,6 +256,53 @@ def build_html_report(
             "<h2>Every step it ran</h2><table><tr><th>Tool</th><th>Status</th>"
             "<th>Summary</th></tr>" + rows + "</table>"
         )
+
+    # ---- methodology (item 6) — why each step ran, from the planner ----
+    if plan_rationales:
+        rows = "".join(
+            f"<tr><td>{_esc(r.get('step_number', '—'))}</td>"
+            f"<td>{_esc(r.get('tool_name', '—'))}</td>"
+            f"<td>{_esc(r.get('rationale', ''))}</td></tr>"
+            for r in plan_rationales
+        )
+        sections.append(
+            "<h2>Why these analyses</h2><table><tr><th>Step</th><th>Tool</th>"
+            "<th>Rationale</th></tr>" + rows + "</table>"
+        )
+
+    # ---- limitations & caveats (item 4 / 5 / 7 / 10 / P0.7) ----
+    if degradations is None:
+        # Direct callers without an accumulated degradations log (tests,
+        # scripts) still get the same information, derived on the spot.
+        from src.core.degradations import collect_degradations
+
+        degradations = collect_degradations(read_report, coercions, profile, profile_status)
+    limitation_cards: list[str] = list(degradations)
+    if unverified_claims:
+        limitation_cards.extend(str(c) for c in unverified_claims)
+
+    bh = apply_benjamini_hochberg(statistical_test_pvalues or [])
+    if limitation_cards or bh:
+        sections.append("<h2>Limitations &amp; caveats</h2>" + _cards(limitation_cards, "warn"))
+        if bh:
+            bh_rows = []
+            for t in bh:
+                p_val = f"{t.get('p_value', 0):.4f}"
+                p_adj = f"{t.get('p_adjusted', 0):.4f}"
+                sig = "Yes" if t.get("significant_after_correction") else "No"
+                bh_rows.append(
+                    f"<tr><td>{_esc(t.get('feature_column', '—'))}</td>"
+                    f"<td>{_esc(t.get('test_name', '—'))}</td>"
+                    f"<td>{_esc(p_val)}</td><td>{_esc(p_adj)}</td><td>{sig}</td></tr>"
+                )
+            rows = "".join(bh_rows)
+            sections.append(
+                f"<p>{len(bh)} statistical test(s) ran this session — "
+                "Benjamini-Hochberg-corrected significance (FDR, α=0.05):</p>"
+                "<table><tr><th>Feature</th><th>Test</th><th>p-value</th>"
+                "<th>BH-adjusted p</th><th>Significant after correction</th></tr>"
+                + rows + "</table>"
+            )
 
     sections.append(
         '<div class="footer">Made for you by your data assistant.</div>'

@@ -29,6 +29,8 @@ from typing import Any, cast
 import pandas as pd
 import streamlit as st
 
+from src.core.security import ALLOWED_EXTENSIONS
+
 # ── Project root on sys.path ─────────────────────────────────────────────────
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
@@ -1409,8 +1411,8 @@ with st.sidebar:
     # ── Upload ────────────────────────────────────────────────────────────────
     st.markdown('<div class="side-head">Dataset</div>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
-        "CSV or Excel",
-        type=["csv", "xlsx", "xls"],
+        "CSV, TSV or Excel",
+        type=sorted(ext.lstrip(".") for ext in ALLOWED_EXTENSIONS),
         label_visibility="collapsed",
     )
 
@@ -1797,6 +1799,9 @@ if run_clicked:
         st.session_state["final_report"]  = final
         if agent.last_profile is not None:
             st.session_state["profile"] = agent.last_profile.to_dict()
+        st.session_state["read_report"] = agent.memory.get_context("read_report")
+        st.session_state["coercions"] = agent.memory.get_context("coercions")
+        st.session_state["profile_status"] = agent.memory.get_context("profile_status")
         _dash_path = Path(outdir) / "reports" / "dashboard.json"
         if _dash_path.exists():
             try:
@@ -2189,6 +2194,33 @@ if st.session_state.get("analysis_done"):
                     st.dataframe(_safe_df(pd.DataFrame(_cr_rows)), width='stretch')
 
         with st.expander("Data Health Check", expanded=False):
+            _profile_status = st.session_state.get("profile_status")
+            if isinstance(_profile_status, str) and _profile_status.startswith("failed"):
+                st.warning(
+                    "Running in degraded mode — profiling failed, so dataset-nature "
+                    f"tools (time-series, text, geo...) were unavailable. Reason: {_profile_status[8:]}"
+                )
+
+            _read_report = st.session_state.get("read_report")
+            _coercions = st.session_state.get("coercions")
+            if _read_report or _coercions:
+                st.markdown("#### Reading & Repairs")
+                if _read_report:
+                    _rr_bits = [f"format `{_read_report.get('format')}`", f"encoding `{_read_report.get('encoding')}`"]
+                    if not _read_report.get("encoding_confident", True):
+                        _rr_bits[-1] += " (guessed)"
+                    if _read_report.get("delimiter"):
+                        _rr_bits.append(f"delimiter `{_read_report.get('delimiter')!r}`" + ("" if _read_report.get("delimiter_sniffed") else " (from extension)"))
+                    st.caption("Detected at read time: " + ", ".join(_rr_bits) + ".")
+                    for _note in _read_report.get("notes", []):
+                        st.caption(f"⚠ {_note}")
+                if _coercions:
+                    st.caption(f"{len(_coercions)} column(s) repaired:")
+                    st.dataframe(_safe_df(pd.DataFrame([
+                        {"Column": c["column"], "Rule": c["rule"], "Converted": c["n_converted"], "Failed": c["n_failed"]}
+                        for c in _coercions
+                    ])), width='stretch')
+
             prof: dict[str, Any] | None = st.session_state.get("profile")
             if prof:
                 _q = int(prof.get("quality_score", 0))

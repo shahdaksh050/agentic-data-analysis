@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
+from src.core.io import DatasetReadError, read_any
 from src.core.memory import DatasetMetadata
 from src.tools.base import BaseTool, ToolExecutionError
 
@@ -24,17 +25,12 @@ if TYPE_CHECKING:
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
-    """Read CSV or Excel file robustly with explicit engines."""
-    path = Path(file_path)
-    suffix = path.suffix.lower()
-    if suffix in {".csv", ".tsv"}:
-        return pd.read_csv(path)
-    elif suffix == ".xlsx":
-        return pd.read_excel(path, engine="openpyxl")
-    elif suffix == ".xls":
-        return pd.read_excel(path, engine="xlrd")
-    else:
-        raise ValueError(f"Unsupported file extension '{path.suffix}'. Use .csv, .tsv, .xlsx, or .xls.")
+    """Read a dataset via the unified reader (src.core.io.read_any)."""
+    try:
+        df, _report = read_any(file_path)
+    except DatasetReadError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+    return df
 
 
 # ============================================================

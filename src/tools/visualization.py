@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from src.core.io import DatasetReadError, read_any
 from src.tools.base import BaseTool, ToolExecutionError
 
 if TYPE_CHECKING:
@@ -22,16 +23,12 @@ if TYPE_CHECKING:
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
-    path = Path(file_path)
-    suffix = path.suffix.lower()
-    if suffix in {".csv", ".tsv"}:
-        return pd.read_csv(path)
-    elif suffix == ".xlsx":
-        return pd.read_excel(path, engine="openpyxl")
-    elif suffix == ".xls":
-        return pd.read_excel(path, engine="xlrd")
-    else:
-        raise ValueError(f"Unsupported file extension '{path.suffix}'. Use .csv, .tsv, .xlsx, or .xls.")
+    """Read a dataset via the unified reader (src.core.io.read_any)."""
+    try:
+        df, _report = read_any(file_path)
+    except DatasetReadError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+    return df
 
 
 class GenerateVisualizationsTool(BaseTool):
@@ -153,17 +150,23 @@ class GenerateVisualizationsTool(BaseTool):
             raise ToolExecutionError("target_column is required for feature_importance chart.")
 
         with open(model_path, "rb") as f:
-            model = pickle.load(f)
+            loaded = pickle.load(f)
 
-        # The model was trained on _prepare_features output (ID/datetime
-        # columns dropped, categoricals encoded) — NOT on raw df.columns.
-        # Prefer the names sklearn recorded at fit time; otherwise recreate
-        # the training-time feature matrix to get the exact column layout.
-        feature_cols = [str(c) for c in getattr(model, "feature_names_in_", [])]
-        if not feature_cols:
-            from src.tools.ml_pipeline import _prepare_features
-            X, _y, _t = _prepare_features(df, target_column)
-            feature_cols = [str(c) for c in X.columns]
+        # train_model saves a Pipeline([("prep", ColumnTransformer), ("model",
+        # estimator)]) (IMPROVEMENTS.md P0.1/P0.5) — importances live on the
+        # "model" step, and the raw df.columns don't match its length once
+        # one-hot encoding has expanded the categoricals, so names must come
+        # from the fitted preprocessor's post-encoding output, not df.columns.
+        if hasattr(loaded, "named_steps") and "model" in loaded.named_steps:
+            model = loaded.named_steps["model"]
+            feature_cols = [str(c) for c in loaded.named_steps["prep"].get_feature_names_out()]
+        else:
+            model = loaded
+            feature_cols = [str(c) for c in getattr(model, "feature_names_in_", [])]
+            if not feature_cols:
+                from src.tools.ml_pipeline import _prepare_features
+                X, _y, _t = _prepare_features(df, target_column)
+                feature_cols = [str(c) for c in X.columns]
 
         if hasattr(model, "feature_importances_"):
             # Tree-based models (RandomForest, XGBoost)

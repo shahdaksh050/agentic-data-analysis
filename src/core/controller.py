@@ -30,7 +30,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from src.core.coercion import coerce_types
 from src.core.dashboard import build_dashboard, dashboard_to_json
+from src.core.degradations import collect_degradations
+from src.core.io import read_any
 from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem, ToolResult
 from src.core.profiler import DatasetProfile, profile_dataframe
 from src.core.prompt_manager import PromptManager
@@ -40,13 +43,9 @@ console = Console()
 
 
 def _read_dataframe(file_path: str) -> pd.DataFrame:
-    """Load a CSV/Excel dataset for profiling and dashboard generation."""
-    lower = file_path.lower()
-    if lower.endswith(".csv"):
-        return pd.read_csv(file_path)
-    if lower.endswith((".xlsx", ".xls")):
-        return pd.read_excel(file_path)
-    raise ValueError(f"Unsupported dataset format: {file_path}")
+    """Load a CSV/TSV/Excel dataset for dashboard generation."""
+    df, _report = read_any(file_path)
+    return df
 
 # Max retries before abandoning a failed step
 MAX_STEP_RETRIES = 2
@@ -690,19 +689,61 @@ class AgentController:
         self.memory.append_tool_result(result)
 
         # ---- Data profiling (the data scientist's "first look") ----
-        # Failure here must never block the pipeline — it only enriches it.
+        # Failure here must never block the pipeline — it only enriches it,
+        # but a failure here silently loses every dataset-nature tool
+        # (candidate_tools(profile=None) vs candidate_tools(profile)), so it
+        # must be visible (memory "profile_status") even though it's non-fatal.
         try:
-            df = _read_dataframe(file_path)
+            df, read_report = read_any(file_path)
+            df, coercions = coerce_types(df, delimiter=read_report.delimiter)
             profile = profile_dataframe(df, target_column=metadata.target_column)
             self.last_profile = profile
             self.memory.set_context("data_profile", profile.to_dict())
             self.memory.set_context("data_profile_summary", profile.to_prompt_string())
+            self.memory.set_context(
+                "read_report",
+                {
+                    "path": read_report.path,
+                    "format": read_report.format,
+                    "encoding": read_report.encoding,
+                    "encoding_confident": read_report.encoding_confident,
+                    "delimiter": read_report.delimiter,
+                    "delimiter_sniffed": read_report.delimiter_sniffed,
+                    "duplicate_headers": read_report.duplicate_headers,
+                    "notes": read_report.notes,
+                },
+            )
+            self.memory.set_context("coercions", [c.to_dict() for c in coercions])
+            self.memory.set_context("profile_status", "ok")
+            self.memory.set_context(
+                "degradations",
+                collect_degradations(
+                    self.memory.get_context("read_report"),
+                    self.memory.get_context("coercions"),
+                    profile.to_dict(),
+                    "ok",
+                ),
+            )
             console.print(
                 f"  [cyan]🔬 Profile: quality {profile.quality_score}/100, "
                 f"{len(profile.warnings)} warning(s).[/]"
             )
+            if coercions:
+                console.print(
+                    f"  [cyan]🔧 Repaired {len(coercions)} column(s): "
+                    + ", ".join(f"{c.column} ({c.rule})" for c in coercions) + "[/]"
+                )
         except Exception as exc:
-            console.print(f"  [yellow]⚠ Data profiling failed (non-fatal): {exc}[/]")
+            profile_status = f"failed: {exc}"
+            self.memory.set_context("profile_status", profile_status)
+            self.memory.set_context(
+                "degradations", collect_degradations(None, None, None, profile_status)
+            )
+            console.print(
+                f"  [yellow]⚠ Data profiling failed (non-fatal): {exc}. "
+                "Running in degraded mode — dataset-nature tools (time-series, "
+                "text, geo...) are unavailable without a profile.[/]"
+            )
 
         return metadata
 
@@ -1054,6 +1095,13 @@ class AgentController:
                 charts=self._last_charts,
                 objective=self.objective,
                 profile=self.memory.get_context("data_profile"),
+                read_report=self.memory.get_context("read_report"),
+                coercions=self.memory.get_context("coercions"),
+                plan_rationales=self.memory.get_context("plan_rationales"),
+                statistical_test_pvalues=self.memory.get_context("statistical_test_pvalues"),
+                unverified_claims=self.memory.get_context("unverified_claims"),
+                profile_status=self.memory.get_context("profile_status"),
+                degradations=self.memory.get_context("degradations"),
             )
             out_path = Path(self._output_dir) / "reports" / "report.html"
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1251,6 +1299,37 @@ class AgentController:
             self.memory.append_tool_result(result)
             self.memory.mark_step_complete(step.step_number, result)
 
+            # Item 6 (report restructure): the planner is required to give a
+            # rationale for every step (prompt_manager.py), but it was only
+            # ever shown truncated in a console panel and then discarded.
+            # Accumulate it here so the report's Methodology section can
+            # pair each executed tool with why it was chosen.
+            rationales = self.memory.get_context("plan_rationales") or []
+            rationales.append({
+                "step_number": step.step_number,
+                "tool_name": step.tool_name,
+                "rationale": step.rationale,
+            })
+            self.memory.set_context("plan_rationales", rationales)
+
+            # Item 4 (statistical rigor): Benjamini-Hochberg correction needs
+            # every p-value produced in this run — accumulate them here so
+            # the report (item 6) can correct at report time rather than
+            # each hypothesis test correcting itself in isolation.
+            if (
+                step.tool_name == "select_statistical_test"
+                and result.status == "success"
+                and "p_value" in result.output
+            ):
+                pvalue_tests = self.memory.get_context("statistical_test_pvalues") or []
+                pvalue_tests.append({
+                    "step_number": step.step_number,
+                    "feature_column": result.output.get("feature_column"),
+                    "test_name": result.output.get("test_name"),
+                    "p_value": result.output["p_value"],
+                })
+                self.memory.set_context("statistical_test_pvalues", pvalue_tests)
+
             if result.status == "error":
                 self._tool_failure_counts[step.tool_name] = (
                     self._tool_failure_counts.get(step.tool_name, 0) + 1
@@ -1444,6 +1523,14 @@ class AgentController:
             tool_results_json=tool_results_json,
             llm_insights=llm_final,
             output_dir=str(Path(self._output_dir) / "reports"),
+            data_profile=self.memory.get_context("data_profile"),
+            read_report=self.memory.get_context("read_report"),
+            coercions=self.memory.get_context("coercions"),
+            plan_rationales=self.memory.get_context("plan_rationales"),
+            statistical_test_pvalues=self.memory.get_context("statistical_test_pvalues"),
+            unverified_claims=self.memory.get_context("unverified_claims"),
+            profile_status=self.memory.get_context("profile_status"),
+            degradations=self.memory.get_context("degradations"),
         )
 
         self.memory.append_tool_result(result)

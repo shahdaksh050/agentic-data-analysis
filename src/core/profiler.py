@@ -38,6 +38,19 @@ FREE_TEXT_AVG_WORDS = 6.0
 #: Minimum rows before a datetime column is treated as a usable time axis.
 MIN_TIME_SERIES_ROWS = 20
 
+#: Below this row count, no analysis can produce a meaningful result at all —
+#: the data-sufficiency hard floor.
+MIN_ROWS_HARD_FLOOR = 2
+
+#: Below this row count (but at/above the hard floor), an inferential result
+#: (hypothesis test, trained model) should not be trusted — a soft warning,
+#: not a block; tools still run, but the caveat must travel with the result.
+MIN_ROWS_RELIABLE = 30
+
+#: Quality-score ceiling once the hard floor trips — distinguishes "0 rows"
+#: from "1 row" from "99 rows", which a flat 10-point penalty could not.
+INSUFFICIENT_QUALITY_CAP = 20
+
 #: Numeric feature count at/above which dimensionality-reduction tooling
 #: (PCA, multicollinearity) starts to pay off.
 HIGH_DIMENSIONAL_THRESHOLD = 8
@@ -101,6 +114,13 @@ class DatasetProfile:
     is_high_dimensional: bool = False
     panel_group_cols: list[str] = field(default_factory=list)
 
+    # ---- Data-sufficiency gate (U1.3) — row_count < 100 used to cost a flat
+    # 10 quality points regardless of whether that meant 99 rows or 0 rows.
+    # This makes "not enough data to trust a result" an explicit, checkable
+    # fact instead of a number embedded in the score. ----
+    is_sufficient: bool = True
+    sufficiency_reason: str | None = None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "row_count": self.row_count,
@@ -117,6 +137,8 @@ class DatasetProfile:
             "geo_lon_col": self.geo_lon_col,
             "is_high_dimensional": self.is_high_dimensional,
             "panel_group_cols": self.panel_group_cols,
+            "is_sufficient": self.is_sufficient,
+            "sufficiency_reason": self.sufficiency_reason,
         }
 
     def columns_of_kind(self, *kinds: str) -> list[ColumnProfile]:
@@ -143,6 +165,8 @@ class DatasetProfile:
             f"Data profile: quality score {self.quality_score}/100; "
             f"{self.duplicate_rows} duplicate rows; column kinds: {kinds}.",
         ]
+        if not self.is_sufficient:
+            lines.append(f"INSUFFICIENT DATA: {self.sufficiency_reason or 'too few rows.'}")
         skewed = [_sp(c.name) for c in self.columns if "severe_skew" in c.flags]
         if skewed:
             lines.append(f"Severely skewed numerics: {', '.join(skewed[:6])}.")
@@ -185,17 +209,34 @@ def _is_datetime_like(series: pd.Series) -> bool:
     return bool(parsed.notna().mean() >= 0.9)
 
 
-def _is_identifier_like(name: str, series: pd.Series, row_count: int) -> bool:
-    """Heuristic: near-unique column whose name hints at an identifier."""
+def has_identifier_name_hint(name: str) -> bool:
+    """True when a column name reads as an identifier (id, code, zipcode...).
+
+    Public so other modules can apply the same "this name says identifier"
+    rule without duplicating it — e.g. src.core.coercion uses it to avoid
+    numeric-coercing a zero-padded zipcode, and
+    src.tools.statistical_analysis reuses is_identifier_like wholesale
+    instead of keeping a second, looser ID heuristic.
+    """
+    name_l = name.lower()
+    return any(
+        name_l == h or name_l.endswith(f"_{h}") or name_l.endswith(h)
+        for h in _ID_NAME_HINTS
+    )
+
+
+def is_identifier_like(name: str, series: pd.Series, row_count: int) -> bool:
+    """Heuristic: near-unique column whose name hints at an identifier, or a
+    fully-unique non-float column. A sorted *float* measurement (a
+    continuous value that happens to be 100% unique) does NOT qualify —
+    only a genuine key does. Public: reused by
+    src.tools.statistical_analysis instead of a duplicate local heuristic.
+    """
     if row_count == 0:
         return False
     nunique = int(series.nunique(dropna=True))
     uniqueness = nunique / row_count
-    name_l = name.lower()
-    name_hit = any(
-        name_l == h or name_l.endswith(f"_{h}") or name_l.endswith(h)
-        for h in _ID_NAME_HINTS
-    )
+    name_hit = has_identifier_name_hint(name)
     return (uniqueness >= 0.98 and name_hit) or (
         uniqueness == 1.0 and not pd.api.types.is_float_dtype(series)
     )
@@ -238,7 +279,7 @@ def _profile_column(name: str, series: pd.Series, row_count: int) -> ColumnProfi
         kind = "text"
         flags.append("free_text")
         stats["avg_word_count"] = round(free_text_avg_words, 2)
-    elif _is_identifier_like(name, series, row_count):
+    elif is_identifier_like(name, series, row_count):
         kind = "identifier"
         flags.append("id_like")
     elif pd.api.types.is_numeric_dtype(series):
@@ -342,7 +383,24 @@ def profile_dataframe(df: pd.DataFrame, target_column: str | None = None) -> Dat
         penalty += 10
         warnings.append(f"Only {row_count} rows — results will have high variance.")
 
+    is_sufficient = True
+    sufficiency_reason: str | None = None
+    if row_count < MIN_ROWS_HARD_FLOOR:
+        is_sufficient = False
+        sufficiency_reason = (
+            f"Only {row_count} row(s) — not enough data for any analysis "
+            "to produce a meaningful result."
+        )
+        warnings.append(sufficiency_reason)
+    elif row_count < MIN_ROWS_RELIABLE:
+        warnings.append(
+            f"Only {row_count} rows — below {MIN_ROWS_RELIABLE}, no "
+            "inferential result (hypothesis test, trained model) should be trusted."
+        )
+
     quality_score = max(0, 100 - penalty)
+    if not is_sufficient:
+        quality_score = min(quality_score, INSUFFICIENT_QUALITY_CAP)
 
     # ---- Dataset-nature facts — structured, not prose, so gating logic
     #      (ToolRegistry.candidate_tools) can branch on them directly ----
@@ -392,4 +450,6 @@ def profile_dataframe(df: pd.DataFrame, target_column: str | None = None) -> Dat
         geo_lon_col=geo_lon_col,
         is_high_dimensional=is_high_dimensional,
         panel_group_cols=panel_group_cols,
+        is_sufficient=is_sufficient,
+        sufficiency_reason=sufficiency_reason,
     )
