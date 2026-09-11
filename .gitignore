@@ -29,3 +29,6 @@ Thumbs.db
 # Generated data artifacts
 data/*_cleaned.csv
 data/*_outliers_flagged.csv
+
+# Git worktrees (local scratch, not project content)
+.worktrees/
