@@ -1,3 +1,140 @@
+# HANDOVER: Isolated Compute Sandbox — subagent-driven implementation IN PROGRESS
+
+**Read this first if you're resuming a session.** Everything below this
+section (starting at "# Session Handover") is a separate, ongoing piece of
+work (Round 5 hardening) — see "Relationship to Round 5" at the end of this
+section for how the two connect.
+
+## What this is
+
+Sub-project 1 of 4 in a "Universal Dynamic Analyst" hybrid extension: an
+isolated subprocess sandbox letting the agent execute LLM-generated Python
+code against the current dataset. Purely additive — the existing
+profile-driven tool architecture (profiler, RLM planner, `BaseTool`
+library) is untouched.
+
+- Spec: `docs/superpowers/specs/2026-09-11-isolated-compute-sandbox-design.md`
+- Plan: `docs/superpowers/plans/2026-09-11-isolated-compute-sandbox.md`
+  (4 tasks, TDD, complete code given per task)
+- Being executed via the `superpowers:subagent-driven-development` skill
+  (fresh implementer subagent per task, task review after each, final
+  whole-branch review at the end).
+
+## Where the work lives
+
+**Worktree:** `.worktrees/isolated-compute-sandbox` (this directory) on
+branch `isolated-compute-sandbox`, branched from local `master` at commit
+`1ae9461` — **not** from `origin/master`, which is stale at `935eaae`
+(predates the checkpoint this plan depends on; see below).
+
+**Ledger — read this first, it's the authoritative progress record:**
+`.superpowers/sdd/2026-09-11-isolated-compute-sandbox/progress.md`
+(pre-flight conflict scan, both tasks' implementer/reviewer results,
+deferred Minor findings).
+
+**Shared venv:** this worktree has no `.venv` of its own — reuse the main
+repo's: `D:\(Dev2)DSA_AGENT\.venv\Scripts\python.exe`. Run
+`ruff`/`mypy`/`pytest` via that interpreter (e.g.
+`D:\(Dev2)DSA_AGENT\.venv\Scripts\python.exe -m pytest tests/ -q`) — not a
+bare `python`/`pytest` on PATH (nothing is activated).
+
+## Exact state when the session ended
+
+- **Task 1** (SandboxResult + static pre-check): complete. Commit
+  `965031f`. Reviewed — spec ✅ compliant, task quality Approved. Two Minor
+  findings deferred in the ledger (relative-import hint text says "None",
+  small import-branch duplication) — not blocking.
+- **Task 2** (restricted worker script, `src/core/_sandbox_worker.py`):
+  implementer finished, DONE, commit `d9154bb`. Implementer-reported
+  13/13 task tests + 305/305 full suite passing, ruff/mypy clean — **not
+  yet independently verified by a reviewer.**
+- Review package for Task 2 was already generated:
+  `.superpowers/sdd/2026-09-11-isolated-compute-sandbox/review-965031f..d9154bb.diff`
+  — but **the task-reviewer subagent dispatch was interrupted before it
+  ran** (session ended first). This is the exact resume point.
+
+## Resume: dispatch the Task 2 reviewer
+
+1. Work from this worktree directory (do not `cd` here from the main repo
+   checkout — it's a separate working tree on its own branch).
+2. Sanity check: `git log --oneline -3` should show `d9154bb` at HEAD;
+   `git status --short` should be clean.
+3. Dispatch a task-reviewer subagent (model: sonnet — this file is
+   security-relevant: a restricted-exec namespace + import hook for
+   untrusted LLM-generated code) using the template at
+   `C:\Users\daksh\.claude\plugins\cache\claude-plugins-official\superpowers\6.3.0\skills\subagent-driven-development\task-reviewer-prompt.md`,
+   filled in with:
+   - Brief: `.superpowers/sdd/2026-09-11-isolated-compute-sandbox/task-2-brief.md`
+   - Report: `.superpowers/sdd/2026-09-11-isolated-compute-sandbox/task-2-report.md`
+   - Base: `965031faedb7360b2533001c397a30490b7f529d`
+   - Head: `d9154bb0a51421fe6e1b5afaed3576bfe2fad1c5`
+   - Diff file: `.superpowers/sdd/2026-09-11-isolated-compute-sandbox/review-965031f..d9154bb.diff`
+   - Global constraints: copy from the plan's Global Constraints section
+     plus Task 2's own scope notes (file list, layer rules, "no
+     `sys.path` manipulation — that's a later task's job via subprocess
+     env injection").
+   - Security framing to include verbatim: "This is a security-relevant
+     file: it builds a restricted execution namespace for untrusted,
+     LLM-generated code (blocked builtins, an import allowlist enforced
+     via a custom `__import__` hook). Give the restriction logic real
+     scrutiny — verify `_build_restricted_builtins` actually excludes
+     every `BLOCKED_BUILTIN_NAMES` entry, verify the import hook gates on
+     the top-level module name correctly (`import os.path` blocked,
+     `import numpy.random` not), verify `__builtins__` is actually wired
+     into the globals dict passed to `exec()`. The documented threat
+     model is buggy/wasteful LLM-generated code, not a deliberate
+     sandbox-escape adversary — flag concrete, nameable bypasses, not
+     theoretical concerns."
+4. Handle the verdict per the skill: clean → ledger
+   `Task 2: complete (commits 965031f..d9154bb, review clean)` and move to
+   Task 3. Findings → the fix loop (resume implementer agent id
+   `abcc7cc798aa74445` for rounds 1-3; ledger every round).
+5. Continue with **Task 3** (`run_sandboxed` orchestration — subprocess
+   spawn, timeout/memory polling, `PYTHONPATH` env injection) and
+   **Task 4** (`DynamicCodeExecutionTool` + `ToolRegistry` registration in
+   `controller.py`) the same way each: `task-brief` → dispatch implementer
+   → `review-package` → dispatch reviewer → ledger. Task 3 needs `psutil`
+   added to `requirements.txt` (in the brief already). Task 4 touches
+   `src/core/controller.py` — no other task touches that file.
+6. After Task 4 review is clean: dispatch the **final whole-branch code
+   review** (most capable available model) per the skill, using
+   `review-package PLAN_FILE 1ae9461 HEAD` (MERGE_BASE = `1ae9461`, this
+   branch's point of divergence from master) and
+   `superpowers:requesting-code-review`'s `code-reviewer.md` template.
+   Point it at the ledger's deferred-Minor list to triage what must be
+   fixed before merge.
+7. When that's clean (or its one allowed fix-wave is applied and
+   re-reviewed): delete the SDD workspace
+   (`rm -rf .superpowers/sdd/2026-09-11-isolated-compute-sandbox/`) and
+   use `superpowers:finishing-a-development-branch` — the branch
+   `isolated-compute-sandbox` still needs to be merged/PR'd back to
+   `master`; nothing has done that yet.
+
+## Why a checkpoint commit exists (`19f5c9a` on master)
+
+This plan's Task 2 depends on Round 5 files (`src/core/io.py`,
+`profiler.py`'s sufficiency-gate additions) that only existed as
+uncommitted working-tree state when this work started, and
+`EnterWorktree`'s default `fresh` mode branches from `origin/<default
+branch>` — which was stale and missing those files. User-approved ruling:
+commit the in-progress Round 5 state as one checkpoint (deliberately
+deviating once from Round 5's own "one item per commit" rule, for this
+single snapshot only), then branch the sandbox worktree from that commit
+via manual `git worktree add` (not `EnterWorktree`, to control the base
+ref). Round 5 itself was **not** "finished" by this — it continues
+independently below.
+
+## Relationship to Round 5 (below)
+
+Unrelated, parallel work. The Round 5 remediation plan below this section
+is unaffected by the sandbox work and continues on `master` per its own
+one-item-per-commit sequencing (see "How to work this plan" below) — the
+checkpoint commit above just captured Round 5's in-progress state as of
+2026-09-11 so the sandbox worktree could build on it without waiting for
+Round 5 to finish first.
+
+---
+
 # Session Handover
 
 ## State at end of session
