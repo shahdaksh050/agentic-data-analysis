@@ -879,6 +879,31 @@ function bindCadButtons() {
       tweenCamera(0.001, Math.PI / 2 - 0.05); // Elevation front
     });
   }
+  const btnCinema = document.getElementById("btn-cinema");
+  if (btnCinema) {
+    btnCinema.addEventListener("click", () => {
+      setCadActive(btnCinema);
+      if (window.anime) {
+        window.anime({
+          targets: orbit,
+          theta: [0.42, 0.95, -0.45, 0.42],
+          phi: [1.16, 0.75, 1.25, 1.16],
+          duration: 7000,
+          easing: "easeInOutSine",
+          update: () => {
+            drag.theta = 0;
+            drag.phi = 0;
+            invalidate();
+          },
+          complete: () => {
+            if (btnIso) setCadActive(btnIso);
+          },
+        });
+      } else {
+        tweenCamera(0.65, 0.9);
+      }
+    });
+  }
   if (btnReset) {
     btnReset.addEventListener("click", () => {
       setCadActive(btnIso);

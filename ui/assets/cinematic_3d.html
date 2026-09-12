@@ -1,0 +1,1177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>DSA Agent // 3D Autonomous Ledger Experience</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- fullPage.js CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fullPage.js/4.0.22/fullpage.min.css">
+  
+  <style>
+    /* -------------------------------------------------------------------------- */
+    /* DESIGN TOKENS & SYSTEM VARIABLES (Dynamic from window.__CINEMATIC_STATE__) */
+    /* -------------------------------------------------------------------------- */
+    :root {
+      --stock: #130f0b;
+      --sheet: #1c1610;
+      --sheet-alt: #282017;
+      --ink: #f6eedf;
+      --graphite: #bdae97;
+      --pen: #f0a24a;
+      --pen-glow: rgba(240, 162, 74, 0.45);
+      --risk: #e2685a;
+      --positive: #7fb77e;
+      --accent: #4fc3f7;
+      --grid: #4a3c28;
+      --card-bg: rgba(28, 22, 16, 0.85);
+      --card-border: rgba(240, 162, 74, 0.22);
+      --lift: 0 12px 32px rgba(0, 0, 0, 0.45);
+      --lift-sm: 0 4px 16px rgba(0, 0, 0, 0.35);
+      
+      --sans: 'Mukta', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --heading: 'Baloo 2', 'Mukta', sans-serif;
+      --mono: 'JetBrains Mono', Consolas, ui-monospace, monospace;
+    }
+
+    html.theme-day, body.theme-day {
+      --stock: #f7eedd;
+      --sheet: #fffbf2;
+      --sheet-alt: #f1e4cb;
+      --ink: #3a2b1e;
+      --graphite: #8a7660;
+      --pen: #a34f20;
+      --pen-glow: rgba(163, 79, 32, 0.25);
+      --risk: #a33526;
+      --positive: #5b8c5a;
+      --accent: #e08a3e;
+      --grid: #e4d4bc;
+      --card-bg: rgba(255, 251, 242, 0.92);
+      --card-border: rgba(138, 118, 96, 0.22);
+      --lift: 0 10px 24px rgba(58, 43, 30, 0.08);
+      --lift-sm: 0 4px 12px rgba(58, 43, 30, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--stock);
+      color: var(--ink);
+      font-family: var(--sans);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /* 4-LAYER VIEWPORT ARCHITECTURE (The Containment Fix)                        */
+    /* -------------------------------------------------------------------------- */
+
+    /* LAYER 0: Fixed 3D WebGL Canvas (Never transformed, always pinned) */
+    #webgl-stage {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    #webgl-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      pointer-events: auto;
+    }
+
+    /* LAYER 1: 3D Floating HUD Pins Layer (Projected 3D-to-2D World Space) */
+    #hud-pins-layer {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 10;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .hud-pin {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform: translate3d(-9999px, -9999px, 0);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
+      will-change: transform, opacity;
+      z-index: 12;
+    }
+
+    .hud-pin.visible {
+      opacity: 1;
+    }
+
+    .hud-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: var(--lift-sm), 0 0 16px var(--pen-glow);
+      font-family: var(--sans);
+      font-size: 11.5px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    .hud-tag .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--pen);
+      box-shadow: 0 0 8px var(--pen);
+      animation: pulse-dot 2s infinite ease-in-out;
+    }
+
+    .hud-tag.risk .dot {
+      background: var(--risk);
+      box-shadow: 0 0 8px var(--risk);
+    }
+
+    .hud-tag.positive .dot {
+      background: var(--positive);
+      box-shadow: 0 0 8px var(--positive);
+    }
+
+    .hud-tag.cyan .dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    .hud-tag.cyan .dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+
+    /* LAYER 2: Global UI Header & Floating Controls */
+    #global-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 64px;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 50;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(19, 15, 11, 0.75) 0%, rgba(19, 15, 11, 0) 100%);
+    }
+
+    html.theme-day #global-header, body.theme-day #global-header {
+      background: linear-gradient(180deg, rgba(247, 238, 221, 0.88) 0%, rgba(247, 238, 221, 0) 100%);
+    }
+
+    .header-left, .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      pointer-events: auto;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 16px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 999px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow: var(--lift-sm);
+    }
+
+    .brand-mark {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--pen);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform: rotate(45deg);
+    }
+
+    .brand-mark-inner {
+      width: 6px;
+      height: 6px;
+      background: var(--pen);
+      border-radius: 1px;
+    }
+
+    .brand-title {
+      font-family: var(--heading);
+      font-weight: 800;
+      font-size: 15px;
+      letter-spacing: 0.05em;
+      color: var(--ink);
+    }
+
+    .brand-sub {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--pen);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .quick-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--card-bg);
+      padding: 4px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+    }
+
+    .pill-btn {
+      background: transparent;
+      border: none;
+      color: var(--graphite);
+      font-family: var(--sans);
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .pill-btn:hover {
+      color: var(--ink);
+      background: var(--sheet-alt);
+    }
+
+    .pill-btn.active {
+      color: #130f0b;
+      background: var(--pen);
+      font-weight: 700;
+      box-shadow: 0 0 12px var(--pen-glow);
+    }
+
+    .ctrl-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--ink);
+      cursor: pointer;
+      backdrop-filter: blur(12px);
+      transition: all 0.2s ease;
+      font-size: 15px;
+    }
+
+    .ctrl-btn:hover {
+      transform: scale(1.08);
+      border-color: var(--pen);
+      color: var(--pen);
+      box-shadow: 0 0 14px var(--pen-glow);
+    }
+
+    /* Bottom Status Datum Bar */
+    #bottom-datum-bar {
+      position: fixed;
+      bottom: 16px;
+      left: 28px;
+      right: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 50;
+      pointer-events: none;
+    }
+
+    .datum-strip {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 7px 18px;
+      backdrop-filter: blur(14px);
+      box-shadow: var(--lift-sm);
+      pointer-events: auto;
+    }
+
+    .datum-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .datum-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--graphite);
+    }
+
+    .datum-value {
+      font-family: var(--heading);
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .datum-value.pen { color: var(--pen); }
+    .datum-value.positive { color: var(--positive); }
+    .datum-value.risk { color: var(--risk); }
+
+    .scroll-hint {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--sans);
+      font-size: 11.5px;
+      color: var(--graphite);
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      padding: 6px 14px;
+      border-radius: 999px;
+      backdrop-filter: blur(10px);
+      pointer-events: auto;
+      animation: float-hint 2.4s infinite ease-in-out;
+    }
+
+    @keyframes float-hint {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /* LAYER 3: fullPage.js Presentation Container & Slide Content                */
+    /* -------------------------------------------------------------------------- */
+    #fullpage {
+      position: relative;
+      z-index: 20;
+      width: 100%;
+      height: 100%;
+    }
+
+    .section {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .section-content-wrapper {
+      width: 100%;
+      max-width: 1380px;
+      height: 100vh;
+      margin: 0 auto;
+      padding: 84px 5vw 74px 5vw;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      pointer-events: none; /* Let 3D canvas receive pointer events where empty */
+    }
+
+    .section-header {
+      margin-bottom: 18px;
+      max-width: 480px;
+      width: 100%;
+      pointer-events: auto;
+    }
+
+    .section-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--pen);
+      background: rgba(240, 162, 74, 0.12);
+      border: 1px solid rgba(240, 162, 74, 0.28);
+      border-radius: 999px;
+      padding: 4px 12px;
+      margin-bottom: 10px;
+    }
+
+    .section-title {
+      font-family: var(--heading);
+      font-size: clamp(28px, 3.6vw, 42px);
+      font-weight: 800;
+      line-height: 1.1;
+      color: var(--ink);
+      margin-bottom: 10px;
+      letter-spacing: -0.02em;
+    }
+
+    .section-desc {
+      font-family: var(--sans);
+      font-size: clamp(13.5px, 1.25vw, 15.5px);
+      line-height: 1.55;
+      color: var(--graphite);
+      max-width: 48ch;
+    }
+
+    /* Grid Layouts for Content Cards strictly constrained to left column */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      max-width: 500px;
+      width: 100%;
+      pointer-events: auto;
+    }
+
+    .glass-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: var(--lift);
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.28s ease, box-shadow 0.28s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--pen), transparent);
+      opacity: 0.4;
+    }
+
+    .glass-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(240, 162, 74, 0.45);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 20px var(--pen-glow);
+    }
+
+    .card-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--pen);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+
+    .card-title {
+      font-family: var(--heading);
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 8px;
+      line-height: 1.25;
+    }
+
+    .card-body {
+      font-family: var(--sans);
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--graphite);
+    }
+
+    /* Metric Chips & Readouts */
+    .metric-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 12px 0 6px;
+    }
+
+    .metric-huge {
+      font-family: var(--heading);
+      font-size: 38px;
+      font-weight: 800;
+      color: var(--pen);
+      line-height: 1;
+    }
+
+    .metric-unit {
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--graphite);
+    }
+
+    .pill-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--mono);
+    }
+
+    .pill-tag.safe {
+      background: rgba(127, 183, 126, 0.15);
+      color: var(--positive);
+      border: 1px solid rgba(127, 183, 126, 0.3);
+    }
+
+    .pill-tag.warn {
+      background: rgba(226, 104, 90, 0.15);
+      color: var(--risk);
+      border: 1px solid rgba(226, 104, 90, 0.3);
+    }
+
+    .pill-tag.accent {
+      background: rgba(79, 195, 247, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(79, 195, 247, 0.3);
+    }
+
+    /* Fullpage Nav custom overrides */
+    #fp-nav ul li a span, .fp-slidesNav ul li a span {
+      background: var(--graphite) !important;
+      transition: all 0.3s ease !important;
+    }
+    #fp-nav ul li a.active span, .fp-slidesNav ul li a.active span {
+      background: var(--pen) !important;
+      transform: scale(1.4) !important;
+      box-shadow: 0 0 10px var(--pen-glow);
+    }
+    #fp-nav ul li .fp-tooltip {
+      font-family: var(--sans) !important;
+      font-weight: 600 !important;
+      font-size: 11.5px !important;
+      color: var(--ink) !important;
+      background: var(--card-bg) !important;
+      border: 1px solid var(--card-border) !important;
+      padding: 4px 10px !important;
+      border-radius: 8px !important;
+      backdrop-filter: blur(10px) !important;
+    }
+
+    /* Model comparison mini-table */
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+
+    .mini-table th {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      color: var(--graphite);
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .mini-table td {
+      padding: 6px 6px;
+      border-bottom: 1px solid rgba(240, 162, 74, 0.08);
+      color: var(--ink);
+    }
+
+    .mini-table tr.highlight td {
+      color: var(--pen);
+      font-weight: 700;
+      background: rgba(240, 162, 74, 0.08);
+    }
+
+    /* Executive quote box */
+    .exec-quote {
+      border-left: 3px solid var(--pen);
+      padding-left: 14px;
+      font-style: italic;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 10px 0;
+      background: rgba(240, 162, 74, 0.05);
+      padding: 10px 14px;
+      border-radius: 0 10px 10px 0;
+    }
+
+    /* Interactive button row in Section 6 */
+    .action-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .btn-action {
+      background: var(--pen);
+      color: #130f0b;
+      border: none;
+      padding: 10px 22px;
+      font-family: var(--heading);
+      font-size: 14px;
+      font-weight: 700;
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px var(--pen-glow);
+    }
+
+    .btn-action:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px var(--pen-glow);
+      filter: brightness(1.1);
+    }
+
+    .btn-action-ghost {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--card-border);
+      padding: 9px 18px;
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-action-ghost:hover {
+      background: var(--sheet-alt);
+      border-color: var(--pen);
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      #global-header { padding: 0 16px; }
+      .quick-pills { display: none; }
+      .section-content-wrapper { padding: 70px 20px; }
+      .cards-grid { grid-template-columns: 1fr; }
+      #bottom-datum-bar { left: 16px; right: 16px; flex-direction: column; gap: 8px; }
+      .scroll-hint { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LAYER 0: Fixed 3D WebGL Canvas -->
+  <div id="webgl-stage">
+    <canvas id="webgl-canvas"></canvas>
+  </div>
+
+  <!-- LAYER 1: 3D Floating HUD Pins Layer -->
+  <div id="hud-pins-layer">
+    <!-- Single Dynamic HUD Pin tracking active stage module -->
+    <div id="hud-pin-active" class="hud-pin visible">
+      <div class="hud-tag" id="hud-tag-active">
+        <span class="dot" id="hud-dot-active"></span>
+        <span id="hud-text-active">RLM REPL ARCHITECTURE // 7-STAGE PIPELINE</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- LAYER 2: Global UI Header & Floating Controls -->
+  <header id="global-header">
+    <div class="header-left">
+      <div class="brand-badge">
+        <div class="brand-mark"><div class="brand-mark-inner"></div></div>
+        <div>
+          <div class="brand-title">DSA AGENT</div>
+          <div class="brand-sub">RLM 3D MASTER ARCHITECTURE</div>
+        </div>
+      </div>
+      <div class="quick-pills">
+        <button class="pill-btn active" onclick="fullpage_api.moveTo(1)">01 Overview</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(2)">02 Ingestion</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(3)">03 Statistics</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(4)">04 ML Pipeline</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(5)">05 Overfit Guard</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(6)">06 RLM Engine</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(7)">07 Executive</button>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <button id="btn-camera-view" class="ctrl-btn" title="Toggle Camera Tour / Orbit">🎥</button>
+      <button id="btn-theme-toggle" class="ctrl-btn" title="Toggle Day / Night">🌓</button>
+      <button id="btn-fullscreen" class="ctrl-btn" title="Toggle Fullscreen">⛶</button>
+    </div>
+  </header>
+
+  <!-- LAYER 3: fullPage.js Presentation Container -->
+  <main id="fullpage">
+
+    <!-- SECTION 1: System Overview & RLM Paradigm -->
+    <section class="section" data-anchor="overview">
+      <div class="section-content-wrapper">
+        <div class="section-header">
+          <div class="section-badge">RECURSIVE LANGUAGE MODEL // CORE ORCHESTRATION</div>
+          <h1 class="section-title">Autonomous Statistical Intelligence</h1>
+          <p class="section-desc">
+            Zhang et al. (2024) paradigm: Decomposes arbitrary analytical problems into recursive sub-tasks, 
+            executes Python code in an isolated REPL environment, and systematically verifies its own conclusions.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <div class="glass-card">
+            <div class="card-label">State Layer</div>
+            <div class="card-title">Memory & REPL State</div>
+            <div class="card-body">
+              All raw rows and DataFrames remain strictly in external Python memory — never flooded into prompt context. 
+              Only compact semantic metadata and distribution summaries are shared with the reasoning engine.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="stat-row-count">1,420</span>
+              <span class="metric-unit">active records in memory</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Verification Guard</div>
+            <div class="card-title">Zero-Hallucination Seam</div>
+            <div class="card-body">
+              7-stage linear execution gate with automatic rollback and iterative refinement. 
+              If the model detects overfit patterns or multicollinearity, it rejects the step and adapts.
+            </div>
+            <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <span class="pill-tag safe">✓ Stratified 5-Fold</span>
+              <span class="pill-tag safe">✓ Gap Audit &lt; 10%</span>
+              <span class="pill-tag accent">✓ Deterministic Seed: 42</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: Stage 1 Ingestion & Semantic Profiling -->
+    <section class="section" data-anchor="ingestion">
+      <div class="section-content-wrapper">
+        <div class="section-header">
+          <div class="section-badge">STAGE 01 // DATASET INGESTION &amp; PROFILING</div>
+          <h2 class="section-title">Deep Semantic Profiling</h2>
+          <p class="section-desc">
+            Before running any model, the system inspects column semantics, null distributions, and cardinality ratios. 
+            Laser-plane scanning identifies anomalies, severe skews, and potential target columns.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <div class="glass-card">
+            <div class="card-label">Dataset Vitals</div>
+            <div class="card-title" id="profile-dataset-name">sample_dataset.csv</div>
+            <div class="card-body" id="profile-summary-text">
+              1,420 rows × 14 columns. Semantic profiling assigned 8 numeric features, 4 categoricals, 1 datetime index, and 1 text field.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="profile-quality-score">94</span>
+              <span class="metric-unit">/ 100 Data Quality Score</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Column Semantics</div>
+            <div class="card-title">Feature Type Decomposition</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Numeric Cols</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--pen);" id="count-numeric">8</div>
+              </div>
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Categorical Cols</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--accent);" id="count-categorical">4</div>
+              </div>
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Missing Cells</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--positive);" id="count-missing">12</div>
+              </div>
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Task Type</div>
+                <div style="font-size: 15px; font-weight: 800; color: var(--ink);" id="val-task-type">Classification</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: Stage 2 & 3 Statistical Testing -->
+    <section class="section" data-anchor="stats">
+      <div class="section-content-wrapper">
+        <div class="section-header">
+          <div class="section-badge">STAGE 02-03 // HYPOTHESIS TESTING &amp; CORRELATION</div>
+          <h2 class="section-title">Rigorous Statistical Testing</h2>
+          <p class="section-desc">
+            Shards decompose into a 3D scatter constellation. Automated statistical tests check normality (Shapiro-Wilk), 
+            variance homogeneity (Levene), and hypothesis significance before allowing ML feature selection.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <div class="glass-card">
+            <div class="card-label">Hypothesis Verification</div>
+            <div class="card-title" id="stat-test-name">Two-Sample T-Test / Mann-Whitney</div>
+            <div class="card-body">
+              Calculated across primary target cohorts. The difference in distribution is statistically significant, 
+              confirming the observed pattern is not random sampling noise.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" style="color: var(--accent);" id="stat-p-value">0.0012</span>
+              <span class="metric-unit">p-value (p &lt; 0.05)</span>
+            </div>
+            <span class="pill-tag safe">Statistically Significant (99.88% Confidence)</span>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Correlation Vectors</div>
+            <div class="card-title">Top Interaction Beams</div>
+            <div class="card-body">
+              Directional correlation lines highlight collinearity risk and feature-to-target dependency strengths:
+            </div>
+            <div id="correlations-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                <span>tenure ↔ total_spend</span>
+                <span style="color: var(--pen); font-weight: 700;">+0.78</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                <span>usage_rate ↔ converted</span>
+                <span style="color: var(--pen); font-weight: 700;">+0.64</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                <span>support_tickets ↔ churn_risk</span>
+                <span style="color: var(--accent); font-weight: 700;">+0.59</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: Stage 4 ML Pipeline & Stratified Folds -->
+    <section class="section" data-anchor="pipeline">
+      <div class="section-content-wrapper">
+        <div class="section-header">
+          <div class="section-badge">STAGE 04 // STRATIFIED CROSS-VALIDATION</div>
+          <h2 class="section-title">Model Arena &amp; Synaptic Flow</h2>
+          <p class="section-desc">
+            5-Fold Stratified Cross-Validation tournament. Estimators are fit inside strict Scikit-learn Pipelines 
+            preventing data leakage. Hyperplanes warp in 3D space with glowing contour lines.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <div class="glass-card">
+            <div class="card-label">Tournament Winner</div>
+            <div class="card-title" id="ml-best-model-name">GradientBoostingClassifier</div>
+            <div class="card-body">
+              Ranked #1 by out-of-fold cross-validation accuracy. Features preprocessed with SkewLog1pTransformer 
+              and OrdinalEncoder on training folds only.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" style="color: var(--positive);" id="ml-best-cv-score">92.4%</span>
+              <span class="metric-unit">5-Fold CV Score (±1.4%)</span>
+            </div>
+            <span class="pill-tag safe">Generalizes to Unseen Data</span>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Estimator Leaderboard</div>
+            <div class="card-title">Cross-Validation Rankings</div>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>MODEL</th>
+                  <th>CV MEAN</th>
+                  <th>GAP</th>
+                  <th>STATUS</th>
+                </tr>
+              </thead>
+              <tbody id="models-table-body">
+                <tr class="highlight">
+                  <td>GradientBoosting</td>
+                  <td>92.4%</td>
+                  <td>3.2%</td>
+                  <td><span class="pill-tag safe">BEST</span></td>
+                </tr>
+                <tr>
+                  <td>RandomForest</td>
+                  <td>90.8%</td>
+                  <td>5.1%</td>
+                  <td><span class="pill-tag safe">PASS</span></td>
+                </tr>
+                <tr>
+                  <td>LogisticReg(L2)</td>
+                  <td>86.5%</td>
+                  <td>1.8%</td>
+                  <td><span class="pill-tag safe">PASS</span></td>
+                </tr>
+                <tr>
+                  <td>DecisionTree</td>
+                  <td>81.2%</td>
+                  <td>12.8%</td>
+                  <td><span class="pill-tag warn">OVERFIT</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 5: Stage 5 Anti-Overfit Guard -->
+    <section class="section" data-anchor="diagnostics">
+      <div class="section-content-wrapper">
+        <div class="section-header">
+          <div class="section-badge">STAGE 05 // ANTI-HALLUCINATION SHIELD</div>
+          <h2 class="section-title">Anti-Overfit Guard &amp; Boundaries</h2>
+          <p class="section-desc">
+            A 3D holographic radar diamond tracks the train-test generalization envelope. 
+            If any estimator scores >10% higher on training than test data, it is flagged as unreliable memorization.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <div class="glass-card">
+            <div class="card-label">Generalization Gap Audit</div>
+            <div class="card-title">Train-Test Variance Envelope</div>
+            <div class="card-body">
+              The gap between training set fit and out-of-fold validation is tightly bounded. 
+              No tree model is permitted to exceed max_depth=6.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="overfit-gap-value">3.2%</span>
+              <span class="metric-unit">Train-Test Gap (Threshold: 10%)</span>
+            </div>
+            <span class="pill-tag safe" id="overfit-badge">✓ Strict Guard Passed (No Memorization)</span>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Architectural Guarantees</div>
+            <div class="card-title">Built-In Safety Invariants</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+                <span style="color: var(--positive);">✔</span>
+                <span>Stratified K-Fold CV (k=5 minimum, i.i.d. preservation)</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+                <span style="color: var(--positive);">✔</span>
+                <span>L2 Ridge Penalty regularizing high-dimensional features</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+                <span style="color: var(--positive);">✔</span>
+                <span>Preprocessors fit strictly on X_train to prevent leakage</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+                <span style="color: var(--positive);">✔</span>
+                <span>Outlier normalization via IQR bounding</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 6: Stage 6 RLM Recursive Decomposition -->
+    <section class="section" data-anchor="rlm">
+      <div class="section-content-wrapper">
+        <div class="section-header">
+          <div class="section-badge">STAGE 06 // RLM RECURSIVE ORCHESTRATION</div>
+          <h2 class="section-title">Recursive Sub-Task DAG</h2>
+          <p class="section-desc">
+            Zhang et al. (2024) paradigm: Autonomous task decomposition partitions complex hypotheses into atomic Python scripts, 
+            executing in isolated REPL environments without polluting LLM context window.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <div class="glass-card">
+            <div class="card-label">RLM Memory Boundary</div>
+            <div class="card-title">External REPL State</div>
+            <div class="card-body">
+              All raw rows and DataFrames remain strictly in external Python memory. 
+              The recursive model operates only on compact semantic metadata and distribution signatures.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" style="color: var(--accent);" id="rlm-depth-count">4</span>
+              <span class="metric-unit">recursive sub-tasks orchestrated</span>
+            </div>
+            <span class="pill-tag accent">Isolated Process Sandbox</span>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Verification Invariant</div>
+            <div class="card-title">Zero-Hallucination Seam</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+                <span style="color: var(--positive);">✔</span>
+                <span>Self-Refining Verification Loop (Refine from S5 → S3)</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+                <span style="color: var(--positive);">✔</span>
+                <span>Deterministic Seed Control (Random State: 42)</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
+                <span style="color: var(--positive);">✔</span>
+                <span>Clean Memory Rollback on Step Rejection</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 7: Stage 7 Executive Ledger & Synthesis -->
+    <section class="section" data-anchor="report">
+      <div class="section-content-wrapper">
+        <div class="section-header">
+          <div class="section-badge">STAGE 07 // VERIFIED EXECUTIVE SYNTHESIS</div>
+          <h2 class="section-title">The Executive Ledger</h2>
+          <p class="section-desc">
+            The 3D artifact aligns into a levitating glass presentation easel. 
+            Conclusions are synthesized in plain English, with explicit disclosures of where the model could fool itself.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <div class="glass-card" style="grid-column: 1 / -1; max-width: 500px;">
+            <div class="card-label">Executive Directive · Answer to Objective</div>
+            <div class="card-title" id="exec-objective-text">Analysis of Key Business Drivers &amp; Predictive Reliability</div>
+            <div class="exec-quote" id="exec-reasoning-text">
+              Analysis completed across 5-fold stratified cross-validation. GradientBoosting demonstrated optimal generalizability 
+              with 92.4% CV accuracy and a tight 3.2% train-test gap. Outlier detection identified 1.8% anomalous records which were 
+              robustly normalized. No data leakage or unregularized multi-collinearity was observed.
+            </div>
+            
+            <div style="display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap;">
+              <span class="pill-tag safe">100% Deterministic</span>
+              <span class="pill-tag safe">Audit-Ready Report</span>
+              <span class="pill-tag accent">Model Pickled to output/models/</span>
+            </div>
+
+            <div class="action-row">
+              <button class="btn-action" onclick="window.print()">🖨 Print / Export PDF</button>
+              <button class="btn-action-ghost" onclick="fullpage_api.moveTo(1)">↺ Replay Journey</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- BOTTOM STATUS DATUM BAR -->
+  <div id="bottom-datum-bar">
+    <div class="datum-strip">
+      <div class="datum-item">
+        <span class="datum-label">DATASET</span>
+        <span class="datum-value" id="datum-file">sample_dataset.csv</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">STAGE</span>
+        <span class="datum-value pen" id="datum-stage">7 / 7 COMPLETE</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">BEST MODEL</span>
+        <span class="datum-value" id="datum-model">GradientBoosting</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">CV SCORE</span>
+        <span class="datum-value positive" id="datum-score">92.4%</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">GAP</span>
+        <span class="datum-value" id="datum-gap">3.2%</span>
+      </div>
+    </div>
+
+    <div class="scroll-hint">
+      <span>Scroll / Swipe or use [↑ / ↓] to navigate 3D stages</span>
+      <span>▼</span>
+    </div>
+  </div>
+
+  <!-- State Injection Script -->
+  <script>
+    window.__CINEMATIC_STATE__ = __CINEMATIC_STATE_JSON__;
+    
+    // Apply theme class
+    if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.theme === 'day') {
+      document.documentElement.classList.add('theme-day');
+      document.body.classList.add('theme-day');
+    }
+
+    // Apply dynamic palette tokens from state
+    if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.palette) {
+      const p = window.__CINEMATIC_STATE__.palette;
+      const root = document.documentElement;
+      if (p.stock) root.style.setProperty('--stock', p.stock);
+      if (p.sheet) root.style.setProperty('--sheet', p.sheet);
+      if (p.sheet_alt) root.style.setProperty('--sheet-alt', p.sheet_alt);
+      if (p.ink) root.style.setProperty('--ink', p.ink);
+      if (p.graphite) root.style.setProperty('--graphite', p.graphite);
+      if (p.pen) root.style.setProperty('--pen', p.pen);
+      if (p.pen_glow) root.style.setProperty('--pen-glow', p.pen_glow);
+      if (p.risk) root.style.setProperty('--risk', p.risk);
+      if (p.positive) root.style.setProperty('--positive', p.positive);
+      if (p.accent) root.style.setProperty('--accent', p.accent);
+      if (p.grid) root.style.setProperty('--grid', p.grid);
+      if (p.card_bg) root.style.setProperty('--card-bg', p.card_bg);
+      if (p.card_border) root.style.setProperty('--card-border', p.card_border);
+    }
+  </script>
+
+  <!-- External Library CDNs (Three.js, Anime.js, fullPage.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fullPage.js/4.0.22/fullpage.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+  
+  <!-- 3D Cinematic Scene Script -->
+  <script type="module">
+__CINEMATIC_SCENE_SCRIPT__
+  </script>
+</body>
+</html>

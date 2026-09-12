@@ -279,6 +279,19 @@ code, kbd, pre, .stCode {{ font-family: var(--mono) !important; }}
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {{ display: none; }}
 .stTabs [data-baseweb="tab-panel"] {{ padding-top: 1.5rem; }}
 
+/* ── 3D & Viewport Enhancements ── */
+iframe {{
+    border-radius: var(--radius);
+    border: 1px solid var(--rule) !important;
+    background: transparent !important;
+    box-shadow: var(--lift-sm);
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}}
+iframe:hover {{
+    border-color: var(--pen) !important;
+    box-shadow: var(--lift);
+}}
+
 /* ── Inputs ── */
 [data-testid="stFileUploaderDropzone"] {{
     background: var(--sheet-alt); border: 2px dashed var(--rule); border-radius: var(--radius);
@@ -741,7 +754,11 @@ def _draw_pipeline_rig(slot: Any) -> list[Any]:
     ]
     cur_theme = st.session_state.get("theme", "day")
     with slot.container():
-        render_pipeline(stages, height=420, theme=cur_theme)
+        if st.session_state.get("show_cinematic_hero", False):
+            from ui.cinematic_3d import render_cinematic
+            render_cinematic(st.session_state, height=480, theme=cur_theme)
+        else:
+            render_pipeline(stages, height=420, theme=cur_theme)
     return stages
 
 
@@ -1612,6 +1629,11 @@ with hero_text:
         'and tells you which patterns are real — and which are just luck.</p></div>',
         unsafe_allow_html=True,
     )
+    _hero_cinema_on = st.session_state.get("show_cinematic_hero", False)
+    _hero_btn_txt = "🔬 Standard 3D Plate" if _hero_cinema_on else "🎬 3D Cinematic Showcase"
+    if st.button(_hero_btn_txt, key="btn_toggle_hero_cinema"):
+        st.session_state["show_cinematic_hero"] = not _hero_cinema_on
+        st.rerun()
 
 # The plate: a live technical drawing of the run, ruled off the headline and
 # running past the container edge. The pipeline executes further down this same
@@ -1867,11 +1889,12 @@ if st.session_state.get("analysis_done"):
     dash: list[dict[str, Any]] | None = st.session_state.get("dashboard")
     profile: dict[str, Any] | None = st.session_state.get("profile")
 
-    (tab_brief, tab_team, tab_dash, tab_lab, tab_vault) = st.tabs([
+    (tab_brief, tab_team, tab_dash, tab_lab, tab_cinema, tab_vault) = st.tabs([
         "📋 Summary",
         "👥 Your Helpers",
         "📊 Charts",
         "🔬 Full Details",
+        "🌌 3D Cinematic Journey",
         "📁 Downloads",
     ])
 
@@ -2279,7 +2302,20 @@ if st.session_state.get("analysis_done"):
             _render_other_findings(tool_results)
 
     # ═════════════════════════════════════════════════════════════════════════
-    # TIER 5: ARTIFACT VAULT & EXPORTS
+    # TIER 5: 3D CINEMATIC JOURNEY — FULLPAGE.JS + THREE.JS + ANIME.JS
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab_cinema:
+        st.markdown("### 🎬 3D Cinematic Journey")
+        st.caption(
+            "Hardware-accelerated 6-section presentation choreographed with fullPage.js, Three.js & Anime.js. "
+            "Scroll or swipe across the 6 autonomous stages."
+        )
+        from ui.cinematic_3d import render_cinematic
+        _cur_cinema_theme = st.session_state.get("theme", "night")
+        render_cinematic(st.session_state, height=860, theme=_cur_cinema_theme)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # TIER 6: ARTIFACT VAULT & EXPORTS
     # ═════════════════════════════════════════════════════════════════════════
     with tab_vault:
         st.markdown("### Downloads")
@@ -2293,12 +2329,25 @@ if st.session_state.get("analysis_done"):
 
             with col_dl1:
                 st.markdown("#### Reports")
+                from ui.cinematic_3d import build_cinematic_document, extract_cinematic_state
+                _cinema_pres_html = build_cinematic_document(
+                    extract_cinematic_state(st.session_state),
+                    theme=st.session_state.get("theme", "night"),
+                )
+                st.download_button(
+                    "🎬 Download 3D Presentation (standalone .html)",
+                    _cinema_pres_html.encode("utf-8"),
+                    "dsa_agent_3d_presentation.html",
+                    mime="text/html",
+                    key="dl_3d_cinema_standalone",
+                    type="primary",
+                )
                 _html = _rdir / "report.html"
                 if _html.exists():
                     st.download_button(
                         "📄 Download Shareable HTML Report",
                         _html.read_bytes(), "report.html", mime="text/html",
-                        key="dl_html_vault", type="primary",
+                        key="dl_html_vault",
                     )
                 _mds = sorted(_rdir.glob("*.md")) if _rdir.exists() else []
                 if _mds:

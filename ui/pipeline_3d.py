@@ -19,12 +19,23 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import streamlit as st
 import streamlit.components.v1 as components
 
-__all__ = ["PALETTE", "PALETTES", "Stage", "StageStatus", "build_document", "render"]
+__all__ = [
+    "PALETTE",
+    "PALETTES",
+    "Stage",
+    "StageStatus",
+    "build_cinematic_document",
+    "build_document",
+    "export_cinematic_html",
+    "extract_cinematic_state",
+    "render",
+    "render_cinematic",
+]
 
 _ASSETS = Path(__file__).parent / "assets"
 
@@ -136,3 +147,40 @@ def render(stages: Sequence[Stage], *, height: int = 420, theme: str = "day") ->
         theme: Theme name ("day" or "night").
     """
     _embed(build_document(stages, theme=theme), height)
+
+
+# ── Cinematic 3D Fullpage Master Architecture Bridge ─────────────────────────
+def build_cinematic_document(
+    state_dict: dict[str, Any] | None = None,
+    theme: str = "night",
+) -> str:
+    """Assemble the 6-section 3D cinematic presentation document."""
+    from ui.cinematic_3d import build_cinematic_document as _bcd
+    return _bcd(state_dict=state_dict, theme=theme)
+
+
+def render_cinematic(
+    state_or_session: Any = None,
+    *,
+    height: int = 860,
+    theme: str = "night",
+) -> None:
+    """Render the 6-section 3D cinematic showcase in Streamlit."""
+    from ui.cinematic_3d import render_cinematic as _rc
+    _rc(state_or_session=state_or_session, height=height, theme=theme)
+
+
+def extract_cinematic_state(session_state: Any) -> dict[str, Any]:
+    """Extract live or preview state for the 6-section 3D cinematic showcase."""
+    from ui.cinematic_3d import extract_cinematic_state as _ecs
+    return _ecs(session_state)
+
+
+def export_cinematic_html(
+    output_path: Path | str,
+    state_dict: dict[str, Any] | None = None,
+    theme: str = "night",
+) -> Path:
+    """Export the 6-section 3D cinematic showcase as a standalone HTML presentation."""
+    from ui.cinematic_3d import export_cinematic_html as _ech
+    return _ech(output_path=output_path, state_dict=state_dict, theme=theme)
