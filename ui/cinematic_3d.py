@@ -126,11 +126,26 @@ def extract_cinematic_state(session_state: Any) -> dict[str, Any]:
     # 3. Profiler Insights
     profile_raw = session_state.get("profile")
     profile = profile_raw if isinstance(profile_raw, dict) else {}
-    cols_summary = profile.get("columns", {}) if isinstance(profile, dict) else {}
-    num_numeric = sum(1 for c in cols_summary.values() if isinstance(c, dict) and c.get("kind") == "numeric") or 8
-    num_categorical = sum(1 for c in cols_summary.values() if isinstance(c, dict) and c.get("kind") == "categorical") or 4
-    num_datetime = sum(1 for c in cols_summary.values() if isinstance(c, dict) and c.get("kind") == "datetime") or 1
-    num_text = sum(1 for c in cols_summary.values() if isinstance(c, dict) and c.get("kind") == "text") or 1
+    # DatasetProfile.to_dict() emits "columns" as a LIST of column dicts, and so
+    # does the sample-report demo state. Accept a name->column mapping too, since
+    # this reads straight off session_state and must not take the results page
+    # down if the shape ever changes.
+    cols_raw = profile.get("columns") if isinstance(profile, dict) else None
+    if isinstance(cols_raw, dict):
+        cols_summary: list[Any] = list(cols_raw.values())
+    elif isinstance(cols_raw, list):
+        cols_summary = cols_raw
+    else:
+        cols_summary = []
+
+    def _count_kind(kind: str) -> int:
+        return sum(1 for c in cols_summary if isinstance(c, dict) and c.get("kind") == kind)
+
+    # The `or N` fallbacks keep the showcase populated before any profile exists.
+    num_numeric = _count_kind("numeric") or 8
+    num_categorical = _count_kind("categorical") or 4
+    num_datetime = _count_kind("datetime") or 1
+    num_text = _count_kind("text") or 1
     quality_score = profile.get("quality_score", 94) if isinstance(profile, dict) else 94
 
     # 4. Statistical & Tool Outputs

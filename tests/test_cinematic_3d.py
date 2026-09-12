@@ -114,3 +114,47 @@ def test_extract_cinematic_state_with_nones() -> None:
     assert len(state["stages"]) == 7
     assert state["ml"]["best_model"] == "GradientBoosting"
     assert "findings" in state["synthesis"]
+
+
+def test_extract_cinematic_state_with_real_profile_columns() -> None:
+    """profile["columns"] is a LIST of column dicts, not a mapping.
+
+    Both DatasetProfile.to_dict() (`[c.to_dict() for c in self.columns]`) and
+    the sample-report demo state build it as a list. Every other test here
+    passes profile=None, which lands on the `{}` fallback and hides the
+    difference — so the list shape went unexercised.
+    """
+    state = extract_cinematic_state({
+        "profile": {
+            "quality_score": 92,
+            "column_count": 4,
+            "columns": [
+                {"name": "tenure", "kind": "numeric", "dtype": "int64"},
+                {"name": "charges", "kind": "numeric", "dtype": "float64"},
+                {"name": "contract", "kind": "categorical", "dtype": "str"},
+                {"name": "signed_at", "kind": "datetime", "dtype": "datetime64[ns]"},
+            ],
+        },
+        "theme": "day",
+    })
+    assert state["dataset"]["quality_score"] == 92
+    assert state["dataset"]["column_types"]["numeric"] == 2
+    assert state["dataset"]["column_types"]["categorical"] == 1
+    assert state["dataset"]["column_types"]["datetime"] == 1
+
+
+def test_extract_cinematic_state_with_mapping_profile_columns() -> None:
+    """A name->column mapping must keep working alongside the list shape."""
+    state = extract_cinematic_state({
+        "profile": {
+            "quality_score": 88,
+            "columns": {
+                "tenure": {"kind": "numeric"},
+                "contract": {"kind": "categorical"},
+            },
+        },
+        "theme": "day",
+    })
+    assert state["dataset"]["quality_score"] == 88
+    assert state["dataset"]["column_types"]["numeric"] == 1
+    assert state["dataset"]["column_types"]["categorical"] == 1
