@@ -54,6 +54,21 @@ def _format_data_overview(
                 f"- **⚠ Data sufficiency**: {data_profile.get('sufficiency_reason') or 'Insufficient data.'}"
             )
         lines.append("")
+        # What the data was recognised *as* — this is what selected the
+        # domain-specific analyses, so the reader can see (and challenge)
+        # the classification rather than wondering why an RFM table appeared.
+        for match in data_profile.get("domains") or []:
+            roles = ", ".join(
+                f"`{col}` as {role}" for role, col in sorted((match.get("roles") or {}).items())
+            )
+            lines.append(
+                f"**Recognised as {match.get('domain')} data** "
+                f"(confidence {float(match.get('confidence', 0)):.2f}). "
+                f"Columns read as: {roles or '—'}."
+            )
+            for item in match.get("evidence") or []:
+                lines.append(f"  - {item}")
+            lines.append("")
     if read_report:
         bits = [
             f"format `{read_report.get('format')}`",

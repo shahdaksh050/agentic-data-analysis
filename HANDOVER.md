@@ -70,12 +70,46 @@ generic, IoT-sensor or single-column data; a currency-string retail export
 transactional domain never matches. `controller.load_dataset` already does
 this; do not reorder it.
 
+## Generic robustness pass (after the domain layer)
+
+- **Domain surfaced in both reports.** Markdown gets a "Recognised as
+  <domain> data (confidence X)" block in Data Overview listing the resolved
+  role->column mapping and the structural evidence, so a reader can
+  challenge the classification rather than wonder why an RFM table appeared.
+  HTML gets the matching badge. (Item 6's rule: mirror or the two diverge.)
+- **`app.py` upload preview now uses the one reader.** It previously used a
+  bare `pd.read_csv`/`pd.read_excel` in 4 places — a sixth reader knowing
+  nothing about delimiters or encodings — so a `;`-delimited cp1252 export
+  previewed as one mangled column while the analysis behind it was correct.
+  New `io.read_any_bytes(raw, filename)` spills to a temp file so the full
+  detection chain serves the in-memory upload path too. Verified: a cp1252
+  `;` file with accents now previews as 3 clean columns.
+- **Read-once cache in `io.read_any`**, keyed on (resolved path, mtime_ns,
+  size), bounded to 4 frames. Measured on a 36MB/300k-row file: cold 270ms,
+  warm 3.7ms (72x); a 9-tool run drops ~2.4s -> ~0.3s. Callers get a
+  defensive `.copy()` because tools mutate what they read.
+
+  **Two traps that were closed — do not undo these:**
+  1. `invalidate_read_cache(path)` is called by both `to_csv` writers in
+     `data_processing.py`. The (path, mtime, size) key alone is NOT safe for
+     a rewrite: Windows `st_mtime_ns` has ~10-15ms granularity despite the
+     name, so a same-size rewrite inside one tick would serve the previous
+     frame — a silently wrong analysis, the exact failure class Round 5
+     exists to remove. Any new code that writes a dataset to a path that may
+     already have been read must call it too.
+  2. `read_any_bytes` calls `_read_uncached`, not `read_any`. Caching under
+     a temp path that is deleted immediately would hold a whole DataFrame
+     under a key nothing can hit again and evict the real dataset (max 4
+     entries).
+
 Deferred / known gaps: no non-CSV formats (JSON/JSONL/Parquet/.gz) — the
 user explicitly deferred this; `src/core/io.SUPPORTED_EXTENSIONS` is still
-`{.csv,.tsv,.xlsx,.xls}`. `app.py` still previews uploads with a bare
-`pd.read_csv` in 4 places, so a `;`-delimited or cp1252 file previews wrong
-in the UI even though the analysis is correct. No read-once cache: every
-tool re-reads from disk (a 9-tool run pays the read 9 times).
+`{.csv,.tsv,.xlsx,.xls}`. Item 9's sampling half is untouched (it changes
+results and the plan marks it ASK FIRST); only the uncontroversial
+read-once cache landed. The domain layer and these changes have **no
+committed tests** — verification was manual and cross-checked, but it lives
+in the session transcript, not the repo. The 317 passing tests include zero
+domain-layer tests.
 
 ## Round 5 — SUBSTANTIALLY COMPLETE (the section below is STALE)
 

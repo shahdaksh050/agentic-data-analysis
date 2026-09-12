@@ -22,13 +22,13 @@ import sys
 import tempfile
 import traceback
 import types
-from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
 
+from src.core.io import read_any, read_any_bytes
 from src.core.security import ALLOWED_EXTENSIONS
 
 # ── Project root on sys.path ─────────────────────────────────────────────────
@@ -1131,7 +1131,7 @@ def _load_teamwork_preview() -> None:
     sample_path = ROOT / "data" / "sample_customer_churn.csv"
     if sample_path.exists():
         raw_bytes = sample_path.read_bytes()
-        df = pd.read_csv(sample_path)
+        df, _ = read_any(str(sample_path))
     else:
         import numpy as np
         np.random.seed(42)
@@ -1437,14 +1437,15 @@ with st.sidebar:
                 st.session_state["preview_name"]  = safe_name
                 _fname = safe_name.lower()
                 try:
-                    if _fname.endswith(".csv"):
-                        st.session_state["preview_df"] = pd.read_csv(BytesIO(raw_bytes))
-                    elif _fname.endswith(".xlsx"):
-                        st.session_state["preview_df"] = pd.read_excel(
-                            BytesIO(raw_bytes), engine="openpyxl")
-                    elif _fname.endswith(".xls"):
-                        st.session_state["preview_df"] = pd.read_excel(
-                            BytesIO(raw_bytes), engine="xlrd")
+                    # One reader for every format/encoding/delimiter — a bare
+                    # pd.read_csv here previewed a semicolon- or cp1252-encoded
+                    # export as a single mangled column while the analysis
+                    # behind it was correct.
+                    _pdf, _prep = read_any_bytes(raw_bytes, safe_name)
+                    st.session_state["preview_df"] = _pdf
+                    st.session_state["preview_read_report"] = _prep
+                    for _note in _prep.notes:
+                        st.caption(f"⚠ {_note}")
                 except Exception as _e:
                     st.session_state["preview_df"] = None
                     st.error(f"Could not read file: {_e}")
@@ -1587,7 +1588,7 @@ with st.sidebar:
         if st.button("📂 Load Sample Data", width='stretch'):
             sample_path = ROOT / "data" / "sample_customer_churn.csv"
             if sample_path.exists():
-                st.session_state["preview_df"] = pd.read_csv(sample_path)
+                st.session_state["preview_df"], _ = read_any(str(sample_path))
                 st.session_state["preview_name"] = "sample_customer_churn.csv"
                 st.session_state["orig_name"] = "sample_customer_churn.csv"
                 st.session_state["preview_bytes"] = sample_path.read_bytes()

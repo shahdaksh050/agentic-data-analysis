@@ -170,6 +170,13 @@ def build_html_report(
         badges += f'<span class="badge">quality {_esc(profile.get("quality_score", "?"))}/100</span>'
         badges += f'<span class="badge">{_esc(profile.get("row_count", "?"))} rows</span>'
         badges += f'<span class="badge">{_esc(profile.get("column_count", "?"))} columns</span>'
+        # Mirrors the Markdown report's "Recognised as ..." line so the two
+        # reports do not diverge on how the data was classified.
+        for match in profile.get("domains") or []:
+            badges += (
+                f'<span class="badge">{_esc(match.get("domain"))} data '
+                f'({float(match.get("confidence", 0)):.2f})</span>'
+            )
     best_model = llm_insights.get("best_model")
     if best_model:
         badges += f'<span class="badge">best model: {_esc(best_model)}</span>'

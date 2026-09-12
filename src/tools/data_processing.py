@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from src.core.coercion import coerce_types
-from src.core.io import DatasetReadError, read_any
+from src.core.io import DatasetReadError, invalidate_read_cache, read_any
 from src.core.memory import DatasetMetadata
 from src.tools.base import BaseTool, ToolExecutionError
 
@@ -233,6 +233,9 @@ class CleanDataTool(BaseTool):
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{path.stem}_cleaned.csv"  # always CSV
         df.to_csv(out_path, index=False)
+        # This path may already be in the read cache from an earlier
+        # step (a re-planned or retried run rewrites the same name).
+        invalidate_read_cache(str(out_path))
 
         return {
             "summary": (
@@ -358,6 +361,9 @@ class DetectOutliersTool(BaseTool):
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{path.stem}_outliers_flagged.csv"  # always CSV
         df.to_csv(out_path, index=False)
+        # This path may already be in the read cache from an earlier
+        # step (a re-planned or retried run rewrites the same name).
+        invalidate_read_cache(str(out_path))
 
         return {
             "summary": (

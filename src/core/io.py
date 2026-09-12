@@ -16,8 +16,12 @@ Pure I/O + parsing. No LLM calls, no profiling, no coercion (src.core.coercion).
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
+import os
+import tempfile
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,6 +39,13 @@ _CSV_DELIMITER_CANDIDATES = ",;\t|"
 _SNIFF_SAMPLE_BYTES = 64 * 1024
 
 _FORMAT_BY_SUFFIX = {".csv": "csv", ".tsv": "tsv", ".xlsx": "xlsx", ".xls": "xls"}
+
+#: Parsed frames, keyed on (resolved path, mtime_ns, size). Bounded because
+#: the values are whole DataFrames — a 1M-row file is ~50MB resident.
+_READ_CACHE_MAX_ENTRIES = 4
+_READ_CACHE: OrderedDict[tuple[str, int, int], tuple[pd.DataFrame, ReadReport]] = (
+    OrderedDict()
+)
 
 
 @dataclass
@@ -185,14 +196,7 @@ def _read_excel(path: Path, format_: str) -> tuple[pd.DataFrame, ReadReport]:
     return df, report
 
 
-def read_any(file_path: str) -> tuple[pd.DataFrame, ReadReport]:
-    """
-    Read a dataset from disk, detecting format/encoding/delimiter.
-
-    Raises:
-        DatasetReadError: file is unsupported, empty, or unreadable as
-            claimed (corrupt Excel container, undecodable text, ...).
-    """
+def _read_uncached(file_path: str) -> tuple[pd.DataFrame, ReadReport]:
     path = Path(file_path)
     suffix = path.suffix.lower()
     format_ = _FORMAT_BY_SUFFIX.get(suffix)
@@ -204,3 +208,106 @@ def read_any(file_path: str) -> tuple[pd.DataFrame, ReadReport]:
     if format_ in ("csv", "tsv"):
         return _read_delimited(path, format_)
     return _read_excel(path, format_)
+
+
+def _cache_key(file_path: str) -> tuple[str, int, int] | None:
+    """
+    Identity of a file's *content*: resolved path + mtime + size.
+
+    Same key shape AgentController._step_cache already uses, so an in-place
+    edit invalidates rather than serving a stale frame. None when the file
+    cannot be stat'd — the caller then reads uncached and raises the real
+    error.
+    """
+    try:
+        stat = Path(file_path).stat()
+    except OSError:
+        return None
+    return (str(Path(file_path).resolve()), stat.st_mtime_ns, stat.st_size)
+
+
+def clear_read_cache() -> None:
+    """Drop every cached frame. For tests and long-lived processes."""
+    _READ_CACHE.clear()
+
+
+def invalidate_read_cache(file_path: str) -> None:
+    """
+    Drop any cached frame for `file_path`. **Call this after writing a
+    dataset to a path that may already have been read.**
+
+    The (path, mtime, size) key cannot be trusted on its own for a rewrite:
+    Windows `st_mtime_ns` has ~10-15ms granularity despite the name, so a
+    same-size rewrite inside one tick keeps the old key and would serve the
+    previous frame. That is a silently wrong analysis rather than a visible
+    error — the exact failure class this module exists to remove — so the
+    writers invalidate explicitly instead of relying on the timestamp.
+    """
+    try:
+        resolved = str(Path(file_path).resolve())
+    except OSError:
+        return
+    for key in [k for k in _READ_CACHE if k[0] == resolved]:
+        del _READ_CACHE[key]
+
+
+def read_any(file_path: str) -> tuple[pd.DataFrame, ReadReport]:
+    """
+    Read a dataset from disk, detecting format/encoding/delimiter.
+
+    Results are cached on (resolved path, mtime, size): a nine-tool run over
+    one dataset used to pay the parse nine times, since every tool reads
+    independently. Callers get a defensive copy of the frame — tools mutate
+    what they read, and a shared frame would let one tool's cleaning leak
+    into another's input.
+
+    Raises:
+        DatasetReadError: file is unsupported, empty, or unreadable as
+            claimed (corrupt Excel container, undecodable text, ...).
+    """
+    key = _cache_key(file_path)
+    if key is not None:
+        hit = _READ_CACHE.get(key)
+        if hit is not None:
+            _READ_CACHE.move_to_end(key)
+            df, report = hit
+            return df.copy(), report
+
+    df, report = _read_uncached(file_path)
+
+    if key is not None:
+        _READ_CACHE[key] = (df.copy(), report)
+        # Frames are large; keep only the few most recent. A single run
+        # touches one dataset plus its cleaned copy, so this is ample.
+        while len(_READ_CACHE) > _READ_CACHE_MAX_ENTRIES:
+            _READ_CACHE.popitem(last=False)
+    return df, report
+
+
+def read_any_bytes(raw: bytes, filename: str) -> tuple[pd.DataFrame, ReadReport]:
+    """
+    read_any for an in-memory upload.
+
+    Streamlit hands the uploader raw bytes rather than a path, and app.py
+    previously previewed those with a bare `pd.read_csv` — a sixth reader
+    that knew nothing about delimiters or encodings. The result was a
+    preview showing a single mangled column for the exact
+    semicolon/cp1252 exports read_any exists to handle, while the analysis
+    behind it was correct. Spilling to a temp file is what lets the one
+    detection chain serve both.
+    """
+    suffix = Path(filename).suffix.lower()
+    handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        handle.write(raw)
+        handle.close()
+        # _read_uncached, not read_any: the temp path is deleted
+        # immediately, so caching it would hold a whole DataFrame under
+        # a key nothing can hit again and evict the real dataset.
+        df, report = _read_uncached(handle.name)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(handle.name)
+    # Report the user's filename, not the throwaway temp path.
+    report.path = filename
+    return df, report
