@@ -11,7 +11,6 @@ viewport or standalone exportable presentation file.
 from __future__ import annotations
 
 import json
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +62,6 @@ CINEMATIC_PALETTES: dict[str, dict[str, str]] = {
 }
 
 
-@lru_cache(maxsize=4)
 def _read_asset(filename: str) -> str:
     """Read bundled HTML or JS asset with UTF-8 encoding."""
     return (_ASSETS / filename).read_text(encoding="utf-8")

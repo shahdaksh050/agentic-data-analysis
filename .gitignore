@@ -35,3 +35,6 @@ data/*_outliers_flagged.csv
 
 # Session scratch: generated datasets and pipeline runs, never project content
 .scratch/
+
+# Local skills and exports
+Beautiful3dFrontend/

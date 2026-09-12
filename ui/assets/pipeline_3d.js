@@ -26,6 +26,16 @@ const hudBadge = document.getElementById("hud-badge");
 
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/* ------------------------------------------------------------------ *
+ * MOTION CONTRACT (Shared with cinematic_3d)
+ * ------------------------------------------------------------------ */
+export const MOTION = {
+  dur: { micro: 180, ui: 320, stage: 950, cinematic: 1400 },
+  ease: { out: 'cubicBezier(0.22, 1, 0.36, 1)', inOut: 'easeInOutCubic', spring: 'spring(1, 80, 10, 0)' },
+  damp: { cursor: 3.5, journey: 6.0, velocity: 4.0 },
+  stagger: 40,
+};
+
 /* Streamlit reruns this iframe's document on *any* widget interaction
  * anywhere in the app, not just after an analysis run advances a stage —
  * moving an unrelated sidebar slider triggers the same full page rerun.
@@ -115,6 +125,8 @@ try {
 }
 
 renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = isNight ? 1.15 : 1.0;
 host.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -251,8 +263,10 @@ const nodes = STAGES.map((stage, i) => {
 
   // Volumetric material for core solid
   const fillMat = keep(
-    new THREE.MeshLambertMaterial({
+    new THREE.MeshStandardMaterial({
       color: new THREE.Color(C.sheet || "#fffbf2"),
+      roughness: 0.25,
+      metalness: 0.35,
       transparent: true,
       opacity: FILL_OPACITY.pending,
       polygonOffset: true,
@@ -327,8 +341,10 @@ const satellites = [-1, 1].map((side) => {
   const geo = keep(new THREE.BoxGeometry(0.24, 0.24, 0.24));
 
   const fillMat = keep(
-    new THREE.MeshLambertMaterial({
+    new THREE.MeshStandardMaterial({
       color: new THREE.Color(C.sheet || "#fffbf2"),
+      roughness: 0.28,
+      metalness: 0.35,
       transparent: true,
       opacity: 0.1,
       polygonOffset: true,
@@ -528,14 +544,16 @@ function fitCamera(width, height) {
   }
 }
 
-function updateCamera() {
+function updateCamera(delta = 0.016) {
   const targetTheta = orbit.theta + drag.theta + parallax.x * 0.12;
   const targetPhi = THREE.MathUtils.clamp(orbit.phi + drag.phi + parallax.y * 0.08, 0.1, 1.65);
   const moving =
     Math.abs(targetTheta - smooth.theta) > 1e-4 || Math.abs(targetPhi - smooth.phi) > 1e-4;
 
-  smooth.theta += (targetTheta - smooth.theta) * 0.14;
-  smooth.phi += (targetPhi - smooth.phi) * 0.14;
+  // Frame-rate independent exponential damping: 1 - exp(-lambda * dt)
+  const k = 1.0 - Math.exp(-MOTION.damp.cursor * delta * 2.5);
+  smooth.theta += (targetTheta - smooth.theta) * k;
+  smooth.phi += (targetPhi - smooth.phi) * k;
 
   placeCamera(camera, orbit.radius, smooth.theta, smooth.phi);
   return moving;
@@ -613,6 +631,22 @@ function ink(i, animated) {
   const cageOpacity = CAGE_OPACITY[stage.status] ?? CAGE_OPACITY.pending;
   const fillOpacity = FILL_OPACITY[stage.status] ?? 0.15;
   const edgeOpacity = isReached(stage.status) ? 1.0 : 0.5;
+
+  if (fillMat && fillMat.emissive) {
+    if (stage.status === "active") {
+      fillMat.emissive.copy(new THREE.Color(C.pen || "#a34f20"));
+      fillMat.emissiveIntensity = 0.32;
+    } else if (stage.status === "done") {
+      fillMat.emissive.copy(new THREE.Color(C.pen || "#a34f20"));
+      fillMat.emissiveIntensity = 0.12;
+    } else if (stage.status === "error") {
+      fillMat.emissive.copy(new THREE.Color(C.risk || "#a33526"));
+      fillMat.emissiveIntensity = 0.42;
+    } else {
+      fillMat.emissive.setHex(0x000000);
+      fillMat.emissiveIntensity = 0;
+    }
+  }
 
   if (!animated || REDUCED_MOTION) {
     cageMat.color.copy(color);
@@ -884,21 +918,38 @@ function bindCadButtons() {
     btnCinema.addEventListener("click", () => {
       setCadActive(btnCinema);
       if (window.anime) {
-        window.anime({
-          targets: orbit,
-          theta: [0.42, 0.95, -0.45, 0.42],
-          phi: [1.16, 0.75, 1.25, 1.16],
-          duration: 7000,
-          easing: "easeInOutSine",
-          update: () => {
-            drag.theta = 0;
-            drag.phi = 0;
-            invalidate();
-          },
-          complete: () => {
-            if (btnIso) setCadActive(btnIso);
-          },
-        });
+        if (typeof window.anime.animate === "function") {
+          window.anime.animate(orbit, {
+            theta: [0.42, 0.95, -0.45, 0.42],
+            phi: [1.16, 0.75, 1.25, 1.16],
+            duration: 7000,
+            ease: "easeInOutSine",
+            onUpdate: () => {
+              drag.theta = 0;
+              drag.phi = 0;
+              invalidate();
+            },
+            onComplete: () => {
+              if (btnIso) setCadActive(btnIso);
+            },
+          });
+        } else if (typeof window.anime === "function") {
+          window.anime({
+            targets: orbit,
+            theta: [0.42, 0.95, -0.45, 0.42],
+            phi: [1.16, 0.75, 1.25, 1.16],
+            duration: 7000,
+            easing: "easeInOutSine",
+            update: () => {
+              drag.theta = 0;
+              drag.phi = 0;
+              invalidate();
+            },
+            complete: () => {
+              if (btnIso) setCadActive(btnIso);
+            },
+          });
+        }
       } else {
         tweenCamera(0.65, 0.9);
       }
@@ -959,7 +1010,7 @@ renderer.setAnimationLoop(() => {
 
   const delta = clock.getDelta();
   const t = clock.getElapsedTime();
-  const cameraMoving = updateCamera();
+  const cameraMoving = updateCamera(delta);
 
   // Active Stage Kinetic Animations
   if (activeIndex >= 0 && nodes[activeIndex]) {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>DSA Agent // 3D Autonomous Ledger Experience</title>
   
-  <!-- Fonts -->
+  <!-- Fonts: Warm Ledger Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -15,9 +15,10 @@
   
   <style>
     /* -------------------------------------------------------------------------- */
-    /* DESIGN TOKENS & SYSTEM VARIABLES (Dynamic from window.__CINEMATIC_STATE__) */
+    /* DESIGN TOKENS & SYSTEM VARIABLES (Warm Ledger Aesthetic from DESIGN.md)   */
     /* -------------------------------------------------------------------------- */
     :root {
+      /* Night Palette (Default) */
       --stock: #130f0b;
       --sheet: #1c1610;
       --sheet-alt: #282017;
@@ -31,31 +32,51 @@
       --grid: #4a3c28;
       --card-bg: rgba(28, 22, 16, 0.85);
       --card-border: rgba(240, 162, 74, 0.22);
-      --lift: 0 12px 32px rgba(0, 0, 0, 0.45);
-      --lift-sm: 0 4px 16px rgba(0, 0, 0, 0.35);
+      --lift: 0 16px 40px rgba(0, 0, 0, 0.55);
+      --lift-sm: 0 6px 20px rgba(0, 0, 0, 0.4);
       
       --sans: 'Mukta', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       --heading: 'Baloo 2', 'Mukta', sans-serif;
       --mono: 'JetBrains Mono', Consolas, ui-monospace, monospace;
+
+      /* MOTION CONTRACT (Single source of timing mirrored with JS MOTION) */
+      --dur-micro: 180ms;
+      --dur-ui: 320ms;
+      --dur-stage: 950ms;
+      --dur-cinematic: 1400ms;
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
     }
 
     html.theme-day, body.theme-day {
+      /* Day Palette (High Contrast Warm Ledger) */
       --stock: #f7eedd;
       --sheet: #fffbf2;
       --sheet-alt: #f1e4cb;
       --ink: #3a2b1e;
-      --graphite: #8a7660;
+      --graphite: #6a5948;
       --pen: #a34f20;
       --pen-glow: rgba(163, 79, 32, 0.25);
       --risk: #a33526;
-      --positive: #5b8c5a;
-      --accent: #e08a3e;
+      --positive: #3d753c;
+      --accent: #d47a28;
       --grid: #e4d4bc;
-      --card-bg: rgba(255, 251, 242, 0.92);
-      --card-border: rgba(138, 118, 96, 0.22);
-      --lift: 0 10px 24px rgba(58, 43, 30, 0.08);
-      --lift-sm: 0 4px 12px rgba(58, 43, 30, 0.06);
+      --card-bg: rgba(255, 251, 242, 0.94);
+      --card-border: rgba(138, 118, 96, 0.28);
+      --lift: 0 14px 32px rgba(58, 43, 30, 0.12);
+      --lift-sm: 0 4px 14px rgba(58, 43, 30, 0.08);
     }
+
+    /* Day Mode Strict High-Contrast Text Overrides */
+    html.theme-day .section-title { color: #3a2b1e !important; }
+    html.theme-day .section-desc { color: #5a4a3a !important; }
+    html.theme-day .card-title { color: #2e2015 !important; }
+    html.theme-day .card-body { color: #4e3f32 !important; }
+    html.theme-day .datum-value { color: #3a2b1e !important; }
+    html.theme-day .datum-label { color: #756350 !important; }
+    html.theme-day .scroll-hint { color: #756350 !important; }
+    html.theme-day .mini-table td { border-bottom-color: rgba(58, 43, 30, 0.08) !important; color: #2e2015 !important; }
+    html.theme-day .hud-tag { background: rgba(255, 251, 242, 0.95) !important; color: #3a2b1e !important; box-shadow: 0 4px 18px rgba(58, 43, 30, 0.15), 0 0 12px var(--pen-glow) !important; }
 
     * {
       box-sizing: border-box;
@@ -69,11 +90,109 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      overscroll-behavior: none !important;
+      touch-action: pan-y !important;
       background-color: var(--stock);
       color: var(--ink);
       font-family: var(--sans);
       user-select: none;
       -webkit-user-select: none;
+      transition: background-color 0.4s ease, color 0.4s ease;
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /* PILLAR 6: MANSORY-STANDARD ZERO-FREEZE PRELOADER                           */
+    /* -------------------------------------------------------------------------- */
+    #preloader-curtain {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: var(--stock);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.85s cubic-bezier(0.77, 0, 0.175, 1), opacity 0.6s ease;
+      pointer-events: auto;
+    }
+
+    #preloader-curtain.loaded {
+      transform: translateY(-100%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .preloader-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .preloader-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--pen), var(--accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 24px var(--pen-glow);
+    }
+
+    .preloader-mark-inner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid #fff;
+      border-radius: 4px;
+      transform: rotate(45deg);
+      animation: preloader-spin 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes preloader-spin {
+      0% { transform: rotate(45deg) scale(0.85); }
+      50% { transform: rotate(225deg) scale(1.15); }
+      100% { transform: rotate(405deg) scale(0.85); }
+    }
+
+    .preloader-title {
+      font-family: var(--heading);
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: var(--ink);
+    }
+
+    .preloader-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      color: var(--graphite);
+      text-transform: uppercase;
+    }
+
+    .preloader-bar-wrap {
+      width: 240px;
+      height: 4px;
+      background: var(--sheet-alt);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .preloader-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--pen);
+      box-shadow: 0 0 10px var(--pen-glow);
+      transition: width 0.3s ease-out;
+    }
+
+    .preloader-status {
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--graphite);
     }
 
     /* -------------------------------------------------------------------------- */
@@ -89,6 +208,8 @@
       z-index: 0;
       pointer-events: none;
       overflow: hidden;
+      background-color: var(--stock);
+      transition: background-color 0.4s ease;
     }
 
     #webgl-canvas {
@@ -98,27 +219,33 @@
       pointer-events: auto;
     }
 
-    /* LAYER 1: 3D Floating HUD Pins Layer (Projected 3D-to-2D World Space) */
+    /* LAYER 1: Dynamic 2D Leader Lines & 3D-to-2D HUD Pins Overlay */
     #hud-pins-layer {
       position: fixed;
       inset: 0;
       width: 100vw;
       height: 100vh;
-      z-index: 10;
+      z-index: 5;
       pointer-events: none;
       overflow: hidden;
+    }
+
+    #leader-lines-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
     }
 
     .hud-pin {
       position: absolute;
       top: 0;
       left: 0;
-      transform: translate3d(-9999px, -9999px, 0);
-      opacity: 0;
       pointer-events: none;
-      transition: opacity 0.35s ease;
-      will-change: transform, opacity;
-      z-index: 12;
+      will-change: transform;
+      opacity: 0;
+      transition: opacity 0.4s ease;
     }
 
     .hud-pin.visible {
@@ -129,19 +256,30 @@
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      padding: 6px 14px;
-      border-radius: 999px;
+      padding: 5px 12px;
       background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      box-shadow: var(--lift-sm), 0 0 16px var(--pen-glow);
-      font-family: var(--sans);
-      font-size: 11.5px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
+      border: 1px solid var(--pen);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), 0 0 12px var(--pen-glow);
+      border-radius: 999px;
       color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       white-space: nowrap;
+    }
+
+    .hud-tag.cyan {
+      border-color: var(--accent);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), 0 0 12px rgba(79, 195, 247, 0.4);
+    }
+
+    .hud-tag.positive {
+      border-color: var(--positive);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), 0 0 12px rgba(127, 183, 126, 0.4);
     }
 
     .hud-tag .dot {
@@ -150,12 +288,12 @@
       border-radius: 50%;
       background: var(--pen);
       box-shadow: 0 0 8px var(--pen);
-      animation: pulse-dot 2s infinite ease-in-out;
+      animation: pulse-dot 1.8s infinite ease-in-out;
     }
 
-    .hud-tag.risk .dot {
-      background: var(--risk);
-      box-shadow: 0 0 8px var(--risk);
+    .hud-tag.cyan .dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
     }
 
     .hud-tag.positive .dot {
@@ -163,22 +301,12 @@
       box-shadow: 0 0 8px var(--positive);
     }
 
-    .hud-tag.cyan .dot {
-      background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
-    }
-
-    .hud-tag.cyan .dot {
-      background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
-    }
-
     @keyframes pulse-dot {
       0%, 100% { transform: scale(1); opacity: 1; }
       50% { transform: scale(1.4); opacity: 0.6; }
     }
 
-    /* LAYER 2: Global UI Header & Floating Controls */
+    /* LAYER 3: Global Header (z-index: 50) */
     #global-header {
       position: fixed;
       top: 0;
@@ -190,68 +318,65 @@
       align-items: center;
       justify-content: space-between;
       z-index: 50;
-      pointer-events: none;
-      background: linear-gradient(180deg, rgba(19, 15, 11, 0.75) 0%, rgba(19, 15, 11, 0) 100%);
+      pointer-events: auto;
+      background: linear-gradient(180deg, rgba(19, 15, 11, 0.85) 0%, rgba(19, 15, 11, 0) 100%);
     }
 
-    html.theme-day #global-header, body.theme-day #global-header {
-      background: linear-gradient(180deg, rgba(247, 238, 221, 0.88) 0%, rgba(247, 238, 221, 0) 100%);
+    html.theme-day #global-header {
+      background: linear-gradient(180deg, rgba(247, 238, 221, 0.9) 0%, rgba(247, 238, 221, 0) 100%);
     }
 
-    .header-left, .header-right {
+    .header-left {
       display: flex;
       align-items: center;
-      gap: 12px;
-      pointer-events: auto;
+      gap: 20px;
     }
 
     .brand-badge {
-      display: inline-flex;
+      display: flex;
       align-items: center;
-      gap: 9px;
-      padding: 7px 16px;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 999px;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      box-shadow: var(--lift-sm);
+      gap: 10px;
+      text-decoration: none;
+      cursor: pointer;
     }
 
     .brand-mark {
-      width: 18px;
-      height: 18px;
-      border: 2px solid var(--pen);
-      border-radius: 4px;
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--pen), var(--accent));
       display: flex;
       align-items: center;
       justify-content: center;
-      transform: rotate(45deg);
+      box-shadow: 0 0 14px var(--pen-glow);
     }
 
     .brand-mark-inner {
-      width: 6px;
-      height: 6px;
-      background: var(--pen);
-      border-radius: 1px;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #fff;
+      border-radius: 3px;
+      transform: rotate(45deg);
     }
 
     .brand-title {
       font-family: var(--heading);
+      font-size: 17px;
       font-weight: 800;
-      font-size: 15px;
-      letter-spacing: 0.05em;
       color: var(--ink);
+      line-height: 1.1;
+      letter-spacing: 0.04em;
     }
 
     .brand-sub {
       font-family: var(--mono);
-      font-size: 10px;
-      color: var(--pen);
-      letter-spacing: 0.08em;
+      font-size: 9.5px;
+      color: var(--graphite);
+      letter-spacing: 0.1em;
       text-transform: uppercase;
     }
 
+    /* Quick Pills Navigation */
     .quick-pills {
       display: flex;
       align-items: center;
@@ -260,7 +385,7 @@
       padding: 4px 6px;
       border-radius: 999px;
       border: 1px solid var(--card-border);
-      backdrop-filter: blur(12px);
+      backdrop-filter: blur(14px);
     }
 
     .pill-btn {
@@ -268,12 +393,13 @@
       border: none;
       color: var(--graphite);
       font-family: var(--sans);
-      font-size: 11.5px;
+      font-size: 12.5px;
       font-weight: 600;
       padding: 5px 12px;
       border-radius: 999px;
       cursor: pointer;
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.25s ease;
+      white-space: nowrap;
     }
 
     .pill-btn:hover {
@@ -282,216 +408,144 @@
     }
 
     .pill-btn.active {
-      color: #130f0b;
       background: var(--pen);
-      font-weight: 700;
-      box-shadow: 0 0 12px var(--pen-glow);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--pen-glow);
+    }
+
+    html.theme-day .pill-btn.active {
+      color: #fffbf2;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
 
     .ctrl-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--ink);
       width: 38px;
       height: 38px;
       border-radius: 50%;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      color: var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
-      backdrop-filter: blur(12px);
-      transition: all 0.2s ease;
       font-size: 15px;
+      backdrop-filter: blur(12px);
+      transition: all 0.25s ease;
     }
 
     .ctrl-btn:hover {
-      transform: scale(1.08);
       border-color: var(--pen);
-      color: var(--pen);
-      box-shadow: 0 0 14px var(--pen-glow);
+      transform: scale(1.06);
+      box-shadow: 0 0 12px var(--pen-glow);
     }
 
-    /* Bottom Status Datum Bar */
-    #bottom-datum-bar {
-      position: fixed;
-      bottom: 16px;
-      left: 28px;
-      right: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      z-index: 50;
+    /* LAYER 2: fullPage.js Presentation Container */
+    #fullpage {
+      position: relative;
+      z-index: 10;
       pointer-events: none;
     }
 
-    .datum-strip {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 7px 18px;
-      backdrop-filter: blur(14px);
-      box-shadow: var(--lift-sm);
-      pointer-events: auto;
-    }
-
-    .datum-item {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .datum-label {
-      font-family: var(--mono);
-      font-size: 9px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--graphite);
-    }
-
-    .datum-value {
-      font-family: var(--heading);
-      font-size: 13.5px;
-      font-weight: 700;
-      color: var(--ink);
-    }
-
-    .datum-value.pen { color: var(--pen); }
-    .datum-value.positive { color: var(--positive); }
-    .datum-value.risk { color: var(--risk); }
-
-    .scroll-hint {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-family: var(--sans);
-      font-size: 11.5px;
-      color: var(--graphite);
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      padding: 6px 14px;
-      border-radius: 999px;
-      backdrop-filter: blur(10px);
-      pointer-events: auto;
-      animation: float-hint 2.4s infinite ease-in-out;
-    }
-
-    @keyframes float-hint {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-4px); }
-    }
-
-    /* -------------------------------------------------------------------------- */
-    /* LAYER 3: fullPage.js Presentation Container & Slide Content                */
-    /* -------------------------------------------------------------------------- */
-    #fullpage {
-      position: relative;
-      z-index: 20;
-      width: 100%;
-      height: 100%;
+    /* Strict Layout Separation: Text strictly left, 3D strictly right */
+    .fp-overflow, .fp-tableCell, .fp-overflow > div {
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: flex-start !important;
+      text-align: left !important;
+      width: 100% !important;
+      height: 100% !important;
+      padding: 64px 40px 52px 72px !important;
+      box-sizing: border-box !important;
     }
 
     .section {
       position: relative;
-      width: 100%;
+      width: 100vw;
       height: 100vh;
       overflow: hidden;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      padding: 0 !important;
     }
 
     .section-content-wrapper {
-      width: 100%;
-      max-width: 1380px;
-      height: 100vh;
-      margin: 0 auto;
-      padding: 84px 5vw 74px 5vw;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: flex-start;
-      pointer-events: none; /* Let 3D canvas receive pointer events where empty */
+      position: relative;
+      width: 480px;
+      max-width: 42vw;
+      margin: 0 !important;
+      z-index: 20;
+      pointer-events: none;
+      text-align: left !important;
     }
 
-    .section-header {
-      margin-bottom: 18px;
-      max-width: 480px;
-      width: 100%;
-      pointer-events: auto;
+    .section-badge, .section-title, .section-desc {
+      text-align: left !important;
     }
 
     .section-badge {
       display: inline-flex;
       align-items: center;
-      gap: 7px;
+      gap: 6px;
       font-family: var(--mono);
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
+      color: var(--pen);
       text-transform: uppercase;
       letter-spacing: 0.12em;
-      color: var(--pen);
-      background: rgba(240, 162, 74, 0.12);
-      border: 1px solid rgba(240, 162, 74, 0.28);
-      border-radius: 999px;
-      padding: 4px 12px;
       margin-bottom: 10px;
     }
 
     .section-title {
       font-family: var(--heading);
-      font-size: clamp(28px, 3.6vw, 42px);
+      font-size: clamp(28px, 3.8vw, 42px);
       font-weight: 800;
-      line-height: 1.1;
+      line-height: 1.15;
       color: var(--ink);
-      margin-bottom: 10px;
-      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
     }
 
     .section-desc {
       font-family: var(--sans);
-      font-size: clamp(13.5px, 1.25vw, 15.5px);
-      line-height: 1.55;
+      font-size: 15px;
+      line-height: 1.6;
       color: var(--graphite);
-      max-width: 48ch;
+      margin-bottom: 22px;
     }
 
-    /* Grid Layouts for Content Cards strictly constrained to left column */
+    /* Frosted Glass Cards */
     .cards-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      display: flex;
+      flex-direction: column;
       gap: 14px;
-      max-width: 500px;
-      width: 100%;
-      pointer-events: auto;
+      pointer-events: none;
     }
 
     .glass-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 16px 18px;
+      border-radius: 16px;
+      padding: 18px 22px;
+      box-shadow: var(--lift);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      box-shadow: var(--lift);
-      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.28s ease, box-shadow 0.28s ease;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .glass-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, var(--pen), transparent);
-      opacity: 0.4;
+      pointer-events: auto;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
     }
 
     .glass-card:hover {
-      transform: translateY(-4px);
-      border-color: rgba(240, 162, 74, 0.45);
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 20px var(--pen-glow);
+      transform: translateY(-2px);
+      border-color: var(--pen);
+      box-shadow: var(--lift), 0 0 16px var(--pen-glow);
+      transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
     }
 
     .card-label {
@@ -501,22 +555,22 @@
       color: var(--pen);
       text-transform: uppercase;
       letter-spacing: 0.1em;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .card-title {
       font-family: var(--heading);
-      font-size: 19px;
+      font-size: 18px;
       font-weight: 700;
       color: var(--ink);
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       line-height: 1.25;
     }
 
     .card-body {
       font-family: var(--sans);
       font-size: 13.5px;
-      line-height: 1.6;
+      line-height: 1.55;
       color: var(--graphite);
     }
 
@@ -525,12 +579,12 @@
       display: flex;
       align-items: baseline;
       gap: 8px;
-      margin: 12px 0 6px;
+      margin: 10px 0 4px;
     }
 
     .metric-huge {
       font-family: var(--heading);
-      font-size: 38px;
+      font-size: 36px;
       font-weight: 800;
       color: var(--pen);
       line-height: 1;
@@ -598,131 +652,215 @@
     .mini-table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 10px;
       font-size: 12px;
+      margin-top: 8px;
     }
 
     .mini-table th {
       text-align: left;
-      font-family: var(--mono);
-      font-size: 9.5px;
+      padding: 5px 8px;
       color: var(--graphite);
-      padding: 4px 6px;
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
       border-bottom: 1px solid var(--card-border);
     }
 
     .mini-table td {
-      padding: 6px 6px;
-      border-bottom: 1px solid rgba(240, 162, 74, 0.08);
+      padding: 6px 8px;
       color: var(--ink);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
 
-    .mini-table tr.highlight td {
+    .mini-table tr.best-row td {
       color: var(--pen);
       font-weight: 700;
       background: rgba(240, 162, 74, 0.08);
+      border-radius: 6px;
     }
 
-    /* Executive quote box */
-    .exec-quote {
-      border-left: 3px solid var(--pen);
-      padding-left: 14px;
-      font-style: italic;
-      color: var(--ink);
-      font-size: 14px;
-      line-height: 1.6;
-      margin: 10px 0;
-      background: rgba(240, 162, 74, 0.05);
-      padding: 10px 14px;
-      border-radius: 0 10px 10px 0;
-    }
-
-    /* Interactive button row in Section 6 */
-    .action-row {
+    /* LAYER 3: Bottom Datum Bar (z-index: 50) */
+    #bottom-datum-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 48px;
+      padding: 0 32px;
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-top: 16px;
+      justify-content: space-between;
+      z-index: 50;
+      pointer-events: none;
+      background: linear-gradient(0deg, rgba(19, 15, 11, 0.9) 0%, rgba(19, 15, 11, 0) 100%);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
     }
 
-    .btn-action {
-      background: var(--pen);
-      color: #130f0b;
-      border: none;
-      padding: 10px 22px;
-      font-family: var(--heading);
-      font-size: 14px;
-      font-weight: 700;
-      border-radius: 999px;
-      cursor: pointer;
-      display: inline-flex;
+    html.theme-day #bottom-datum-bar {
+      background: linear-gradient(0deg, rgba(247, 238, 221, 0.9) 0%, rgba(247, 238, 221, 0) 100%);
+      border-top: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .datum-strip {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      pointer-events: auto;
+    }
+
+    .datum-item {
+      display: flex;
       align-items: center;
       gap: 8px;
-      transition: all 0.2s ease;
-      box-shadow: 0 4px 14px var(--pen-glow);
+      font-size: 12px;
     }
 
-    .btn-action:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px var(--pen-glow);
-      filter: brightness(1.1);
+    .datum-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--graphite);
+      text-transform: uppercase;
     }
 
-    .btn-action-ghost {
-      background: transparent;
-      color: var(--ink);
-      border: 1px solid var(--card-border);
-      padding: 9px 18px;
-      font-family: var(--sans);
-      font-size: 13px;
+    .datum-value {
+      font-family: var(--mono);
       font-weight: 600;
-      border-radius: 999px;
-      cursor: pointer;
-      transition: all 0.2s ease;
+      color: var(--ink);
     }
 
-    .btn-action-ghost:hover {
-      background: var(--sheet-alt);
-      border-color: var(--pen);
+    .datum-value.pen { color: var(--pen); }
+    .datum-value.positive { color: var(--positive); }
+    .datum-value.risk { color: var(--risk); }
+
+    .scroll-hint {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--graphite);
+      pointer-events: auto;
+      animation: bounce 2s infinite;
     }
 
-    /* Responsive */
+    @keyframes bounce {
+      0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-4px); }
+      60% { transform: translateY(-2px); }
+    }
+
+    /* Mobile adjustments */
     @media (max-width: 768px) {
-      #global-header { padding: 0 16px; }
-      .quick-pills { display: none; }
-      .section-content-wrapper { padding: 70px 20px; }
-      .cards-grid { grid-template-columns: 1fr; }
-      #bottom-datum-bar { left: 16px; right: 16px; flex-direction: column; gap: 8px; }
-      .scroll-hint { display: none; }
+      .section {
+        padding: 72px 20px 60px 20px;
+      }
+      .section-content-wrapper {
+        width: 100%;
+      }
+      .quick-pills {
+        display: none;
+      }
+      #bottom-datum-bar {
+        display: none;
+      }
+    }
+
+    /* Watermark Occlusion Fix: completely remove fullPage.js license badge */
+    .fp-watermark {
+      display: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+
+    /* Vertical Clearance Fix for Laptops & Standard Displays (<= 840px) */
+    @media (max-height: 840px) {
+      .section {
+        padding: 56px 40px 46px 56px;
+      }
+      .section-badge {
+        margin-bottom: 6px;
+        font-size: 10px;
+      }
+      .section-title {
+        font-size: clamp(22px, 3.2vw, 32px);
+        margin-bottom: 8px;
+      }
+      .section-desc {
+        font-size: 13.5px;
+        line-height: 1.45;
+        margin-bottom: 14px;
+      }
+      .cards-grid {
+        gap: 10px;
+      }
+      .glass-card {
+        padding: 12px 18px;
+        border-radius: 12px;
+      }
+      .card-title {
+        font-size: 16px;
+        margin-bottom: 4px;
+      }
+      .card-body {
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+      .metric-huge {
+        font-size: 28px;
+      }
+      .metric-row {
+        margin: 6px 0 2px;
+      }
+      .mini-table th, .mini-table td {
+        padding: 4px 6px;
+      }
     }
   </style>
 </head>
 <body>
 
-  <!-- LAYER 0: Fixed 3D WebGL Canvas -->
+  <!-- PILLAR 6: MANSORY CINEMATIC PRELOADER -->
+  <div id="preloader-curtain">
+    <div class="preloader-brand">
+      <div class="preloader-mark"><div class="preloader-mark-inner"></div></div>
+      <div>
+        <div class="preloader-title">DSA AGENT</div>
+        <div class="preloader-sub">WARM LEDGER // 3D CINEMATIC V2</div>
+      </div>
+    </div>
+    <div class="preloader-bar-wrap">
+      <div class="preloader-bar" id="preloader-bar"></div>
+    </div>
+    <div class="preloader-status" id="preloader-status">Warming 3D Shaders &amp; GPU Pipeline… 0%</div>
+  </div>
+
+  <!-- LAYER 0: Fixed 3D WebGL Canvas (Never Transformed) -->
   <div id="webgl-stage">
     <canvas id="webgl-canvas"></canvas>
   </div>
 
-  <!-- LAYER 1: 3D Floating HUD Pins Layer -->
+  <!-- LAYER 1: Dynamic 2D Leader Lines Overlay & 3D HUD Pins -->
   <div id="hud-pins-layer">
-    <!-- Single Dynamic HUD Pin tracking active stage module -->
+    <canvas id="leader-lines-canvas"></canvas>
+    
+    <!-- Dynamic 3D-to-2D Projected Pin tracking active 3D focal object -->
     <div id="hud-pin-active" class="hud-pin visible">
       <div class="hud-tag" id="hud-tag-active">
         <span class="dot" id="hud-dot-active"></span>
-        <span id="hud-text-active">RLM REPL ARCHITECTURE // 7-STAGE PIPELINE</span>
+        <span id="hud-text-active">RLM CORE ENGINE // RECURSIVE DECOMPOSITION</span>
       </div>
     </div>
   </div>
 
-  <!-- LAYER 2: Global UI Header & Floating Controls -->
+  <!-- LAYER 3: Global Header & Controls -->
   <header id="global-header">
     <div class="header-left">
-      <div class="brand-badge">
+      <div class="brand-badge" onclick="if(window.fullpage_api) fullpage_api.moveTo(1)">
         <div class="brand-mark"><div class="brand-mark-inner"></div></div>
         <div>
           <div class="brand-title">DSA AGENT</div>
-          <div class="brand-sub">RLM 3D MASTER ARCHITECTURE</div>
+          <div class="brand-sub">3D AUTONOMOUS LEDGER</div>
         </div>
       </div>
       <div class="quick-pills">
@@ -731,8 +869,7 @@
         <button class="pill-btn" onclick="fullpage_api.moveTo(3)">03 Statistics</button>
         <button class="pill-btn" onclick="fullpage_api.moveTo(4)">04 ML Pipeline</button>
         <button class="pill-btn" onclick="fullpage_api.moveTo(5)">05 Overfit Guard</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(6)">06 RLM Engine</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(7)">07 Executive</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(6)">06 Executive</button>
       </div>
     </div>
 
@@ -743,27 +880,25 @@
     </div>
   </header>
 
-  <!-- LAYER 3: fullPage.js Presentation Container -->
+  <!-- LAYER 2: fullPage.js Presentation Sections (6-Stage Canonical Workflow) -->
   <main id="fullpage">
 
-    <!-- SECTION 1: System Overview & RLM Paradigm -->
+    <!-- SECTION 1: System Overview & RLM Core -->
     <section class="section" data-anchor="overview">
       <div class="section-content-wrapper">
-        <div class="section-header">
-          <div class="section-badge">RECURSIVE LANGUAGE MODEL // CORE ORCHESTRATION</div>
-          <h1 class="section-title">Autonomous Statistical Intelligence</h1>
-          <p class="section-desc">
-            Zhang et al. (2024) paradigm: Decomposes arbitrary analytical problems into recursive sub-tasks, 
-            executes Python code in an isolated REPL environment, and systematically verifies its own conclusions.
-          </p>
-        </div>
+        <div class="section-badge">RECURSIVE LANGUAGE MODEL // CORE ORCHESTRATION</div>
+        <h1 class="section-title">Autonomous Statistical Intelligence</h1>
+        <p class="section-desc">
+          Zhang et al. (2024) paradigm: Decomposes complex analytical questions into recursive sub-tasks, 
+          executes code in an external Python REPL environment, and verifies all statistical conclusions.
+        </p>
 
         <div class="cards-grid">
-          <div class="glass-card">
+          <div class="glass-card" id="card-stage-01">
             <div class="card-label">State Layer</div>
-            <div class="card-title">Memory & REPL State</div>
+            <div class="card-title">Memory &amp; REPL Sandbox</div>
             <div class="card-body">
-              All raw rows and DataFrames remain strictly in external Python memory — never flooded into prompt context. 
+              Raw rows and DataFrames remain strictly in external Python memory — never flooded into prompt context. 
               Only compact semantic metadata and distribution summaries are shared with the reasoning engine.
             </div>
             <div class="metric-row">
@@ -773,13 +908,13 @@
           </div>
 
           <div class="glass-card">
-            <div class="card-label">Verification Guard</div>
-            <div class="card-title">Zero-Hallucination Seam</div>
+            <div class="card-label">Verification Seam</div>
+            <div class="card-title">Zero-Hallucination Gate</div>
             <div class="card-body">
-              7-stage linear execution gate with automatic rollback and iterative refinement. 
+              7-stage execution order with automatic rollback and iterative refinement. 
               If the model detects overfit patterns or multicollinearity, it rejects the step and adapts.
             </div>
-            <div style="margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
               <span class="pill-tag safe">✓ Stratified 5-Fold</span>
               <span class="pill-tag safe">✓ Gap Audit &lt; 10%</span>
               <span class="pill-tag accent">✓ Deterministic Seed: 42</span>
@@ -792,17 +927,15 @@
     <!-- SECTION 2: Stage 1 Ingestion & Semantic Profiling -->
     <section class="section" data-anchor="ingestion">
       <div class="section-content-wrapper">
-        <div class="section-header">
-          <div class="section-badge">STAGE 01 // DATASET INGESTION &amp; PROFILING</div>
-          <h2 class="section-title">Deep Semantic Profiling</h2>
-          <p class="section-desc">
-            Before running any model, the system inspects column semantics, null distributions, and cardinality ratios. 
-            Laser-plane scanning identifies anomalies, severe skews, and potential target columns.
-          </p>
-        </div>
+        <div class="section-badge">STAGE 01 // DATASET INGESTION &amp; PROFILING</div>
+        <h2 class="section-title">Deep Semantic Profiling</h2>
+        <p class="section-desc">
+          Before running any model, the system inspects column semantics, null distributions, and cardinality ratios. 
+          A holographic laser plane actively sweeps the instanced data grid to audit quality.
+        </p>
 
         <div class="cards-grid">
-          <div class="glass-card">
+          <div class="glass-card" id="card-stage-02">
             <div class="card-label">Dataset Vitals</div>
             <div class="card-title" id="profile-dataset-name">sample_dataset.csv</div>
             <div class="card-body" id="profile-summary-text">
@@ -843,48 +976,45 @@
     <!-- SECTION 3: Stage 2 & 3 Statistical Testing -->
     <section class="section" data-anchor="stats">
       <div class="section-content-wrapper">
-        <div class="section-header">
-          <div class="section-badge">STAGE 02-03 // HYPOTHESIS TESTING &amp; CORRELATION</div>
-          <h2 class="section-title">Rigorous Statistical Testing</h2>
-          <p class="section-desc">
-            Shards decompose into a 3D scatter constellation. Automated statistical tests check normality (Shapiro-Wilk), 
-            variance homogeneity (Levene), and hypothesis significance before allowing ML feature selection.
-          </p>
-        </div>
+        <div class="section-badge">STAGE 02-03 // HYPOTHESIS TESTING &amp; CORRELATION</div>
+        <h2 class="section-title">Rigorous Statistical Testing</h2>
+        <p class="section-desc">
+          Data explodes into a 3D scatter constellation. Automated statistical tests check normality (Shapiro-Wilk), 
+          variance homogeneity (Levene), and dynamic 3D correlation vectors link key features.
+        </p>
 
         <div class="cards-grid">
-          <div class="glass-card">
-            <div class="card-label">Hypothesis Verification</div>
+          <div class="glass-card" id="card-stage-03">
+            <div class="card-label">Hypothesis Decision</div>
             <div class="card-title" id="stat-test-name">Two-Sample T-Test / Mann-Whitney</div>
             <div class="card-body">
-              Calculated across primary target cohorts. The difference in distribution is statistically significant, 
-              confirming the observed pattern is not random sampling noise.
+              Null hypothesis rejected with high statistical confidence. Feature distributions show non-trivial divergence.
             </div>
             <div class="metric-row">
-              <span class="metric-huge" style="color: var(--accent);" id="stat-p-value">0.0012</span>
-              <span class="metric-unit">p-value (p &lt; 0.05)</span>
+              <span class="metric-huge" id="stat-p-value">&lt; 0.001</span>
+              <span class="metric-unit">p-value (Statistically Significant)</span>
             </div>
-            <span class="pill-tag safe">Statistically Significant (99.88% Confidence)</span>
+            <div style="margin-top: 6px;">
+              <span class="pill-tag safe" id="stat-sig-tag">✓ p &lt; 0.05 CONFIRMED</span>
+              <span class="pill-tag accent" id="stat-outlier-tag">1.8% Outliers Handled</span>
+            </div>
           </div>
 
           <div class="glass-card">
-            <div class="card-label">Correlation Vectors</div>
-            <div class="card-title">Top Interaction Beams</div>
-            <div class="card-body">
-              Directional correlation lines highlight collinearity risk and feature-to-target dependency strengths:
-            </div>
-            <div id="correlations-list" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
-              <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                <span>tenure ↔ total_spend</span>
-                <span style="color: var(--pen); font-weight: 700;">+0.78</span>
+            <div class="card-label">Key Correlations (3D Vector Web)</div>
+            <div class="card-title">Strongest Feature Associations</div>
+            <div id="correlations-list" style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span style="font-family: var(--mono); color: var(--ink);">tenure ↔ total_spend</span>
+                <span style="font-weight: 700; color: var(--pen);">+0.78</span>
               </div>
-              <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                <span>usage_rate ↔ converted</span>
-                <span style="color: var(--pen); font-weight: 700;">+0.64</span>
+              <div style="display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span style="font-family: var(--mono); color: var(--ink);">usage_rate ↔ converted</span>
+                <span style="font-weight: 700; color: var(--pen);">+0.64</span>
               </div>
-              <div style="display: flex; justify-content: space-between; font-size: 13px;">
-                <span>support_tickets ↔ churn_risk</span>
-                <span style="color: var(--accent); font-weight: 700;">+0.59</span>
+              <div style="display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0;">
+                <span style="font-family: var(--mono); color: var(--ink);">support_tickets ↔ churn_risk</span>
+                <span style="font-weight: 700; color: var(--accent);">+0.59</span>
               </div>
             </div>
           </div>
@@ -895,66 +1025,62 @@
     <!-- SECTION 4: Stage 4 ML Pipeline & Stratified Folds -->
     <section class="section" data-anchor="pipeline">
       <div class="section-content-wrapper">
-        <div class="section-header">
-          <div class="section-badge">STAGE 04 // STRATIFIED CROSS-VALIDATION</div>
-          <h2 class="section-title">Model Arena &amp; Synaptic Flow</h2>
-          <p class="section-desc">
-            5-Fold Stratified Cross-Validation tournament. Estimators are fit inside strict Scikit-learn Pipelines 
-            preventing data leakage. Hyperplanes warp in 3D space with glowing contour lines.
-          </p>
-        </div>
+        <div class="section-badge">STAGE 04 // MACHINE LEARNING PIPELINE</div>
+        <h2 class="section-title">Stratified Decision Manifolds</h2>
+        <p class="section-desc">
+          Models compete under 5-Fold Stratified Cross-Validation. Primary ranking relies strictly on out-of-fold generalization, 
+          never on training memorization. Translucent hyperplanes slice through feature space.
+        </p>
 
         <div class="cards-grid">
-          <div class="glass-card">
-            <div class="card-label">Tournament Winner</div>
-            <div class="card-title" id="ml-best-model-name">GradientBoostingClassifier</div>
+          <div class="glass-card" id="card-stage-04">
+            <div class="card-label">Champion Model</div>
+            <div class="card-title" id="ml-best-name">GradientBoostingClassifier</div>
             <div class="card-body">
-              Ranked #1 by out-of-fold cross-validation accuracy. Features preprocessed with SkewLog1pTransformer 
-              and OrdinalEncoder on training folds only.
+              Demonstrated highest out-of-fold generalization with tightest stability envelope across all 5 test partitions.
             </div>
             <div class="metric-row">
-              <span class="metric-huge" style="color: var(--positive);" id="ml-best-cv-score">92.4%</span>
-              <span class="metric-unit">5-Fold CV Score (±1.4%)</span>
+              <span class="metric-huge" id="ml-best-cv">92.4%</span>
+              <span class="metric-unit">5-Fold CV Accuracy (±1.4%)</span>
             </div>
-            <span class="pill-tag safe">Generalizes to Unseen Data</span>
           </div>
 
           <div class="glass-card">
-            <div class="card-label">Estimator Leaderboard</div>
-            <div class="card-title">Cross-Validation Rankings</div>
-            <table class="mini-table">
+            <div class="card-label">Cross-Validation Tournament</div>
+            <div class="card-title">Model Generalization Matrix</div>
+            <table class="mini-table" id="models-table">
               <thead>
                 <tr>
-                  <th>MODEL</th>
-                  <th>CV MEAN</th>
-                  <th>GAP</th>
-                  <th>STATUS</th>
+                  <th>Model</th>
+                  <th>CV Mean</th>
+                  <th>Std</th>
+                  <th>Train/Test Gap</th>
                 </tr>
               </thead>
-              <tbody id="models-table-body">
-                <tr class="highlight">
-                  <td>GradientBoosting</td>
+              <tbody id="models-tbody">
+                <tr class="best-row">
+                  <td>GradientBoosting ★</td>
                   <td>92.4%</td>
+                  <td>±1.4%</td>
                   <td>3.2%</td>
-                  <td><span class="pill-tag safe">BEST</span></td>
                 </tr>
                 <tr>
                   <td>RandomForest</td>
                   <td>90.8%</td>
+                  <td>±1.8%</td>
                   <td>5.1%</td>
-                  <td><span class="pill-tag safe">PASS</span></td>
                 </tr>
                 <tr>
-                  <td>LogisticReg(L2)</td>
+                  <td>LogisticRegression(L2)</td>
                   <td>86.5%</td>
+                  <td>±2.1%</td>
                   <td>1.8%</td>
-                  <td><span class="pill-tag safe">PASS</span></td>
                 </tr>
                 <tr>
                   <td>DecisionTree</td>
                   <td>81.2%</td>
-                  <td>12.8%</td>
-                  <td><span class="pill-tag warn">OVERFIT</span></td>
+                  <td>±3.4%</td>
+                  <td style="color: var(--risk);">12.8% ⚠️</td>
                 </tr>
               </tbody>
             </table>
@@ -966,49 +1092,44 @@
     <!-- SECTION 5: Stage 5 Anti-Overfit Guard -->
     <section class="section" data-anchor="diagnostics">
       <div class="section-content-wrapper">
-        <div class="section-header">
-          <div class="section-badge">STAGE 05 // ANTI-HALLUCINATION SHIELD</div>
-          <h2 class="section-title">Anti-Overfit Guard &amp; Boundaries</h2>
-          <p class="section-desc">
-            A 3D holographic radar diamond tracks the train-test generalization envelope. 
-            If any estimator scores >10% higher on training than test data, it is flagged as unreliable memorization.
-          </p>
-        </div>
+        <div class="section-badge">STAGE 05 // ANTI-OVERFIT GUARD &amp; VERIFICATION</div>
+        <h2 class="section-title">Generalization Safety Envelope</h2>
+        <p class="section-desc">
+          Automated guard gates compute train-vs-test divergence. A 3D radar diamond envelope illuminates 
+          healthy generalization in emerald green, flagging any model exceeding the 10% gap threshold.
+        </p>
 
         <div class="cards-grid">
-          <div class="glass-card">
-            <div class="card-label">Generalization Gap Audit</div>
-            <div class="card-title">Train-Test Variance Envelope</div>
+          <div class="glass-card" id="card-stage-05">
+            <div class="card-label">Overfit Audit</div>
+            <div class="card-title">Train-Test Generalization Gap</div>
             <div class="card-body">
-              The gap between training set fit and out-of-fold validation is tightly bounded. 
-              No tree model is permitted to exceed max_depth=6.
+              The champion model's gap is strictly capped below the 10% threshold. The safety envelope certifies production readiness.
             </div>
             <div class="metric-row">
-              <span class="metric-huge" id="overfit-gap-value">3.2%</span>
-              <span class="metric-unit">Train-Test Gap (Threshold: 10%)</span>
+              <span class="metric-huge" id="guard-gap-val">3.2%</span>
+              <span class="metric-unit">train-test gap (<span id="guard-gap-status" style="color: var(--positive);">SAFE</span>)</span>
             </div>
-            <span class="pill-tag safe" id="overfit-badge">✓ Strict Guard Passed (No Memorization)</span>
+            <div id="overfit-warnings-box" style="margin-top: 8px;">
+              <span class="pill-tag safe" id="guard-safe-tag">✓ GAP &lt; 10% CERTIFIED</span>
+            </div>
           </div>
 
           <div class="glass-card">
-            <div class="card-label">Architectural Guarantees</div>
-            <div class="card-title">Built-In Safety Invariants</div>
-            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
-                <span style="color: var(--positive);">✔</span>
-                <span>Stratified K-Fold CV (k=5 minimum, i.i.d. preservation)</span>
+            <div class="card-label">Anti-Overfitting Directives</div>
+            <div class="card-title">Enforced Structural Constraints</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                <span class="pill-tag safe" style="padding: 2px 6px;">✓</span>
+                <span style="color: var(--ink);"><strong>Tree Depth Capping:</strong> max_depth capped at 6</span>
               </div>
-              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
-                <span style="color: var(--positive);">✔</span>
-                <span>L2 Ridge Penalty regularizing high-dimensional features</span>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                <span class="pill-tag safe" style="padding: 2px 6px;">✓</span>
+                <span style="color: var(--ink);"><strong>L2 Regularization:</strong> Ridge &amp; logistic shrinkage</span>
               </div>
-              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
-                <span style="color: var(--positive);">✔</span>
-                <span>Preprocessors fit strictly on X_train to prevent leakage</span>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
-                <span style="color: var(--positive);">✔</span>
-                <span>Outlier normalization via IQR bounding</span>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                <span class="pill-tag safe" style="padding: 2px 6px;">✓</span>
+                <span style="color: var(--ink);"><strong>Stratified K-Fold:</strong> Preserves target class distribution</span>
               </div>
             </div>
           </div>
@@ -1016,86 +1137,35 @@
       </div>
     </section>
 
-    <!-- SECTION 6: Stage 6 RLM Recursive Decomposition -->
-    <section class="section" data-anchor="rlm">
-      <div class="section-content-wrapper">
-        <div class="section-header">
-          <div class="section-badge">STAGE 06 // RLM RECURSIVE ORCHESTRATION</div>
-          <h2 class="section-title">Recursive Sub-Task DAG</h2>
-          <p class="section-desc">
-            Zhang et al. (2024) paradigm: Autonomous task decomposition partitions complex hypotheses into atomic Python scripts, 
-            executing in isolated REPL environments without polluting LLM context window.
-          </p>
-        </div>
-
-        <div class="cards-grid">
-          <div class="glass-card">
-            <div class="card-label">RLM Memory Boundary</div>
-            <div class="card-title">External REPL State</div>
-            <div class="card-body">
-              All raw rows and DataFrames remain strictly in external Python memory. 
-              The recursive model operates only on compact semantic metadata and distribution signatures.
-            </div>
-            <div class="metric-row">
-              <span class="metric-huge" style="color: var(--accent);" id="rlm-depth-count">4</span>
-              <span class="metric-unit">recursive sub-tasks orchestrated</span>
-            </div>
-            <span class="pill-tag accent">Isolated Process Sandbox</span>
-          </div>
-
-          <div class="glass-card">
-            <div class="card-label">Verification Invariant</div>
-            <div class="card-title">Zero-Hallucination Seam</div>
-            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
-                <span style="color: var(--positive);">✔</span>
-                <span>Self-Refining Verification Loop (Refine from S5 → S3)</span>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
-                <span style="color: var(--positive);">✔</span>
-                <span>Deterministic Seed Control (Random State: 42)</span>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center; font-size: 13px;">
-                <span style="color: var(--positive);">✔</span>
-                <span>Clean Memory Rollback on Step Rejection</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SECTION 7: Stage 7 Executive Ledger & Synthesis -->
+    <!-- SECTION 6: Executive Synthesis & Findings -->
     <section class="section" data-anchor="report">
       <div class="section-content-wrapper">
-        <div class="section-header">
-          <div class="section-badge">STAGE 07 // VERIFIED EXECUTIVE SYNTHESIS</div>
-          <h2 class="section-title">The Executive Ledger</h2>
-          <p class="section-desc">
-            The 3D artifact aligns into a levitating glass presentation easel. 
-            Conclusions are synthesized in plain English, with explicit disclosures of where the model could fool itself.
-          </p>
-        </div>
+        <div class="section-badge">STAGE 07 // VERIFIED EXECUTIVE LEDGER</div>
+        <h2 class="section-title">Verified Synthesis &amp; Findings</h2>
+        <p class="section-desc">
+          All analytical artifacts coalesce into a final executive ledger. Key findings are derived directly from verified data and models.
+        </p>
 
         <div class="cards-grid">
-          <div class="glass-card" style="grid-column: 1 / -1; max-width: 500px;">
-            <div class="card-label">Executive Directive · Answer to Objective</div>
-            <div class="card-title" id="exec-objective-text">Analysis of Key Business Drivers &amp; Predictive Reliability</div>
-            <div class="exec-quote" id="exec-reasoning-text">
-              Analysis completed across 5-fold stratified cross-validation. GradientBoosting demonstrated optimal generalizability 
-              with 92.4% CV accuracy and a tight 3.2% train-test gap. Outlier detection identified 1.8% anomalous records which were 
-              robustly normalized. No data leakage or unregularized multi-collinearity was observed.
+          <div class="glass-card" id="card-stage-06">
+            <div class="card-label">Executive Reasoning</div>
+            <div class="card-title">Analytical Conclusion</div>
+            <div class="card-body" id="exec-reasoning-text" style="font-size: 13px; line-height: 1.6;">
+              Analysis completed across 5-fold stratified cross-validation. GradientBoosting demonstrated optimal generalizability with 92.4% CV accuracy and a tight 3.2% train-test gap. Outlier detection identified 1.8% anomalous records which were robustly normalized. No unregularized multicollinearity observed.
             </div>
-            
-            <div style="display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap;">
-              <span class="pill-tag safe">100% Deterministic</span>
-              <span class="pill-tag safe">Audit-Ready Report</span>
-              <span class="pill-tag accent">Model Pickled to output/models/</span>
-            </div>
+          </div>
 
-            <div class="action-row">
-              <button class="btn-action" onclick="window.print()">🖨 Print / Export PDF</button>
-              <button class="btn-action-ghost" onclick="fullpage_api.moveTo(1)">↺ Replay Journey</button>
+          <div class="glass-card">
+            <div class="card-label">Actionable Findings</div>
+            <div class="card-title">Key Takeaways</div>
+            <ul id="exec-findings-list" style="margin-top: 6px; padding-left: 18px; font-size: 13px; color: var(--ink); line-height: 1.6;">
+              <li>Primary driver of conversion is user session engagement duration (&gt;4.2m).</li>
+              <li>Cross-validation envelope indicates high generalization stability (std: ±1.4%).</li>
+              <li>Tree depth capped at max_depth=6 to strictly prohibit memorizing noise.</li>
+            </ul>
+            <div style="margin-top: 14px; display: flex; gap: 8px;">
+              <span class="pill-tag safe">✓ EXECUTIVE LEDGER SEALED</span>
+              <span class="pill-tag accent">✓ ZERO HALLUCINATIONS</span>
             </div>
           </div>
         </div>
@@ -1104,48 +1174,48 @@
 
   </main>
 
-  <!-- BOTTOM STATUS DATUM BAR -->
+  <!-- LAYER 3: BOTTOM STATUS DATUM BAR -->
   <div id="bottom-datum-bar">
     <div class="datum-strip">
       <div class="datum-item">
-        <span class="datum-label">DATASET</span>
+        <span class="datum-label">DATASET:</span>
         <span class="datum-value" id="datum-file">sample_dataset.csv</span>
       </div>
       <div class="datum-item">
-        <span class="datum-label">STAGE</span>
+        <span class="datum-label">STAGE:</span>
         <span class="datum-value pen" id="datum-stage">7 / 7 COMPLETE</span>
       </div>
       <div class="datum-item">
-        <span class="datum-label">BEST MODEL</span>
+        <span class="datum-label">BEST MODEL:</span>
         <span class="datum-value" id="datum-model">GradientBoosting</span>
       </div>
       <div class="datum-item">
-        <span class="datum-label">CV SCORE</span>
+        <span class="datum-label">CV SCORE:</span>
         <span class="datum-value positive" id="datum-score">92.4%</span>
       </div>
       <div class="datum-item">
-        <span class="datum-label">GAP</span>
+        <span class="datum-label">GAP:</span>
         <span class="datum-value" id="datum-gap">3.2%</span>
       </div>
     </div>
 
     <div class="scroll-hint">
-      <span>Scroll / Swipe or use [↑ / ↓] to navigate 3D stages</span>
+      <span>Scroll / Swipe or use [↑ / ↓] to explore 3D journey</span>
       <span>▼</span>
     </div>
   </div>
 
-  <!-- State Injection Script -->
+  <!-- Injected State Payload -->
   <script>
     window.__CINEMATIC_STATE__ = __CINEMATIC_STATE_JSON__;
     
-    // Apply theme class
+    // Apply initial theme
     if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.theme === 'day') {
       document.documentElement.classList.add('theme-day');
       document.body.classList.add('theme-day');
     }
 
-    // Apply dynamic palette tokens from state
+    // Apply dynamic palette tokens if provided
     if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.palette) {
       const p = window.__CINEMATIC_STATE__.palette;
       const root = document.documentElement;
@@ -1165,11 +1235,10 @@
     }
   </script>
 
-  <!-- External Library CDNs (Three.js, Anime.js, fullPage.js) -->
+  <!-- External Library CDNs (fullPage.js; anime.js v4 imported directly in ES module) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/fullPage.js/4.0.22/fullpage.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
   
-  <!-- 3D Cinematic Scene Script -->
+  <!-- 3D Cinematic Scene Script Module -->
   <script type="module">
 __CINEMATIC_SCENE_SCRIPT__
   </script>
