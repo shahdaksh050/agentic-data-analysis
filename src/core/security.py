@@ -21,8 +21,14 @@ from pathlib import Path
 
 import pandas as pd
 
-#: File extensions the pipeline knows how to ingest.
-ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".csv", ".xlsx", ".xls"})
+from src.core.io import SUPPORTED_EXTENSIONS
+
+#: File extensions the pipeline knows how to ingest. Single source of truth
+#: is src.core.io.SUPPORTED_EXTENSIONS — read_any's own dispatch table —
+#: so this allowlist can never drift out of sync with what the reader
+#: actually handles (previously missing .tsv here while every tool's
+#: reader already accepted it).
+ALLOWED_EXTENSIONS: frozenset[str] = SUPPORTED_EXTENSIONS
 
 #: Default upload ceiling in megabytes (override with MAX_UPLOAD_MB env var).
 DEFAULT_MAX_UPLOAD_MB = 200

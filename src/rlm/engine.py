@@ -1,4 +1,4 @@
-"""Recursive Language Model (RLM) inference layer."""
+"""Recursive inference layer — task decomposition and context offloading."""
 from __future__ import annotations
 
 import time
@@ -26,7 +26,7 @@ _MAX_DECOMPOSE_WORKERS = 6
 class REPLEnvironment:
     """
     Persistent key-value store representing the external REPL environment
-    from the RLM paradigm (Zhang et al., 2024).
+    from the recursive-decomposition paradigm.
 
     The controller writes sub-task context here so each recursive invocation
     can read prior results without inflating the main LLM context window.
@@ -81,7 +81,7 @@ class _TraceEntry:
 
 class RLMEngine:
     """
-    Recursive Language Model inference engine.
+    Recursive inference engine.
 
     Wraps a provider-agnostic LLM callable and adds:
       - Depth-bounded recursive invocation (max_depth guard)

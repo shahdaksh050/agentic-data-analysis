@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
+from src.core.coercion import coerce_types
+from src.core.io import DatasetReadError, invalidate_read_cache, read_any
 from src.core.memory import DatasetMetadata
 from src.tools.base import BaseTool, ToolExecutionError
 
@@ -23,18 +25,35 @@ if TYPE_CHECKING:
     from src.core.profiler import DatasetProfile
 
 
+def _read_raw_df(file_path: str) -> pd.DataFrame:
+    """Read a dataset exactly as stored, with no repair applied."""
+    try:
+        df, _report = read_any(file_path)
+    except DatasetReadError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+    return df
+
+
 def _read_df(file_path: str) -> pd.DataFrame:
-    """Read CSV or Excel file robustly with explicit engines."""
-    path = Path(file_path)
-    suffix = path.suffix.lower()
-    if suffix in {".csv", ".tsv"}:
-        return pd.read_csv(path)
-    elif suffix == ".xlsx":
-        return pd.read_excel(path, engine="openpyxl")
-    elif suffix == ".xls":
-        return pd.read_excel(path, engine="xlrd")
-    else:
-        raise ValueError(f"Unsupported file extension '{path.suffix}'. Use .csv, .tsv, .xlsx, or .xls.")
+    """
+    Read a dataset ready for analysis: unified reader + type coercion.
+
+    Coercion belongs here, not at individual call sites. A retail export
+    carries money as "$1,234.56" and rates as "45.3%", which read back as
+    strings. `controller.load_dataset` coerces before profiling, so the
+    *profile* saw them as numeric — but every tool re-read the file through
+    this helper and got the strings back, so revenue was invisible to the
+    entire analysis. On a real sales file that left correlation running on
+    a customer ID and a quantity, and reporting r=-0.06 between them as the
+    headline finding, while never once looking at revenue.
+
+    Coercion is idempotent, and every repair is recorded and reported by
+    the ingestion path (memory context "coercions" -> the report's Data
+    Overview), so nothing here is silent.
+    """
+    df = _read_raw_df(file_path)
+    repaired, _coercions = coerce_types(df)
+    return repaired
 
 
 # ============================================================
@@ -69,6 +88,13 @@ class IngestDatasetTool(BaseTool):
             raise ToolExecutionError(f"File not found: {file_path}")
 
         try:
+            # Coerced, deliberately. This tool's metadata drives target
+            # auto-detection and task-type inference for the whole run, so it
+            # must describe the same frame every other tool analyses. Reading
+            # raw here made a "$18.50" revenue column look like a string, so
+            # the task was inferred as classification while train_model saw a
+            # float and every model failed on a continuous target. What was
+            # repaired is reported separately, in the report's Data Overview.
             df = _read_df(file_path)
         except ToolExecutionError:
             raise
@@ -217,6 +243,9 @@ class CleanDataTool(BaseTool):
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{path.stem}_cleaned.csv"  # always CSV
         df.to_csv(out_path, index=False)
+        # This path may already be in the read cache from an earlier
+        # step (a re-planned or retried run rewrites the same name).
+        invalidate_read_cache(str(out_path))
 
         return {
             "summary": (
@@ -342,6 +371,9 @@ class DetectOutliersTool(BaseTool):
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{path.stem}_outliers_flagged.csv"  # always CSV
         df.to_csv(out_path, index=False)
+        # This path may already be in the read cache from an earlier
+        # step (a re-planned or retried run rewrites the same name).
+        invalidate_read_cache(str(out_path))
 
         return {
             "summary": (

@@ -22,12 +22,14 @@ import sys
 import tempfile
 import traceback
 import types
-from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import streamlit as st
+
+from src.core.io import read_any, read_any_bytes
+from src.core.security import ALLOWED_EXTENSIONS
 
 # ── Project root on sys.path ─────────────────────────────────────────────────
 ROOT = Path(__file__).parent
@@ -44,7 +46,7 @@ st.set_page_config(
 # ── Landing Page (Phase 2 Narrative) ─────────────────────────────────────────
 if not st.session_state.get("entered", False):
     from ui.landing import show_landing_page
-    
+
     # We overlay a hidden native Streamlit button. The iframe JS will click this directly!
     st.markdown("""
         <style>
@@ -56,7 +58,7 @@ if not st.session_state.get("entered", False):
             }
         </style>
     """, unsafe_allow_html=True)
-    
+
     if st.button("HIDDEN_ENTER", key="hidden_enter"):
         st.session_state["entered"] = True
         st.rerun()
@@ -115,7 +117,7 @@ _stub_rich()
 def _inject_theme_css() -> None:
     """Inject dynamic Ledger CSS supporting Day and Night modes via Python state."""
     theme = st.session_state.get("theme", "night")
-    
+
     if theme == "dark" or theme == "night":
         theme_vars = """
         --stock:       #241c14;
@@ -312,6 +314,19 @@ code, kbd, pre, .stCode {{ font-family: var(--mono) !important; }}
 .stTabs [role="tab"][aria-selected="true"] p {{ color: var(--sheet) !important; }}
 .stTabs [data-testid="stTabIndicator"] {{ display: none !important; }}
 .stTabs [data-testid="stTabsContent"] {{ padding-top: 1.5rem; }}
+
+/* ── 3D & Viewport Enhancements ── */
+iframe {{
+    border-radius: var(--radius);
+    border: 1px solid var(--rule) !important;
+    background: transparent !important;
+    box-shadow: var(--lift-sm);
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}}
+iframe:hover {{
+    border-color: var(--pen) !important;
+    box-shadow: var(--lift);
+}}
 
 /* ── Inputs ── */
 [data-testid="stFileUploaderDropzone"] {{
@@ -791,7 +806,11 @@ def _draw_pipeline_rig(slot: Any) -> list[Any]:
     ]
     cur_theme = st.session_state.get("theme", "day")
     with slot.container():
-        render_pipeline(stages, height=420, theme=cur_theme)
+        if st.session_state.get("show_cinematic_hero", False):
+            from ui.cinematic_3d import render_cinematic
+            render_cinematic(st.session_state, height=480, theme=cur_theme)
+        else:
+            render_pipeline(stages, height=420, theme=cur_theme)
     return stages
 
 
@@ -970,18 +989,18 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
     log_map = {n: s for n, s, _ in stage_log}
 
     # SVG simple line icons using --ink or --pen styling (currentColor)
-    I_COMPASS = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>'
-    I_SHIELD = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
-    I_RULER = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.3 15.3l-7.6-7.6a2 2 0 0 0-2.8 0l-1.6 1.6a2 2 0 0 0 0 2.8l7.6 7.6c.8.8 2 .8 2.8 0l1.6-1.6a2 2 0 0 0 0-2.8Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>'
-    I_ZAP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
-    I_SEARCH = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
-    I_REPEAT = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>'
-    I_GLOBE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
-    I_CHART = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
+    i_compass = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>'
+    i_shield = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
+    i_ruler = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.3 15.3l-7.6-7.6a2 2 0 0 0-2.8 0l-1.6 1.6a2 2 0 0 0 0 2.8l7.6 7.6c.8.8 2 .8 2.8 0l1.6-1.6a2 2 0 0 0 0-2.8Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>'
+    i_zap = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
+    i_search = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
+    i_repeat = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>'
+    i_globe = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
+    i_chart = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
 
     agents = [
         {
-            "icon": I_COMPASS,
+            "icon": i_compass,
             "name": "Planner",
             "role": "Plans the approach",
             "desc": "Reads your question and breaks it into a step-by-step plan, then decides when enough checking has been done.",
@@ -989,7 +1008,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Reasoning",
         },
         {
-            "icon": I_SHIELD,
+            "icon": i_shield,
             "name": "File Checker",
             "role": "Checks your file is safe and healthy",
             "desc": "Makes sure your file is safe to open, figures out what each column means, spots anything unusual, and gives your data a health score out of 100.",
@@ -997,7 +1016,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Checks & cleans",
         },
         {
-            "icon": I_RULER,
+            "icon": i_ruler,
             "name": "Fact-Checker",
             "role": "Tests what's actually true",
             "desc": "Runs the right statistical tests to check whether a pattern is real or could just be chance, and finds which columns move together.",
@@ -1005,7 +1024,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Statistical tests",
         },
         {
-            "icon": I_ZAP,
+            "icon": i_zap,
             "name": "Model Builder",
             "role": "Builds and tests prediction models",
             "desc": "Trains several different prediction models and tests each one on different slices of your data, so a lucky guess doesn't get mistaken for a good model.",
@@ -1013,7 +1032,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Model training",
         },
         {
-            "icon": I_SEARCH,
+            "icon": i_search,
             "name": "Reality-Checker",
             "role": "Catches models that just memorised",
             "desc": "Compares how each model does on data it trained on versus data it's never seen. If a model only looks good because it memorised the examples, this agent flags it and marks it down.",
@@ -1021,7 +1040,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Model checking",
         },
         {
-            "icon": I_REPEAT,
+            "icon": i_repeat,
             "name": "Double-Checker",
             "role": "Goes back for another pass",
             "desc": "Looks at what's been found so far, and if there are loose ends or your question isn't fully answered yet, sends the work back for another round.",
@@ -1029,7 +1048,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Another pass",
         },
         {
-            "icon": I_GLOBE,
+            "icon": i_globe,
             "name": "Detail Handler",
             "role": "Handles the tricky, many-part questions",
             "desc": "When a question has too many moving parts to answer in one go, this splits it into smaller pieces, solves each one separately, and brings the answers back together.",
@@ -1037,7 +1056,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Splitting up work",
         },
         {
-            "icon": I_CHART,
+            "icon": i_chart,
             "name": "Report Writer",
             "role": "Builds your charts and report",
             "desc": "Builds charts that fit your data, then puts everything together into the report you can download and share.",
@@ -1191,7 +1210,7 @@ def _load_teamwork_preview() -> None:
     sample_path = ROOT / "data" / "sample_customer_churn.csv"
     if sample_path.exists():
         raw_bytes = sample_path.read_bytes()
-        df = pd.read_csv(sample_path)
+        df, _ = read_any(str(sample_path))
     else:
         import numpy as np
         np.random.seed(42)
@@ -1472,16 +1491,16 @@ with st.sidebar:
     # ── Upload ────────────────────────────────────────────────────────────────
     st.markdown('<div class="side-head">Dataset</div>', unsafe_allow_html=True)
     uploaded = st.file_uploader(
-        "CSV or Excel",
-        type=["csv", "xlsx", "xls"],
+        "CSV, TSV or Excel",
+        type=sorted(ext.lstrip(".") for ext in ALLOWED_EXTENSIONS),
         label_visibility="collapsed",
     )
-    
+
     if uploaded is None and st.session_state["preview_df"] is None:
         if st.button("📂 Try a sample dataset", width='stretch'):
             sample_path = ROOT / "data" / "sample_customer_churn.csv"
             if sample_path.exists():
-                st.session_state["preview_df"] = pd.read_csv(sample_path)
+                st.session_state["preview_df"], _ = read_any(str(sample_path))
                 st.session_state["preview_name"] = "sample_customer_churn.csv"
                 st.session_state["orig_name"] = "sample_customer_churn.csv"
                 st.session_state["preview_bytes"] = sample_path.read_bytes()
@@ -1509,14 +1528,15 @@ with st.sidebar:
                 st.session_state["preview_name"]  = safe_name
                 _fname = safe_name.lower()
                 try:
-                    if _fname.endswith(".csv"):
-                        st.session_state["preview_df"] = pd.read_csv(BytesIO(raw_bytes))
-                    elif _fname.endswith(".xlsx"):
-                        st.session_state["preview_df"] = pd.read_excel(
-                            BytesIO(raw_bytes), engine="openpyxl")
-                    elif _fname.endswith(".xls"):
-                        st.session_state["preview_df"] = pd.read_excel(
-                            BytesIO(raw_bytes), engine="xlrd")
+                    # One reader for every format/encoding/delimiter — a bare
+                    # pd.read_csv here previewed a semicolon- or cp1252-encoded
+                    # export as a single mangled column while the analysis
+                    # behind it was correct.
+                    _pdf, _prep = read_any_bytes(raw_bytes, safe_name)
+                    st.session_state["preview_df"] = _pdf
+                    st.session_state["preview_read_report"] = _prep
+                    for _note in _prep.notes:
+                        st.caption(f"⚠ {_note}")
                 except Exception as _e:
                     st.session_state["preview_df"] = None
                     st.error(f"Could not read file: {_e}")
@@ -1622,10 +1642,42 @@ with st.sidebar:
         placeholder=key_ph,
     )
 
+    # ── Engine ────────────────────────────────────────────────────────────────
+    # The two capability switches. Both default on; either can be turned off
+    # independently, and the analysis still runs end to end and still writes a
+    # full report — that is the point of them.
+    st.markdown('<div class="side-head">Engine</div>', unsafe_allow_html=True)
+    use_llm = st.toggle(
+        "AI narrative (LLM)",
+        value=True,
+        help=(
+            "On: the LLM plans the analysis and writes the narrative.\n"
+            "Off: fully deterministic — the plan comes from the data profile "
+            "and domain detection, and the report is built from tool output. "
+            "No network calls, no API key needed, and much faster."
+        ),
+    )
+    use_ml = st.toggle(
+        "Machine learning",
+        value=True,
+        help=(
+            "On: trains models, clusters, and runs PCA.\n"
+            "Off: skips every model-fitting step. Statistical tests, "
+            "correlations and the domain analyses still run. This is the "
+            "single biggest speed-up available — training dominates runtime."
+        ),
+    )
+    if not use_llm and not use_ml:
+        st.caption("⚡ Fully deterministic, statistics-only mode — fastest.")
+    elif not use_llm:
+        st.caption("🔌 Deterministic planning, ML still on.")
+    elif not use_ml:
+        st.caption("⚡ AI narrative on, no models fitted.")
+
     # ── Analysis Settings ─────────────────────────────────────────────────────
     st.markdown('<div class="side-head">Analysis Settings</div>', unsafe_allow_html=True)
     max_iter   = st.slider("Max iterations", 3, 25, 10)
-    enable_rlm = st.toggle("Enable RLM decomposition (Stage 6)", value=True)
+    enable_rlm = st.toggle("Enable recursive decomposition (Stage 6)", value=True)
 
     st.markdown('<div class="side-head">Anti-Overfitting</div>', unsafe_allow_html=True)
     max_depth = st.slider("Max tree depth", 2, 15, 6,
@@ -1681,6 +1733,11 @@ with hero_text:
         'and tells you which patterns are real — and which are just luck.</p></div>',
         unsafe_allow_html=True,
     )
+    _hero_cinema_on = st.session_state.get("show_cinematic_hero", False)
+    _hero_btn_txt = "🔬 Standard 3D Plate" if _hero_cinema_on else "🎬 3D Cinematic Showcase"
+    if st.button(_hero_btn_txt, key="btn_toggle_hero_cinema"):
+        st.session_state["show_cinematic_hero"] = not _hero_cinema_on
+        st.rerun()
 
 # The plate: a live technical drawing of the run, ruled off the headline and
 # running past the container edge. The pipeline executes further down this same
@@ -1754,6 +1811,8 @@ if run_clicked:
     os.environ["LLM_MODEL"]             = final_model
     os.environ["MAX_ITERATIONS"]        = str(max_iter)
     os.environ["ENABLE_RLM_INFERENCE"]  = "true" if enable_rlm else "false"
+    os.environ["ENABLE_LLM"]            = "true" if use_llm else "false"
+    os.environ["ENABLE_ML"]             = "true" if use_ml else "false"
     os.environ["OUTPUT_DIR"]            = outdir
     if objective.strip():
         os.environ["USER_OBJECTIVE"] = objective.strip()
@@ -1806,7 +1865,10 @@ if run_clicked:
     #    the whole pipeline on the deterministic fallback ──────────────────
     from src.core.controller import AgentController, LLMClient
 
-    _ok, _ping_err = LLMClient().ping()
+    # In no-LLM mode there is nothing to preflight — the run is fully
+    # deterministic, so requiring a reachable model (or any API key) would
+    # block the very mode that exists to work without one.
+    _ok, _ping_err = (True, "") if not use_llm else LLMClient().ping()
     if not _ok:
         _spinner_ph.empty()
         _set_stage("2", "error", "LLM unreachable")
@@ -1828,6 +1890,8 @@ if run_clicked:
         agent = AgentController(
             max_iterations=max_iter,
             enable_rlm=enable_rlm,
+            use_llm=use_llm,
+            use_ml=use_ml,
         )
         meta = agent.load_dataset(
             dpath,
@@ -1838,7 +1902,9 @@ if run_clicked:
         _upd("1", "done",
              f"{meta.row_count:,} rows × {meta.column_count} cols · task={meta.task_type} · target={meta.target_column}")
 
-        _upd("2", "active", "calling LLM for analysis plan…")
+        _upd("2", "active",
+             "calling LLM for analysis plan…" if use_llm
+             else "building deterministic plan from the data profile…")
         _upd("3", "pending")
         _upd("4", "pending")
         _upd("5", "pending")
@@ -1895,6 +1961,9 @@ if run_clicked:
         st.session_state["final_report"]  = final
         if agent.last_profile is not None:
             st.session_state["profile"] = agent.last_profile.to_dict()
+        st.session_state["read_report"] = agent.memory.get_context("read_report")
+        st.session_state["coercions"] = agent.memory.get_context("coercions")
+        st.session_state["profile_status"] = agent.memory.get_context("profile_status")
         _dash_path = Path(outdir) / "reports" / "dashboard.json"
         if _dash_path.exists():
             try:
@@ -1973,6 +2042,11 @@ if st.session_state.get("analysis_done"):
     profile: dict[str, Any] | None = st.session_state.get("profile")
 
     # Executive Objective Answer
+    # _user_obj is straight from the sidebar's free-text box, and
+    # report["reasoning"] is LLM output over (possibly hostile) dataset
+    # content — neither is trusted HTML. Escape both before
+    # interpolating into markup rendered with unsafe_allow_html=True
+    # (IMPROVEMENTS.md #10).
     _user_obj = os.environ.get("USER_OBJECTIVE") or objective.strip()
     if _user_obj and report.get("reasoning"):
         st.markdown(
@@ -1992,11 +2066,12 @@ if st.session_state.get("analysis_done"):
             unsafe_allow_html=True,
         )
 
-    (tab_brief, tab_team, tab_dash, tab_lab, tab_vault) = st.tabs([
+    (tab_brief, tab_team, tab_dash, tab_lab, tab_cinema, tab_vault) = st.tabs([
         "📋 Summary",
         "👥 Your Helpers",
         "📊 Charts",
         "🔬 Full Details",
+        "🌌 3D Cinematic Journey",
         "📁 Downloads",
     ])
 
@@ -2293,6 +2368,33 @@ if st.session_state.get("analysis_done"):
                     st.dataframe(_safe_df(pd.DataFrame(_cr_rows)), width='stretch')
 
         with st.expander("Data Health Check", expanded=False):
+            _profile_status = st.session_state.get("profile_status")
+            if isinstance(_profile_status, str) and _profile_status.startswith("failed"):
+                st.warning(
+                    "Running in degraded mode — profiling failed, so dataset-nature "
+                    f"tools (time-series, text, geo...) were unavailable. Reason: {_profile_status[8:]}"
+                )
+
+            _read_report = st.session_state.get("read_report")
+            _coercions = st.session_state.get("coercions")
+            if _read_report or _coercions:
+                st.markdown("#### Reading & Repairs")
+                if _read_report:
+                    _rr_bits = [f"format `{_read_report.get('format')}`", f"encoding `{_read_report.get('encoding')}`"]
+                    if not _read_report.get("encoding_confident", True):
+                        _rr_bits[-1] += " (guessed)"
+                    if _read_report.get("delimiter"):
+                        _rr_bits.append(f"delimiter `{_read_report.get('delimiter')!r}`" + ("" if _read_report.get("delimiter_sniffed") else " (from extension)"))
+                    st.caption("Detected at read time: " + ", ".join(_rr_bits) + ".")
+                    for _note in _read_report.get("notes", []):
+                        st.caption(f"⚠ {_note}")
+                if _coercions:
+                    st.caption(f"{len(_coercions)} column(s) repaired:")
+                    st.dataframe(_safe_df(pd.DataFrame([
+                        {"Column": c["column"], "Rule": c["rule"], "Converted": c["n_converted"], "Failed": c["n_failed"]}
+                        for c in _coercions
+                    ])), width='stretch')
+
             prof: dict[str, Any] | None = st.session_state.get("profile")
             if prof:
                 _q = int(prof.get("quality_score", 0))
@@ -2351,7 +2453,20 @@ if st.session_state.get("analysis_done"):
             _render_other_findings(tool_results)
 
     # ═════════════════════════════════════════════════════════════════════════
-    # TIER 5: ARTIFACT VAULT & EXPORTS
+    # TIER 5: 3D CINEMATIC JOURNEY — FULLPAGE.JS + THREE.JS + ANIME.JS
+    # ═════════════════════════════════════════════════════════════════════════
+    with tab_cinema:
+        st.markdown("### 🎬 3D Cinematic Journey")
+        st.caption(
+            "Hardware-accelerated 6-section presentation choreographed with fullPage.js, Three.js & Anime.js. "
+            "Scroll or swipe across the 6 autonomous stages."
+        )
+        from ui.cinematic_3d import render_cinematic
+        _cur_cinema_theme = st.session_state.get("theme", "night")
+        render_cinematic(st.session_state, height=860, theme=_cur_cinema_theme)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # TIER 6: ARTIFACT VAULT & EXPORTS
     # ═════════════════════════════════════════════════════════════════════════
     with tab_vault:
         st.markdown("### Downloads")
@@ -2365,12 +2480,25 @@ if st.session_state.get("analysis_done"):
 
             with col_dl1:
                 st.markdown("#### Reports")
+                from ui.cinematic_3d import build_cinematic_document, extract_cinematic_state
+                _cinema_pres_html = build_cinematic_document(
+                    extract_cinematic_state(st.session_state),
+                    theme=st.session_state.get("theme", "night"),
+                )
+                st.download_button(
+                    "🎬 Download 3D Presentation (standalone .html)",
+                    _cinema_pres_html.encode("utf-8"),
+                    "dsa_agent_3d_presentation.html",
+                    mime="text/html",
+                    key="dl_3d_cinema_standalone",
+                    type="primary",
+                )
                 _html = _rdir / "report.html"
                 if _html.exists():
                     st.download_button(
                         "📄 Download Shareable HTML Report",
                         _html.read_bytes(), "report.html", mime="text/html",
-                        key="dl_html_vault", type="primary",
+                        key="dl_html_vault",
                     )
                 _mds = sorted(_rdir.glob("*.md")) if _rdir.exists() else []
                 if _mds:

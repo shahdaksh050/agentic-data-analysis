@@ -15,23 +15,21 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from src.core.io import DatasetReadError, read_any
 from src.tools.base import BaseTool, ToolExecutionError
 
 if TYPE_CHECKING:
-    from src.core.memory import MemorySystem
+    from src.core.memory import DatasetMetadata, MemorySystem
+    from src.core.profiler import DatasetProfile
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
-    path = Path(file_path)
-    suffix = path.suffix.lower()
-    if suffix in {".csv", ".tsv"}:
-        return pd.read_csv(path)
-    elif suffix == ".xlsx":
-        return pd.read_excel(path, engine="openpyxl")
-    elif suffix == ".xls":
-        return pd.read_excel(path, engine="xlrd")
-    else:
-        raise ValueError(f"Unsupported file extension '{path.suffix}'. Use .csv, .tsv, .xlsx, or .xls.")
+    """Read a dataset via the unified reader (src.core.io.read_any)."""
+    try:
+        df, _report = read_any(file_path)
+    except DatasetReadError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+    return df
 
 
 class GenerateVisualizationsTool(BaseTool):
@@ -65,6 +63,24 @@ class GenerateVisualizationsTool(BaseTool):
             if not raw_mp or not Path(raw_mp).exists():
                 params["model_path"] = best_path
         return params
+
+    def default_params(
+        self, profile: DatasetProfile | None, metadata: DatasetMetadata | None
+    ) -> dict[str, Any]:
+        """Choose a chart the data can actually support.
+
+        A correlation heatmap needs two or more numeric columns; below that
+        distributions still work. Without this the deterministic planner
+        scheduled the tool with no chart_type at all and it failed every run.
+        """
+        if profile is None:
+            return {"chart_type": "distributions"}
+        n_numeric = sum(1 for c in profile.columns if c.kind == "numeric")
+        if n_numeric >= 2:
+            return {"chart_type": "correlation_heatmap"}
+        if n_numeric >= 1:
+            return {"chart_type": "distributions"}
+        return {}
 
     def execute(  # type: ignore[override]
         self,
@@ -153,17 +169,23 @@ class GenerateVisualizationsTool(BaseTool):
             raise ToolExecutionError("target_column is required for feature_importance chart.")
 
         with open(model_path, "rb") as f:
-            model = pickle.load(f)
+            loaded = pickle.load(f)
 
-        # The model was trained on _prepare_features output (ID/datetime
-        # columns dropped, categoricals encoded) — NOT on raw df.columns.
-        # Prefer the names sklearn recorded at fit time; otherwise recreate
-        # the training-time feature matrix to get the exact column layout.
-        feature_cols = [str(c) for c in getattr(model, "feature_names_in_", [])]
-        if not feature_cols:
-            from src.tools.ml_pipeline import _prepare_features
-            X, _y, _t = _prepare_features(df, target_column)
-            feature_cols = [str(c) for c in X.columns]
+        # train_model saves a Pipeline([("prep", ColumnTransformer), ("model",
+        # estimator)]) (IMPROVEMENTS.md P0.1/P0.5) — importances live on the
+        # "model" step, and the raw df.columns don't match its length once
+        # one-hot encoding has expanded the categoricals, so names must come
+        # from the fitted preprocessor's post-encoding output, not df.columns.
+        if hasattr(loaded, "named_steps") and "model" in loaded.named_steps:
+            model = loaded.named_steps["model"]
+            feature_cols = [str(c) for c in loaded.named_steps["prep"].get_feature_names_out()]
+        else:
+            model = loaded
+            feature_cols = [str(c) for c in getattr(model, "feature_names_in_", [])]
+            if not feature_cols:
+                from src.tools.ml_pipeline import _prepare_features
+                X, _y, _t = _prepare_features(df, target_column)
+                feature_cols = [str(c) for c in X.columns]
 
         if hasattr(model, "feature_importances_"):
             # Tree-based models (RandomForest, XGBoost)

@@ -208,6 +208,30 @@ them instead (see "Accuracy by Category" and "Is the Pattern Real?" in
 
 ---
 
+## 3D Cinematic Showcase (Anime.js + fullPage.js + Three.js)
+
+`ui/cinematic_3d.py`, `ui/assets/cinematic_3d.html`, and `ui/assets/cinematic_3d.js`
+provide the full 6-stage presentation architecture:
+
+1. **4-Layer Viewport Architecture (The Containment Fix)**: Fixed WebGL canvas
+   (Layer 0), projected HUD pins (Layer 1), and fixed navigation header (Layer 2)
+   remain outside `#fullpage` (Layer 3) to prevent CSS transform clipping.
+2. **Unified Single-Ticker Loop**: Anime.js and Three.js synchronize under
+   `renderer.setAnimationLoop`, eliminating dual-clock micro-jitter.
+3. **Hardware Acceleration**: fullPage.js operates in `css3: true` with `scrollingSpeed: 950`
+   and spring cubic bezier deceleration (`cubic-bezier(0.22, 1, 0.36, 1)`).
+4. **Compositor WAAPI Staggering**: Card reveals animate strictly via `opacity` and
+   `transform: translate3d(...) scale(...)` without layout recalculations.
+5. **6 Waypoint Stations**:
+   - 01: System Overview & RLM Paradigm (Tumbling Gimbals)
+   - 02: Dataset Ingestion & Profiling (Laser Scanning Planes)
+   - 03: Statistical Analysis & Testing (Exploding Scatter Constellation)
+   - 04: ML Pipeline & Stratified Folds (Neural Synapses & Hyperplanes)
+   - 05: Anti-Overfit Guard & Generalization (3D Radar Diamond)
+   - 06: Executive Ledger & Synthesis (Levitating Presentation Easel)
+
+---
+
 ## Don't
 
 - Reach for mono to make a label look technical.

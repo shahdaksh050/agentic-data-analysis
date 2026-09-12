@@ -289,7 +289,7 @@ class MemorySystem:
     """
     Central state store — the RLM 'external environment'.
 
-    Design principles (from Zhang et al., 2024):
+    Design principles:
       1. Context offloading: full data stays here; LLM gets summaries only.
       2. Persistent REPL state: survives across all reasoning iterations.
       3. Generic context store: supports arbitrary RLM sub-call variables.

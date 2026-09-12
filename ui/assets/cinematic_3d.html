@@ -1,0 +1,1246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>DSA Agent // 3D Autonomous Ledger Experience</title>
+  
+  <!-- Fonts: Warm Ledger Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- fullPage.js CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fullPage.js/4.0.22/fullpage.min.css">
+  
+  <style>
+    /* -------------------------------------------------------------------------- */
+    /* DESIGN TOKENS & SYSTEM VARIABLES (Warm Ledger Aesthetic from DESIGN.md)   */
+    /* -------------------------------------------------------------------------- */
+    :root {
+      /* Night Palette (Default) */
+      --stock: #130f0b;
+      --sheet: #1c1610;
+      --sheet-alt: #282017;
+      --ink: #f6eedf;
+      --graphite: #bdae97;
+      --pen: #f0a24a;
+      --pen-glow: rgba(240, 162, 74, 0.45);
+      --risk: #e2685a;
+      --positive: #7fb77e;
+      --accent: #4fc3f7;
+      --grid: #4a3c28;
+      --card-bg: rgba(28, 22, 16, 0.85);
+      --card-border: rgba(240, 162, 74, 0.22);
+      --lift: 0 16px 40px rgba(0, 0, 0, 0.55);
+      --lift-sm: 0 6px 20px rgba(0, 0, 0, 0.4);
+      
+      --sans: 'Mukta', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --heading: 'Baloo 2', 'Mukta', sans-serif;
+      --mono: 'JetBrains Mono', Consolas, ui-monospace, monospace;
+
+      /* MOTION CONTRACT (Single source of timing mirrored with JS MOTION) */
+      --dur-micro: 180ms;
+      --dur-ui: 320ms;
+      --dur-stage: 950ms;
+      --dur-cinematic: 1400ms;
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    }
+
+    html.theme-day, body.theme-day {
+      /* Day Palette (High Contrast Warm Ledger) */
+      --stock: #f7eedd;
+      --sheet: #fffbf2;
+      --sheet-alt: #f1e4cb;
+      --ink: #3a2b1e;
+      --graphite: #6a5948;
+      --pen: #a34f20;
+      --pen-glow: rgba(163, 79, 32, 0.25);
+      --risk: #a33526;
+      --positive: #3d753c;
+      --accent: #d47a28;
+      --grid: #e4d4bc;
+      --card-bg: rgba(255, 251, 242, 0.94);
+      --card-border: rgba(138, 118, 96, 0.28);
+      --lift: 0 14px 32px rgba(58, 43, 30, 0.12);
+      --lift-sm: 0 4px 14px rgba(58, 43, 30, 0.08);
+    }
+
+    /* Day Mode Strict High-Contrast Text Overrides */
+    html.theme-day .section-title { color: #3a2b1e !important; }
+    html.theme-day .section-desc { color: #5a4a3a !important; }
+    html.theme-day .card-title { color: #2e2015 !important; }
+    html.theme-day .card-body { color: #4e3f32 !important; }
+    html.theme-day .datum-value { color: #3a2b1e !important; }
+    html.theme-day .datum-label { color: #756350 !important; }
+    html.theme-day .scroll-hint { color: #756350 !important; }
+    html.theme-day .mini-table td { border-bottom-color: rgba(58, 43, 30, 0.08) !important; color: #2e2015 !important; }
+    html.theme-day .hud-tag { background: rgba(255, 251, 242, 0.95) !important; color: #3a2b1e !important; box-shadow: 0 4px 18px rgba(58, 43, 30, 0.15), 0 0 12px var(--pen-glow) !important; }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none !important;
+      touch-action: pan-y !important;
+      background-color: var(--stock);
+      color: var(--ink);
+      font-family: var(--sans);
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background-color 0.4s ease, color 0.4s ease;
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /* PILLAR 6: MANSORY-STANDARD ZERO-FREEZE PRELOADER                           */
+    /* -------------------------------------------------------------------------- */
+    #preloader-curtain {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: var(--stock);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.85s cubic-bezier(0.77, 0, 0.175, 1), opacity 0.6s ease;
+      pointer-events: auto;
+    }
+
+    #preloader-curtain.loaded {
+      transform: translateY(-100%);
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .preloader-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .preloader-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--pen), var(--accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 24px var(--pen-glow);
+    }
+
+    .preloader-mark-inner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid #fff;
+      border-radius: 4px;
+      transform: rotate(45deg);
+      animation: preloader-spin 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes preloader-spin {
+      0% { transform: rotate(45deg) scale(0.85); }
+      50% { transform: rotate(225deg) scale(1.15); }
+      100% { transform: rotate(405deg) scale(0.85); }
+    }
+
+    .preloader-title {
+      font-family: var(--heading);
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: var(--ink);
+    }
+
+    .preloader-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      color: var(--graphite);
+      text-transform: uppercase;
+    }
+
+    .preloader-bar-wrap {
+      width: 240px;
+      height: 4px;
+      background: var(--sheet-alt);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .preloader-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--pen);
+      box-shadow: 0 0 10px var(--pen-glow);
+      transition: width 0.3s ease-out;
+    }
+
+    .preloader-status {
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--graphite);
+    }
+
+    /* -------------------------------------------------------------------------- */
+    /* 4-LAYER VIEWPORT ARCHITECTURE (The Containment Fix)                        */
+    /* -------------------------------------------------------------------------- */
+
+    /* LAYER 0: Fixed 3D WebGL Canvas (Never transformed, always pinned) */
+    #webgl-stage {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 0;
+      pointer-events: none;
+      overflow: hidden;
+      background-color: var(--stock);
+      transition: background-color 0.4s ease;
+    }
+
+    #webgl-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      pointer-events: auto;
+    }
+
+    /* LAYER 1: Dynamic 2D Leader Lines & 3D-to-2D HUD Pins Overlay */
+    #hud-pins-layer {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 5;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    #leader-lines-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .hud-pin {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      will-change: transform;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    .hud-pin.visible {
+      opacity: 1;
+    }
+
+    .hud-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--pen);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), 0 0 12px var(--pen-glow);
+      border-radius: 999px;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      white-space: nowrap;
+    }
+
+    .hud-tag.cyan {
+      border-color: var(--accent);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), 0 0 12px rgba(79, 195, 247, 0.4);
+    }
+
+    .hud-tag.positive {
+      border-color: var(--positive);
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35), 0 0 12px rgba(127, 183, 126, 0.4);
+    }
+
+    .hud-tag .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--pen);
+      box-shadow: 0 0 8px var(--pen);
+      animation: pulse-dot 1.8s infinite ease-in-out;
+    }
+
+    .hud-tag.cyan .dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    .hud-tag.positive .dot {
+      background: var(--positive);
+      box-shadow: 0 0 8px var(--positive);
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+
+    /* LAYER 3: Global Header (z-index: 50) */
+    #global-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 64px;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 50;
+      pointer-events: auto;
+      background: linear-gradient(180deg, rgba(19, 15, 11, 0.85) 0%, rgba(19, 15, 11, 0) 100%);
+    }
+
+    html.theme-day #global-header {
+      background: linear-gradient(180deg, rgba(247, 238, 221, 0.9) 0%, rgba(247, 238, 221, 0) 100%);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .brand-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--pen), var(--accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 14px var(--pen-glow);
+    }
+
+    .brand-mark-inner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid #fff;
+      border-radius: 3px;
+      transform: rotate(45deg);
+    }
+
+    .brand-title {
+      font-family: var(--heading);
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--ink);
+      line-height: 1.1;
+      letter-spacing: 0.04em;
+    }
+
+    .brand-sub {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      color: var(--graphite);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* Quick Pills Navigation */
+    .quick-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--card-bg);
+      padding: 4px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(14px);
+    }
+
+    .pill-btn {
+      background: transparent;
+      border: none;
+      color: var(--graphite);
+      font-family: var(--sans);
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      white-space: nowrap;
+    }
+
+    .pill-btn:hover {
+      color: var(--ink);
+      background: var(--sheet-alt);
+    }
+
+    .pill-btn.active {
+      background: var(--pen);
+      color: #fff;
+      box-shadow: 0 2px 10px var(--pen-glow);
+    }
+
+    html.theme-day .pill-btn.active {
+      color: #fffbf2;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ctrl-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--ink);
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 15px;
+      backdrop-filter: blur(12px);
+      transition: all 0.25s ease;
+    }
+
+    .ctrl-btn:hover {
+      border-color: var(--pen);
+      transform: scale(1.06);
+      box-shadow: 0 0 12px var(--pen-glow);
+    }
+
+    /* LAYER 2: fullPage.js Presentation Container */
+    #fullpage {
+      position: relative;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* Strict Layout Separation: Text strictly left, 3D strictly right */
+    .fp-overflow, .fp-tableCell, .fp-overflow > div {
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: flex-start !important;
+      text-align: left !important;
+      width: 100% !important;
+      height: 100% !important;
+      padding: 64px 40px 52px 72px !important;
+      box-sizing: border-box !important;
+    }
+
+    .section {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      padding: 0 !important;
+    }
+
+    .section-content-wrapper {
+      position: relative;
+      width: 480px;
+      max-width: 42vw;
+      margin: 0 !important;
+      z-index: 20;
+      pointer-events: none;
+      text-align: left !important;
+    }
+
+    .section-badge, .section-title, .section-desc {
+      text-align: left !important;
+    }
+
+    .section-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--pen);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 10px;
+    }
+
+    .section-title {
+      font-family: var(--heading);
+      font-size: clamp(28px, 3.8vw, 42px);
+      font-weight: 800;
+      line-height: 1.15;
+      color: var(--ink);
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+
+    .section-desc {
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--graphite);
+      margin-bottom: 22px;
+    }
+
+    /* Frosted Glass Cards */
+    .cards-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      pointer-events: none;
+    }
+
+    .glass-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 18px 22px;
+      box-shadow: var(--lift);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      pointer-events: auto;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .glass-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--pen);
+      box-shadow: var(--lift), 0 0 16px var(--pen-glow);
+      transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+    }
+
+    .card-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--pen);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+
+    .card-title {
+      font-family: var(--heading);
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 6px;
+      line-height: 1.25;
+    }
+
+    .card-body {
+      font-family: var(--sans);
+      font-size: 13.5px;
+      line-height: 1.55;
+      color: var(--graphite);
+    }
+
+    /* Metric Chips & Readouts */
+    .metric-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin: 10px 0 4px;
+    }
+
+    .metric-huge {
+      font-family: var(--heading);
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--pen);
+      line-height: 1;
+    }
+
+    .metric-unit {
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--graphite);
+    }
+
+    .pill-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--mono);
+    }
+
+    .pill-tag.safe {
+      background: rgba(127, 183, 126, 0.15);
+      color: var(--positive);
+      border: 1px solid rgba(127, 183, 126, 0.3);
+    }
+
+    .pill-tag.warn {
+      background: rgba(226, 104, 90, 0.15);
+      color: var(--risk);
+      border: 1px solid rgba(226, 104, 90, 0.3);
+    }
+
+    .pill-tag.accent {
+      background: rgba(79, 195, 247, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(79, 195, 247, 0.3);
+    }
+
+    /* Fullpage Nav custom overrides */
+    #fp-nav ul li a span, .fp-slidesNav ul li a span {
+      background: var(--graphite) !important;
+      transition: all 0.3s ease !important;
+    }
+    #fp-nav ul li a.active span, .fp-slidesNav ul li a.active span {
+      background: var(--pen) !important;
+      transform: scale(1.4) !important;
+      box-shadow: 0 0 10px var(--pen-glow);
+    }
+    #fp-nav ul li .fp-tooltip {
+      font-family: var(--sans) !important;
+      font-weight: 600 !important;
+      font-size: 11.5px !important;
+      color: var(--ink) !important;
+      background: var(--card-bg) !important;
+      border: 1px solid var(--card-border) !important;
+      padding: 4px 10px !important;
+      border-radius: 8px !important;
+      backdrop-filter: blur(10px) !important;
+    }
+
+    /* Model comparison mini-table */
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .mini-table th {
+      text-align: left;
+      padding: 5px 8px;
+      color: var(--graphite);
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .mini-table td {
+      padding: 6px 8px;
+      color: var(--ink);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .mini-table tr.best-row td {
+      color: var(--pen);
+      font-weight: 700;
+      background: rgba(240, 162, 74, 0.08);
+      border-radius: 6px;
+    }
+
+    /* LAYER 3: Bottom Datum Bar (z-index: 50) */
+    #bottom-datum-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 48px;
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 50;
+      pointer-events: none;
+      background: linear-gradient(0deg, rgba(19, 15, 11, 0.9) 0%, rgba(19, 15, 11, 0) 100%);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    html.theme-day #bottom-datum-bar {
+      background: linear-gradient(0deg, rgba(247, 238, 221, 0.9) 0%, rgba(247, 238, 221, 0) 100%);
+      border-top: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .datum-strip {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      pointer-events: auto;
+    }
+
+    .datum-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .datum-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--graphite);
+      text-transform: uppercase;
+    }
+
+    .datum-value {
+      font-family: var(--mono);
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .datum-value.pen { color: var(--pen); }
+    .datum-value.positive { color: var(--positive); }
+    .datum-value.risk { color: var(--risk); }
+
+    .scroll-hint {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--graphite);
+      pointer-events: auto;
+      animation: bounce 2s infinite;
+    }
+
+    @keyframes bounce {
+      0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-4px); }
+      60% { transform: translateY(-2px); }
+    }
+
+    /* Mobile adjustments */
+    @media (max-width: 768px) {
+      .section {
+        padding: 72px 20px 60px 20px;
+      }
+      .section-content-wrapper {
+        width: 100%;
+      }
+      .quick-pills {
+        display: none;
+      }
+      #bottom-datum-bar {
+        display: none;
+      }
+    }
+
+    /* Watermark Occlusion Fix: completely remove fullPage.js license badge */
+    .fp-watermark {
+      display: none !important;
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+
+    /* Vertical Clearance Fix for Laptops & Standard Displays (<= 840px) */
+    @media (max-height: 840px) {
+      .section {
+        padding: 56px 40px 46px 56px;
+      }
+      .section-badge {
+        margin-bottom: 6px;
+        font-size: 10px;
+      }
+      .section-title {
+        font-size: clamp(22px, 3.2vw, 32px);
+        margin-bottom: 8px;
+      }
+      .section-desc {
+        font-size: 13.5px;
+        line-height: 1.45;
+        margin-bottom: 14px;
+      }
+      .cards-grid {
+        gap: 10px;
+      }
+      .glass-card {
+        padding: 12px 18px;
+        border-radius: 12px;
+      }
+      .card-title {
+        font-size: 16px;
+        margin-bottom: 4px;
+      }
+      .card-body {
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+      .metric-huge {
+        font-size: 28px;
+      }
+      .metric-row {
+        margin: 6px 0 2px;
+      }
+      .mini-table th, .mini-table td {
+        padding: 4px 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- PILLAR 6: MANSORY CINEMATIC PRELOADER -->
+  <div id="preloader-curtain">
+    <div class="preloader-brand">
+      <div class="preloader-mark"><div class="preloader-mark-inner"></div></div>
+      <div>
+        <div class="preloader-title">DSA AGENT</div>
+        <div class="preloader-sub">WARM LEDGER // 3D CINEMATIC V2</div>
+      </div>
+    </div>
+    <div class="preloader-bar-wrap">
+      <div class="preloader-bar" id="preloader-bar"></div>
+    </div>
+    <div class="preloader-status" id="preloader-status">Warming 3D Shaders &amp; GPU Pipeline… 0%</div>
+  </div>
+
+  <!-- LAYER 0: Fixed 3D WebGL Canvas (Never Transformed) -->
+  <div id="webgl-stage">
+    <canvas id="webgl-canvas"></canvas>
+  </div>
+
+  <!-- LAYER 1: Dynamic 2D Leader Lines Overlay & 3D HUD Pins -->
+  <div id="hud-pins-layer">
+    <canvas id="leader-lines-canvas"></canvas>
+    
+    <!-- Dynamic 3D-to-2D Projected Pin tracking active 3D focal object -->
+    <div id="hud-pin-active" class="hud-pin visible">
+      <div class="hud-tag" id="hud-tag-active">
+        <span class="dot" id="hud-dot-active"></span>
+        <span id="hud-text-active">RLM CORE ENGINE // RECURSIVE DECOMPOSITION</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- LAYER 3: Global Header & Controls -->
+  <header id="global-header">
+    <div class="header-left">
+      <div class="brand-badge" onclick="if(window.fullpage_api) fullpage_api.moveTo(1)">
+        <div class="brand-mark"><div class="brand-mark-inner"></div></div>
+        <div>
+          <div class="brand-title">DSA AGENT</div>
+          <div class="brand-sub">3D AUTONOMOUS LEDGER</div>
+        </div>
+      </div>
+      <div class="quick-pills">
+        <button class="pill-btn active" onclick="fullpage_api.moveTo(1)">01 Overview</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(2)">02 Ingestion</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(3)">03 Statistics</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(4)">04 ML Pipeline</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(5)">05 Overfit Guard</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo(6)">06 Executive</button>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <button id="btn-camera-view" class="ctrl-btn" title="Toggle Camera Tour / Orbit">🎥</button>
+      <button id="btn-theme-toggle" class="ctrl-btn" title="Toggle Day / Night">🌓</button>
+      <button id="btn-fullscreen" class="ctrl-btn" title="Toggle Fullscreen">⛶</button>
+    </div>
+  </header>
+
+  <!-- LAYER 2: fullPage.js Presentation Sections (6-Stage Canonical Workflow) -->
+  <main id="fullpage">
+
+    <!-- SECTION 1: System Overview & RLM Core -->
+    <section class="section" data-anchor="overview">
+      <div class="section-content-wrapper">
+        <div class="section-badge">RECURSIVE LANGUAGE MODEL // CORE ORCHESTRATION</div>
+        <h1 class="section-title">Autonomous Statistical Intelligence</h1>
+        <p class="section-desc">
+          Zhang et al. (2024) paradigm: Decomposes complex analytical questions into recursive sub-tasks, 
+          executes code in an external Python REPL environment, and verifies all statistical conclusions.
+        </p>
+
+        <div class="cards-grid">
+          <div class="glass-card" id="card-stage-01">
+            <div class="card-label">State Layer</div>
+            <div class="card-title">Memory &amp; REPL Sandbox</div>
+            <div class="card-body">
+              Raw rows and DataFrames remain strictly in external Python memory — never flooded into prompt context. 
+              Only compact semantic metadata and distribution summaries are shared with the reasoning engine.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="stat-row-count">1,420</span>
+              <span class="metric-unit">active records in memory</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Verification Seam</div>
+            <div class="card-title">Zero-Hallucination Gate</div>
+            <div class="card-body">
+              7-stage execution order with automatic rollback and iterative refinement. 
+              If the model detects overfit patterns or multicollinearity, it rejects the step and adapts.
+            </div>
+            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <span class="pill-tag safe">✓ Stratified 5-Fold</span>
+              <span class="pill-tag safe">✓ Gap Audit &lt; 10%</span>
+              <span class="pill-tag accent">✓ Deterministic Seed: 42</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: Stage 1 Ingestion & Semantic Profiling -->
+    <section class="section" data-anchor="ingestion">
+      <div class="section-content-wrapper">
+        <div class="section-badge">STAGE 01 // DATASET INGESTION &amp; PROFILING</div>
+        <h2 class="section-title">Deep Semantic Profiling</h2>
+        <p class="section-desc">
+          Before running any model, the system inspects column semantics, null distributions, and cardinality ratios. 
+          A holographic laser plane actively sweeps the instanced data grid to audit quality.
+        </p>
+
+        <div class="cards-grid">
+          <div class="glass-card" id="card-stage-02">
+            <div class="card-label">Dataset Vitals</div>
+            <div class="card-title" id="profile-dataset-name">sample_dataset.csv</div>
+            <div class="card-body" id="profile-summary-text">
+              1,420 rows × 14 columns. Semantic profiling assigned 8 numeric features, 4 categoricals, 1 datetime index, and 1 text field.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="profile-quality-score">94</span>
+              <span class="metric-unit">/ 100 Data Quality Score</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Column Semantics</div>
+            <div class="card-title">Feature Type Decomposition</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Numeric Cols</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--pen);" id="count-numeric">8</div>
+              </div>
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Categorical Cols</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--accent);" id="count-categorical">4</div>
+              </div>
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Missing Cells</div>
+                <div style="font-size: 20px; font-weight: 800; color: var(--positive);" id="count-missing">12</div>
+              </div>
+              <div style="background: var(--sheet-alt); padding: 10px; border-radius: 10px;">
+                <div class="card-label" style="font-size: 9px;">Task Type</div>
+                <div style="font-size: 15px; font-weight: 800; color: var(--ink);" id="val-task-type">Classification</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: Stage 2 & 3 Statistical Testing -->
+    <section class="section" data-anchor="stats">
+      <div class="section-content-wrapper">
+        <div class="section-badge">STAGE 02-03 // HYPOTHESIS TESTING &amp; CORRELATION</div>
+        <h2 class="section-title">Rigorous Statistical Testing</h2>
+        <p class="section-desc">
+          Data explodes into a 3D scatter constellation. Automated statistical tests check normality (Shapiro-Wilk), 
+          variance homogeneity (Levene), and dynamic 3D correlation vectors link key features.
+        </p>
+
+        <div class="cards-grid">
+          <div class="glass-card" id="card-stage-03">
+            <div class="card-label">Hypothesis Decision</div>
+            <div class="card-title" id="stat-test-name">Two-Sample T-Test / Mann-Whitney</div>
+            <div class="card-body">
+              Null hypothesis rejected with high statistical confidence. Feature distributions show non-trivial divergence.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="stat-p-value">&lt; 0.001</span>
+              <span class="metric-unit">p-value (Statistically Significant)</span>
+            </div>
+            <div style="margin-top: 6px;">
+              <span class="pill-tag safe" id="stat-sig-tag">✓ p &lt; 0.05 CONFIRMED</span>
+              <span class="pill-tag accent" id="stat-outlier-tag">1.8% Outliers Handled</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Key Correlations (3D Vector Web)</div>
+            <div class="card-title">Strongest Feature Associations</div>
+            <div id="correlations-list" style="margin-top: 8px; display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span style="font-family: var(--mono); color: var(--ink);">tenure ↔ total_spend</span>
+                <span style="font-weight: 700; color: var(--pen);">+0.78</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span style="font-family: var(--mono); color: var(--ink);">usage_rate ↔ converted</span>
+                <span style="font-weight: 700; color: var(--pen);">+0.64</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0;">
+                <span style="font-family: var(--mono); color: var(--ink);">support_tickets ↔ churn_risk</span>
+                <span style="font-weight: 700; color: var(--accent);">+0.59</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: Stage 4 ML Pipeline & Stratified Folds -->
+    <section class="section" data-anchor="pipeline">
+      <div class="section-content-wrapper">
+        <div class="section-badge">STAGE 04 // MACHINE LEARNING PIPELINE</div>
+        <h2 class="section-title">Stratified Decision Manifolds</h2>
+        <p class="section-desc">
+          Models compete under 5-Fold Stratified Cross-Validation. Primary ranking relies strictly on out-of-fold generalization, 
+          never on training memorization. Translucent hyperplanes slice through feature space.
+        </p>
+
+        <div class="cards-grid">
+          <div class="glass-card" id="card-stage-04">
+            <div class="card-label">Champion Model</div>
+            <div class="card-title" id="ml-best-name">GradientBoostingClassifier</div>
+            <div class="card-body">
+              Demonstrated highest out-of-fold generalization with tightest stability envelope across all 5 test partitions.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="ml-best-cv">92.4%</span>
+              <span class="metric-unit">5-Fold CV Accuracy (±1.4%)</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Cross-Validation Tournament</div>
+            <div class="card-title">Model Generalization Matrix</div>
+            <table class="mini-table" id="models-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>CV Mean</th>
+                  <th>Std</th>
+                  <th>Train/Test Gap</th>
+                </tr>
+              </thead>
+              <tbody id="models-tbody">
+                <tr class="best-row">
+                  <td>GradientBoosting ★</td>
+                  <td>92.4%</td>
+                  <td>±1.4%</td>
+                  <td>3.2%</td>
+                </tr>
+                <tr>
+                  <td>RandomForest</td>
+                  <td>90.8%</td>
+                  <td>±1.8%</td>
+                  <td>5.1%</td>
+                </tr>
+                <tr>
+                  <td>LogisticRegression(L2)</td>
+                  <td>86.5%</td>
+                  <td>±2.1%</td>
+                  <td>1.8%</td>
+                </tr>
+                <tr>
+                  <td>DecisionTree</td>
+                  <td>81.2%</td>
+                  <td>±3.4%</td>
+                  <td style="color: var(--risk);">12.8% ⚠️</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 5: Stage 5 Anti-Overfit Guard -->
+    <section class="section" data-anchor="diagnostics">
+      <div class="section-content-wrapper">
+        <div class="section-badge">STAGE 05 // ANTI-OVERFIT GUARD &amp; VERIFICATION</div>
+        <h2 class="section-title">Generalization Safety Envelope</h2>
+        <p class="section-desc">
+          Automated guard gates compute train-vs-test divergence. A 3D radar diamond envelope illuminates 
+          healthy generalization in emerald green, flagging any model exceeding the 10% gap threshold.
+        </p>
+
+        <div class="cards-grid">
+          <div class="glass-card" id="card-stage-05">
+            <div class="card-label">Overfit Audit</div>
+            <div class="card-title">Train-Test Generalization Gap</div>
+            <div class="card-body">
+              The champion model's gap is strictly capped below the 10% threshold. The safety envelope certifies production readiness.
+            </div>
+            <div class="metric-row">
+              <span class="metric-huge" id="guard-gap-val">3.2%</span>
+              <span class="metric-unit">train-test gap (<span id="guard-gap-status" style="color: var(--positive);">SAFE</span>)</span>
+            </div>
+            <div id="overfit-warnings-box" style="margin-top: 8px;">
+              <span class="pill-tag safe" id="guard-safe-tag">✓ GAP &lt; 10% CERTIFIED</span>
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Anti-Overfitting Directives</div>
+            <div class="card-title">Enforced Structural Constraints</div>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                <span class="pill-tag safe" style="padding: 2px 6px;">✓</span>
+                <span style="color: var(--ink);"><strong>Tree Depth Capping:</strong> max_depth capped at 6</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                <span class="pill-tag safe" style="padding: 2px 6px;">✓</span>
+                <span style="color: var(--ink);"><strong>L2 Regularization:</strong> Ridge &amp; logistic shrinkage</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                <span class="pill-tag safe" style="padding: 2px 6px;">✓</span>
+                <span style="color: var(--ink);"><strong>Stratified K-Fold:</strong> Preserves target class distribution</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 6: Executive Synthesis & Findings -->
+    <section class="section" data-anchor="report">
+      <div class="section-content-wrapper">
+        <div class="section-badge">STAGE 07 // VERIFIED EXECUTIVE LEDGER</div>
+        <h2 class="section-title">Verified Synthesis &amp; Findings</h2>
+        <p class="section-desc">
+          All analytical artifacts coalesce into a final executive ledger. Key findings are derived directly from verified data and models.
+        </p>
+
+        <div class="cards-grid">
+          <div class="glass-card" id="card-stage-06">
+            <div class="card-label">Executive Reasoning</div>
+            <div class="card-title">Analytical Conclusion</div>
+            <div class="card-body" id="exec-reasoning-text" style="font-size: 13px; line-height: 1.6;">
+              Analysis completed across 5-fold stratified cross-validation. GradientBoosting demonstrated optimal generalizability with 92.4% CV accuracy and a tight 3.2% train-test gap. Outlier detection identified 1.8% anomalous records which were robustly normalized. No unregularized multicollinearity observed.
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div class="card-label">Actionable Findings</div>
+            <div class="card-title">Key Takeaways</div>
+            <ul id="exec-findings-list" style="margin-top: 6px; padding-left: 18px; font-size: 13px; color: var(--ink); line-height: 1.6;">
+              <li>Primary driver of conversion is user session engagement duration (&gt;4.2m).</li>
+              <li>Cross-validation envelope indicates high generalization stability (std: ±1.4%).</li>
+              <li>Tree depth capped at max_depth=6 to strictly prohibit memorizing noise.</li>
+            </ul>
+            <div style="margin-top: 14px; display: flex; gap: 8px;">
+              <span class="pill-tag safe">✓ EXECUTIVE LEDGER SEALED</span>
+              <span class="pill-tag accent">✓ ZERO HALLUCINATIONS</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- LAYER 3: BOTTOM STATUS DATUM BAR -->
+  <div id="bottom-datum-bar">
+    <div class="datum-strip">
+      <div class="datum-item">
+        <span class="datum-label">DATASET:</span>
+        <span class="datum-value" id="datum-file">sample_dataset.csv</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">STAGE:</span>
+        <span class="datum-value pen" id="datum-stage">7 / 7 COMPLETE</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">BEST MODEL:</span>
+        <span class="datum-value" id="datum-model">GradientBoosting</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">CV SCORE:</span>
+        <span class="datum-value positive" id="datum-score">92.4%</span>
+      </div>
+      <div class="datum-item">
+        <span class="datum-label">GAP:</span>
+        <span class="datum-value" id="datum-gap">3.2%</span>
+      </div>
+    </div>
+
+    <div class="scroll-hint">
+      <span>Scroll / Swipe or use [↑ / ↓] to explore 3D journey</span>
+      <span>▼</span>
+    </div>
+  </div>
+
+  <!-- Injected State Payload -->
+  <script>
+    window.__CINEMATIC_STATE__ = __CINEMATIC_STATE_JSON__;
+    
+    // Apply initial theme
+    if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.theme === 'day') {
+      document.documentElement.classList.add('theme-day');
+      document.body.classList.add('theme-day');
+    }
+
+    // Apply dynamic palette tokens if provided
+    if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.palette) {
+      const p = window.__CINEMATIC_STATE__.palette;
+      const root = document.documentElement;
+      if (p.stock) root.style.setProperty('--stock', p.stock);
+      if (p.sheet) root.style.setProperty('--sheet', p.sheet);
+      if (p.sheet_alt) root.style.setProperty('--sheet-alt', p.sheet_alt);
+      if (p.ink) root.style.setProperty('--ink', p.ink);
+      if (p.graphite) root.style.setProperty('--graphite', p.graphite);
+      if (p.pen) root.style.setProperty('--pen', p.pen);
+      if (p.pen_glow) root.style.setProperty('--pen-glow', p.pen_glow);
+      if (p.risk) root.style.setProperty('--risk', p.risk);
+      if (p.positive) root.style.setProperty('--positive', p.positive);
+      if (p.accent) root.style.setProperty('--accent', p.accent);
+      if (p.grid) root.style.setProperty('--grid', p.grid);
+      if (p.card_bg) root.style.setProperty('--card-bg', p.card_bg);
+      if (p.card_border) root.style.setProperty('--card-border', p.card_border);
+    }
+  </script>
+
+  <!-- External Library CDNs (fullPage.js; anime.js v4 imported directly in ES module) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fullPage.js/4.0.22/fullpage.min.js"></script>
+  
+  <!-- 3D Cinematic Scene Script Module -->
+  <script type="module">
+__CINEMATIC_SCENE_SCRIPT__
+  </script>
+</body>
+</html>

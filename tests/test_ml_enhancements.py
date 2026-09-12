@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from src.tools.ml_pipeline import (
+    SKEW_TREATMENT_THRESHOLD,
     EvaluateModelTool,
     TrainModelTool,
     _prepare_features,
@@ -33,12 +34,68 @@ class TestAutoTreatments:
         assert "customer_id" not in X.columns
         assert any("identifier" in t for t in treatments)
 
-    def test_skewed_feature_log_transformed(self) -> None:
+    def test_skewed_feature_reported_via_training_pipeline(self, tmp_path: Path) -> None:
+        """P0.1: the log1p decision now happens inside the fitted Pipeline
+        (from the training fold only), not in _prepare_features — but the
+        report must still surface it."""
+        df = _make_df()
+        p = tmp_path / "skew.csv"
+        df.to_csv(p, index=False)
+        result = TrainModelTool().run(
+            file_path=str(p), target_column="label", task_type="classification",
+            models=["logistic_regression"], tune_hyperparameters=False,
+            output_dir=str(tmp_path / "m"),
+        )
+        assert result.status == "success"
+        assert any(
+            "log1p" in t and "amount" in t for t in result.output["treatments_applied"]
+        )
+
+    def test_log1p_decision_uses_training_fold_only_not_full_frame(
+        self, tmp_path: Path
+    ) -> None:
+        """The regression guard for P0.1 itself, not just the mechanism: a
+        column whose *training-fold* skew is below threshold, but whose
+        full-frame skew (train+test combined) is above threshold because of
+        outliers concentrated in the test tail, must NOT get log1p applied.
+        Pre-refactor (deciding over the whole frame before the split) this
+        line would appear; post-refactor it must not."""
+        n = 200
+        train_n = 160  # matches default test_size=0.2 under a time_series split
+        rng = np.random.default_rng(3)
+        train_vals = rng.normal(50, 5, train_n)
+        test_vals = rng.normal(50, 5, n - train_n)
+        test_vals[-3:] = [5000.0, 6000.0, 7000.0]  # outliers only in the test tail
+        amount = np.concatenate([train_vals, test_vals])
+        assert pd.Series(train_vals).skew() < SKEW_TREATMENT_THRESHOLD
+        assert abs(pd.Series(amount).skew()) >= SKEW_TREATMENT_THRESHOLD
+
+        dates = pd.date_range("2023-01-01", periods=n, freq="D")
+        f1 = rng.normal(0, 1, n)
+        label = (f1 + rng.normal(0, 0.3, n) > 0).astype(int)
+        df = pd.DataFrame({"date": dates, "f1": f1, "amount": amount, "label": label})
+        p = tmp_path / "leak_probe.csv"
+        df.to_csv(p, index=False)
+
+        result = TrainModelTool().run(
+            file_path=str(p), target_column="label", task_type="classification",
+            models=["logistic_regression"], tune_hyperparameters=False,
+            split_strategy="time_series", time_column="date",
+            output_dir=str(tmp_path / "m"),
+        )
+        assert result.status == "success"
+        assert not any(
+            "log1p" in t and "amount" in t for t in result.output["treatments_applied"]
+        )
+
+    def test_prepare_features_no_longer_transforms_values(self) -> None:
+        """_prepare_features now only does structural feature engineering
+        (datetime expansion, ID dropping) — statistical decisions like log1p
+        move into the Pipeline so they're fit on the training fold only."""
         df = _make_df()
         raw_max = float(df["amount"].max())
-        X, _y, treatments = _prepare_features(df, "label")
-        assert any("log1p" in t and "amount" in t for t in treatments)
-        assert float(X["amount"].max()) < raw_max  # compressed
+        X, _y, _treatments = _prepare_features(df, "label")
+        assert float(X["amount"].max()) == raw_max  # untouched
 
     def test_treatments_deterministic_across_calls(self) -> None:
         df = _make_df()
@@ -94,6 +151,53 @@ class TestAutoTreatments:
         for suffix in ("year", "month", "day", "dayofweek", "hour", "is_weekend", "days_since_min"):
             assert f"signup_date_{suffix}" in X.columns
         assert not X["signup_date_days_since_min"].isna().any()
+
+
+class TestSkewLog1pTransformer:
+    """P0.1: the skew decision must be made once, at fit time, from whatever
+    frame it's fit on — the Pipeline usage ensures that's the training fold."""
+
+    def test_transforms_only_skewed_columns_based_on_fit_data(self) -> None:
+        from src.tools.ml_pipeline import _SkewLog1pTransformer
+
+        rng = np.random.default_rng(5)
+        train = pd.DataFrame({
+            "skewed": np.exp(rng.normal(3, 1.2, 200)),
+            "normal": rng.normal(0, 1, 200),
+        })
+        t = _SkewLog1pTransformer().fit(train)
+        assert "skewed" in t.skewed_cols_
+        assert "normal" not in t.skewed_cols_
+
+        out = t.transform(train)
+        assert float(out["skewed"].max()) < float(train["skewed"].max())
+        assert (out["normal"] == train["normal"]).all()
+
+    def test_decision_is_frozen_at_fit_time(self) -> None:
+        from src.tools.ml_pipeline import _SkewLog1pTransformer
+
+        rng = np.random.default_rng(6)
+        train = pd.DataFrame({"amount": rng.normal(0, 1, 200)})  # not skewed
+        t = _SkewLog1pTransformer().fit(train)
+        assert t.skewed_cols_ == []
+
+        skewed_new_data = pd.DataFrame({"amount": np.exp(rng.normal(3, 1.2, 50))})
+        out = t.transform(skewed_new_data)
+        # Fit decided "amount" is not skewed; transform must not reconsider
+        # that decision on new data even though this new data IS skewed.
+        assert (out["amount"] == skewed_new_data["amount"]).all()
+
+    def test_negative_test_fold_values_are_clipped_not_nan(self) -> None:
+        from src.tools.ml_pipeline import _SkewLog1pTransformer
+
+        rng = np.random.default_rng(8)
+        train = pd.DataFrame({"amount": np.exp(rng.normal(3, 1.2, 200))})
+        t = _SkewLog1pTransformer().fit(train)
+        assert "amount" in t.skewed_cols_
+
+        test_data = pd.DataFrame({"amount": [-5.0, 10.0]})
+        out = t.transform(test_data)
+        assert not out["amount"].isna().any()
 
 
 class TestSplitStrategy:
@@ -267,6 +371,38 @@ class TestHyperparameterTuning:
         )
         assert result.output["hyperparameter_tuning"] is False
         assert result.output["models_trained"]["logistic_regression"]["best_params"] == {}
+
+
+class TestUnseenCategoryHandling:
+    """P0.6: encoders must be fit only on the training fold. The old
+    whole-dataset LabelEncoder hid this — a category appearing only in the
+    test split must not break predict()."""
+
+    def test_unseen_category_in_test_split_does_not_break_predict(
+        self, tmp_path: Path
+    ) -> None:
+        n = 200
+        dates = pd.date_range("2023-01-01", periods=n, freq="D")
+        rng = np.random.default_rng(11)
+        f1 = rng.normal(0, 1, n)
+        plan = np.where(
+            np.arange(n) < 150, rng.choice(["basic", "pro"], n), "basic"
+        ).astype(object)
+        # "enterprise" exists ONLY in the tail — guaranteed to land in the
+        # test split under a time_series (purely positional, no shuffle) split.
+        plan[-1] = "enterprise"
+        label = (f1 + rng.normal(0, 0.3, n) > 0).astype(int)
+        df = pd.DataFrame({"date": dates, "f1": f1, "plan": plan, "label": label})
+        p = tmp_path / "unseen_cat.csv"
+        df.to_csv(p, index=False)
+
+        result = TrainModelTool().run(
+            file_path=str(p), target_column="label", task_type="classification",
+            models=["logistic_regression"], tune_hyperparameters=False,
+            split_strategy="time_series", time_column="date",
+            output_dir=str(tmp_path / "m"),
+        )
+        assert result.status == "success"
 
 
 class TestExplainability:

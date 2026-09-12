@@ -29,6 +29,8 @@ HIGH_CORRELATION_THRESHOLD = 0.9
 class DimensionalityAnalysisTool(BaseTool):
     """PCA explained-variance structure plus a multicollinearity screen."""
 
+    requires_ml = True
+
     name = "dimensionality_analysis"
     description = (
         "Analyse a wide numeric feature space: PCA explained variance per component "

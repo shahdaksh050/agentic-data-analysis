@@ -66,3 +66,37 @@ class TestBuildHtmlReport:
         doc = build_html_report("empty", {}, [], [])
         assert "<h1>What we found in empty</h1>" in doc
         assert "The charts" not in doc  # no charts, no section
+
+    def test_new_params_default_to_none_without_error(self) -> None:
+        """Back-compat: the original call signature must keep working."""
+        doc = build_html_report("ds", {}, [], [])
+        assert doc.startswith("<!DOCTYPE html>")
+        assert "Why these analyses" not in doc
+        assert "Limitations" not in doc
+
+    def test_methodology_and_limitations_sections_render(self) -> None:
+        doc = build_html_report(
+            "ds", {}, [], [],
+            profile={"quality_score": 40, "row_count": 5, "column_count": 2,
+                     "is_sufficient": False, "sufficiency_reason": "Only 5 rows.",
+                     "warnings": ["Only 5 rows — results will have high variance."]},
+            read_report={"format": "csv", "encoding": "cp1252", "encoding_confident": False,
+                         "notes": ["Encoding could not be confidently detected; assumed cp1252."]},
+            coercions=[{"column": "amount", "rule": "currency", "n_converted": 9, "n_failed": 1}],
+            plan_rationales=[{"step_number": 1, "tool_name": "clean_data", "rationale": "High missingness."}],
+            statistical_test_pvalues=[
+                {"feature_column": "a", "test_name": "Independent T-Test", "p_value": 0.001},
+                {"feature_column": "b", "test_name": "Independent T-Test", "p_value": 0.6},
+            ],
+            unverified_claims=["'up 40%' [unverified: 40%]"],
+            profile_status="failed: could not parse",
+        )
+        assert "Why these analyses" in doc
+        assert "clean_data" in doc
+        assert "Limitations &amp; caveats" in doc
+        assert "Only 5 rows" in doc
+        assert "degraded mode" in doc
+        assert "could not parse" in doc
+        assert "amount" in doc
+        assert "40%" in doc
+        assert "Benjamini-Hochberg" in doc

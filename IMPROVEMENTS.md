@@ -59,6 +59,8 @@ by the P0.2/P1.2 and P0.3 fixes above, not pre-existing):**
   multi-file refactor touching `CleanDataTool`, `_prepare_features`,
   every model's save/load path, and `EvaluateModelTool`'s re-derivation
   logic — too large to land safely in the same pass as everything above.
+  **Landed in Round 4, below** (attempted and reverted once mid-Round-2
+  session before that; see Round 4 for what actually shipped).
 - **P1.5** (parallelise RLM sub-tasks) — `src/rlm/engine.py` is
   AGENTS.md "Ask First" territory.
 - **P2.1, P2.2, P2.4, P2.5, P2.6, P2.7** — structural cleanup, best done
@@ -109,6 +111,606 @@ when they're a dataset's dominant story, and pointing
 of a one-line-per-tool log.
 
 ---
+
+## Round 4 — Pipeline/ColumnTransformer refactor (P0.1, P0.5, P0.6), landed
+
+Closes the single largest deferred item from Round 2. `_prepare_features`
+now does only structural feature engineering (datetime expansion, ID-column
+dropping) — no statistic is fit there any more. Skew-decision and
+categorical encoding moved into a `Pipeline([("prep", ColumnTransformer),
+("model", estimator)])` built by `_build_preprocessor` and fit exclusively
+on `X_train`:
+
+- `_SkewLog1pTransformer` (`src/tools/ml_pipeline.py`) decides, at `fit`,
+  which numeric columns are skewed enough for log1p — from whichever frame
+  it's fit on, so wiring it into the Pipeline is what makes the decision
+  train-fold-only (closes P0.1). Clips at transform so a test-fold negative
+  in a column the training fold saw as non-negative doesn't produce NaN.
+- `_build_preprocessor(X, encoding)` — `OneHotEncoder(handle_unknown=
+  "ignore")` for `LINEAR_MODELS = {logistic_regression, linear_regression,
+  ridge}`, `OrdinalEncoder(handle_unknown="use_encoded_value",
+  unknown_value=-1)` for tree/ensemble and clustering models (closes P0.6).
+  `SimpleImputer` (median for numeric, most-frequent for categorical) runs
+  per branch — this is *new* behavior, not a port: `_prepare_features`
+  never imputed (`CleanDataTool` did that, upstream, on its own separate
+  full-dataset pass); a model trained on an uncleaned file now silently
+  imputes inside the pipeline instead of failing or carrying NaNs through.
+  Named per the P0.1/P0.5 fix IMPROVEMENTS.md already specified.
+- The whole `Pipeline` is pickled (closes P0.5 — a saved model is now
+  self-contained; scoring new data no longer depends on `EvaluateModelTool`
+  coincidentally re-deriving identical `LabelEncoder` state from the same
+  file).
+- `TrainModelTool._tune` tunes the whole `Pipeline` — grid keys are
+  prefixed `model__` for `RandomizedSearchCV` and the prefix is stripped
+  from the returned `best_params` before it reaches the report.
+- `TrainModelTool`'s clustering branch (`kmeans`/`dbscan`) gets its own
+  `_build_preprocessor(X_train, "ordinal")` wrap — it stopped getting free
+  imputation/encoding from `_prepare_features` once that moved out.
+- `visualization.py::_feature_importance` pulls the estimator via
+  `pipeline.named_steps["model"]` and post-encoding names via
+  `pipeline.named_steps["prep"].get_feature_names_out()` — `Pipeline`
+  doesn't delegate `feature_importances_`/`coef_`, and one-hot expands
+  column count past raw `X.columns` length.
+- `EvaluateModelTool._explain_drivers`'s direction-from-correlation
+  calculation now guards on `is_numeric_dtype` before calling `.corr()` —
+  `X_test` carries raw string categoricals post-refactor, and `.corr()` on
+  those raised inside the method's blanket `except Exception`, silently
+  dropping every driver rather than just the categorical one. Categoricals
+  now report importance without a direction. `permutation_importance` and
+  `model.predict()`/`.predict_proba()` needed no changes — they work on a
+  `Pipeline` via duck typing, confirmed for `_roc_curve`/`_confusion_matrix`
+  too (no automated test exercised those two chart types' success path;
+  verified manually against a trained Pipeline before landing this).
+
+Tests: `_SkewLog1pTransformer` covered in isolation
+(`TestSkewLog1pTransformer`); an invariant test builds a frame where a
+categorical level exists only in the test-split rows and asserts `predict`
+succeeds (`TestUnseenCategoryHandling`) — proves `handle_unknown="ignore"`/
+`use_encoded_value` is doing its job, the thing the old whole-dataset
+`LabelEncoder` was hiding; and — the actual regression guard, not just
+mechanism — `test_log1p_decision_uses_training_fold_only_not_full_frame`
+builds a column whose training-fold skew is below threshold but whose
+full-frame skew is above threshold (outliers concentrated in the test
+tail) and asserts no log1p line appears for it, which fails against the
+pre-refactor whole-frame decision. `ruff check .`, `mypy src/`,
+`pytest tests/` (232 passed), and `python scripts/validate.py` (68/68) all
+green.
+
+---
+
+# Round 5 — Universal Data Handling Audit
+
+**Question asked:** can this backend ingest *any* dataset — any format, schema,
+size, or quality level — and produce the best analysis, dashboard and report
+available for it, without hardcoded assumptions?
+
+**Method.** Read every module in the data path (ingestion → profiling →
+cleaning → analysis → dashboard → report), then probed the running system with
+adversarial inputs rather than reasoning from the source alone. Every finding
+below cites either a `file:line` or a probe result. Probes are reproducible
+from the descriptions given; they were throwaway scripts, not committed.
+
+**Scope note.** Rounds 2–4 audited *correctness of the ML path*. This round
+audits *generality of the data path*. Overlap is deliberate only where a
+Round 2–4 fix created the surface being judged here.
+
+## Phase 1 — Findings
+
+### What already works (do not rewrite these)
+
+Worth stating plainly, because the temptation with a brief like "handle any
+data" is to rebuild what is already sound:
+
+- **`DatasetProfile` is a real semantic profiler**, not a `df.describe()`
+  wrapper (`src/core/profiler.py`). It classifies each column as numeric /
+  categorical / datetime / boolean / identifier / constant / text, and derives
+  dataset-*nature* facts — `is_time_series`, `text_cols`, `geo_lat_col` /
+  `geo_lon_col`, `is_high_dimensional`, `panel_group_cols`. Ordering of the
+  checks is already thought through (datetime before identifier so a daily
+  index isn't an ID; free-text before identifier so 100%-unique prose isn't
+  an ID).
+- **Analysis selection is already data-driven, not fixed.**
+  `BaseTool.applies_to(profile, metadata) -> float` scores each tool against
+  the profile and `ToolRegistry.candidate_tools` drops anything scoring 0.0
+  (`controller.py:495-513`). The planner is only *shown* tools that fit the
+  data's nature. This is the right architecture for the brief — it needs
+  extending, not replacing.
+- **Dashboard chart choice is already data-driven** (`dashboard.py:607-652`):
+  charts are selected from profile column-kinds plus which tools actually
+  produced output, not from a fixed list.
+- **The pluggable-tool requirement is already met.** `ToolRegistry.register()`
+  is generic; adding a tool needs no registry edit.
+
+The gap is therefore **not** "the system is hardcoded to one shape of data."
+It is that the *front door* (reading bytes into a DataFrame) is far narrower
+and more fragile than everything behind it, and that the *rigor and honesty*
+of what comes out the back door lags what the profiler already knows.
+
+### U0.1 — Delimiter is assumed to be a comma; non-comma files are silently corrupted
+
+`_read_df` dispatches on file extension and calls bare `pd.read_csv(path)`
+for both `.csv` **and `.tsv`** — with no `sep` argument
+(`data_processing.py:26-37`, and four identical copies, see U1.1).
+
+A tab-separated file is therefore parsed with a comma delimiter. Probed with a
+3-row × 3-column TSV:
+
+| Input | Parsed as | `IngestDatasetTool.run` | Profiler verdict |
+| :--- | :--- | :--- | :--- |
+| 3×3 `.tsv` | **3 rows × 1 column** | `success` | quality **90/100** |
+| 3×3 `;`-delimited `.csv` (EU Excel default) | **3 rows × 1 column** | `success` | quality **72/100** |
+
+This is the worst failure shape in the system: not a crash, but a confident
+success. Every column collapses into one, the profiler classifies that single
+mangled column as an identifier, and the run proceeds to produce an analysis
+and a report about a dataset that does not exist. Semicolon-delimited CSV is
+the *default export format of Excel in most of Europe*, so this is not an
+exotic input.
+
+No delimiter sniffing exists anywhere in the codebase.
+
+### U0.2 — Encoding is assumed UTF-8; any other encoding is a hard failure
+
+No `encoding=` argument is passed at any read site. A cp1252/latin-1 CSV —
+again, a routine Excel export — fails with `UnicodeDecodeError` at
+`tools/_read_df`, at `controller._read_dataframe`, and at the Streamlit
+preview path. `IngestDatasetTool` converts it to `error: Failed to read file`.
+No encoding detection or fallback chain is attempted.
+
+### U0.3 — The ID-guard rejects any *sorted* continuous feature, at any sample size
+
+`statistical_analysis.py:81-91` rejects a feature column when
+`uniqueness > 0.95 and is_monotonic`. Continuous measurements are naturally
+~100% unique, so the guard reduces to "is it sorted?".
+
+Probed with a legitimate continuous measurement, sorted (the natural layout of
+data exported grouped by key):
+
+| n | sorted | result |
+| :--- | :--- | :--- |
+| 6 | yes | **error** — "appears to be a row ID or index" |
+| 500 | yes | **error** — same |
+| 5000 | yes | **error** — same |
+| 5000 | no (identical data, shuffled) | **success** |
+
+Row order alone decides whether the system's *only* hypothesis-testing tool
+will run. This is not a small-sample artifact — it fires at every size tested.
+
+### U0.4 — Statistical significance is reported with no effect size, interval, or power
+
+`select_statistical_test` returns `statistic`, `p_value`, `significant`, and a
+prose `interpretation`. It returns no effect size, no confidence interval, and
+no sample-size or power caveat.
+
+Probed with two groups of 50,000 differing by 0.6 on SD 15 — **Cohen's
+d = 0.038**, a negligible difference no one should act on:
+
+> `Independent T-Test: stat=-5.9670, p=0.0000. Statistically significant
+> difference detected (p=0.0000 < α=0.05).`
+
+The report will tell a user there is a meaningful difference between two
+practically identical groups. Given this repo's own stated standard —
+"*a wrong number delivered confidently is worse than a slow one*" — this is a
+P0-class honesty defect, not a nice-to-have.
+
+Related rigor gaps in the same tool:
+- **Chi-square validity unchecked** — no expected-cell-frequency test; the
+  statistic is invalid when expected counts fall below ~5, and nothing says so.
+- **No effect size for any branch** — no Cohen's d, no Cramér's V, no η².
+- **Normality subsample is order-dependent** — `g[:5000]` takes the *first*
+  5000 values, not a random sample (`statistical_analysis.py:123`), so on
+  sorted data the Shapiro test sees a truncated tail and mis-answers.
+- **No multiple-comparison correction**, though the tool is designed to be
+  called repeatedly across feature/group pairs in one run.
+
+### U0.5 — Profiling failure is swallowed, and silently narrows the toolset
+
+`controller.py:694-705` wraps profiling in `try/except` and continues with
+`last_profile = None` on any failure — correct as a resilience choice, but the
+consequence is invisible. `controller._read_dataframe` (`controller.py:42-49`)
+recognises only `.csv/.xlsx/.xls` — **it does not know `.tsv`**, though the
+tools' `_read_df` does. A `.tsv` upload therefore ingests (badly, per U0.1)
+and then profiles not at all.
+
+With `profile=None`, `applies_to` falls back to per-tool defaults that differ
+by tool. Measured on a time-series fixture, `candidate_tools(profile, meta)`
+vs `candidate_tools(None, meta)`:
+
+- **Lost:** `time_series_analysis`
+- **Gained:** *(none)*
+
+So a profiling failure does not corrupt the plan — it *quietly removes exactly
+the dataset-nature tools that make the analysis fit the data*, leaving generic
+EDA, and says nothing to the user. The degradation is real but narrower than
+"the gating breaks"; the defect is that it is silent, not that it is chaotic.
+
+### U0.6 — The Markdown report has no data overview, methodology, or limitations
+
+`GenerateReportTool.execute` accepts `dataset_name`, `tool_results_json`,
+`llm_insights`, `output_dir` (`report_generator.py:130-137`). **The
+`DatasetProfile` is never passed to it.** Quality score, per-column warnings,
+missingness, class imbalance and every caveat the profiler computed reach the
+Streamlit UI and a single badge in the HTML report (`html_report.py:154`) —
+but never the Markdown report a user actually keeps.
+
+Against the seven-section report structure this brief asks for:
+
+| Required section | Present? |
+| :--- | :--- |
+| Executive summary | ✅ (LLM `reasoning`) |
+| Data overview / profile | ❌ **absent** |
+| Methodology — which analyses ran and *why* | ❌ absent — see below |
+| Key findings | ✅ |
+| Visualizations | ⚠️ dashboard only; PNGs reach no report (Round 3, item 1) |
+| Limitations / caveats | ❌ **absent** |
+| Recommendations | ✅ |
+
+The system computes the honesty material and then discards it at the last step.
+
+**The methodology gap is self-inflicted and cheap to close.** The planning
+prompt *demands* a rationale for every step — "Provide a `rationale` for EVERY
+step — this is a research-grade system" (`prompt_manager.py:85`), "rationale
+tied to the profile evidence" (`:131`) — and the LLM supplies one. It is
+parsed (`controller.py:889`), stored on `AnalysisStep.rationale`
+(`memory.py:273`), rendered **truncated to 60 characters in a terminal
+panel** (`controller.py:1210`), and then dropped. The exact "why this analysis
+for this dataset" narrative the brief asks for is already being generated and
+thrown away.
+
+### U0.7 — Numerics trapped in strings are never recovered
+
+No type coercion or repair pass exists. The profiler classifies whatever dtype
+pandas inferred. Probed on routine real-world columns:
+
+| Column | Values | Classified as | Consequence |
+| :--- | :--- | :--- | :--- |
+| `price_with_symbol` | `$123.45` | **identifier** | dropped from all numeric analysis |
+| `pct_as_string` | `45.3%` | **categorical**, `high_cardinality` | one-hot candidate; flagged as a data-quality problem |
+| `zipcode` | `04521` | identifier | reasonable, but never offered as a geo/categorical key |
+| `bool_yn` | `Y`/`N` | categorical | never becomes boolean |
+| `date_iso`, `date_us` | ISO and `MM/DD/YYYY` | datetime ✅ | (correct — date handling is already good) |
+
+Currency, percentages and thousands separators are among the most common
+real-world CSV contents. Today every such column is excluded from correlation,
+modelling, and outlier detection — silently, and while being counted against
+the dataset's quality score.
+
+### U1.1 — `_read_df` is duplicated five times
+
+Identical (or near-identical) reader implementations at
+`data_processing.py:26`, `ml_pipeline.py:32`, `statistical_analysis.py:29`,
+`visualization.py:24`, plus a *divergent* fifth at `controller.py:42` that
+supports fewer formats. Any ingestion fix — U0.1, U0.2, format coverage — must
+currently be made in five places and has already drifted in one. This is the
+single biggest structural obstacle to everything else in this round.
+
+### U1.2 — Format coverage is narrow, and inconsistent about its own limits
+
+Supported: `.csv`, `.tsv` (broken, U0.1), `.xlsx`, `.xls`. Unsupported: JSON,
+JSONL, Parquet, SQL, compressed CSV, nested/semi-structured data of any kind.
+
+The supported set is also *declared inconsistently* across three places:
+
+| Site | Accepts |
+| :--- | :--- |
+| `security.ALLOWED_EXTENSIONS:25` | `.csv`, `.xlsx`, `.xls` |
+| Streamlit uploader (`app.py:1413`) | `csv`, `xlsx`, `xls` |
+| tools' `_read_df` | `.csv`, **`.tsv`**, `.xlsx`, `.xls` |
+| `controller._read_dataframe:42` | `.csv`, `.xlsx`, `.xls` |
+
+`.tsv` is a phantom format: reachable by direct tool/CLI invocation, rejected
+by upload validation, unprofileable, and corrupt when it does load.
+
+### U1.3 — The quality score has no row-count floor
+
+`profile_dataframe` penalises `row_count < 100` by a flat 10 points. Probed:
+
+- **0 rows** (headers only) → quality **81/100**, `success`
+- **1 row** → quality **81/100**, `success`
+
+A dataset that cannot support any inference at all is scored "good". Nothing
+downstream gates on insufficient data; tools fail individually and
+idiosyncratically further down instead (U0.3's guard, Shapiro's n≥3, etc.).
+
+### U1.4 — Structural corruption is neither detected nor reported
+
+- **Mixed-type columns:** `1, 2, NOT_A_NUMBER, 4` → whole column becomes
+  object → classified `identifier` → excluded from analysis. The single
+  contaminating cell is never surfaced.
+- **Duplicate headers:** `a,a,b` → pandas silently mangles to `a`, `a.1`, `b`.
+  No warning.
+
+### U1.5 — Scale: adequate where measured, but unbounded and re-read per tool
+
+Measured on this machine (read + profile):
+
+| Rows | File | `pd.read_csv` | `profile_dataframe` | In-memory |
+| ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 0.6 MB | 0.03 s | 0.01 s | 0.5 MB |
+| 200,000 | 11.6 MB | 0.15 s | 0.09 s | 9.9 MB |
+| 1,000,000 | 58.0 MB | 0.64 s | 0.57 s | 49.6 MB |
+
+Profiling is **not** a bottleneck at these sizes and needs no optimisation.
+Two architectural risks remain, both unmeasured beyond 1M rows and stated here
+as risks rather than defects:
+
+1. **No row cap, no chunking, no sampling policy.** Every read is a full load.
+   Memory is the binding constraint and nothing degrades gracefully when it
+   binds.
+2. **Every tool re-reads the file from disk independently.** A 9-tool run on a
+   1M-row file pays the ~0.64 s read nine times and holds nine transient
+   copies. `dashboard.py` has a `MAX_POINTS` cap for rendering, but nothing
+   equivalent governs analysis input.
+
+### U1.6 — No edge-case test corpus
+
+232 tests pass, but the suite is organised by *module*, not by *data shape*.
+There is no fixture for: empty file, headers-only, single row, single column,
+all-categorical, all-text, wrong delimiter, non-UTF-8 encoding, mixed-type
+column, duplicate headers, or high-missingness data. Every finding in this
+round was found by probing, because nothing in CI probes.
+
+---
+
+## Phase 2 — Improvement Roadmap
+
+Ordered so each item is independently shippable and earlier items make later
+ones cheaper. Effort estimates are rough and assume the existing quality gates
+(`ruff`, `mypy src/`, `pytest tests/`, `scripts/validate.py`) must stay green.
+
+**Deviation from `superpowers:writing-plans`, stated deliberately:** that skill
+produces bite-sized TDD task bodies with literal code for each step. Writing
+that for all ten items would be thousands of lines of speculative code for
+items you may reorder or reject. This is written at roadmap altitude —
+numbered, ranked, with dependencies and breaking-change flags. I'll expand the
+**one item you approve first** into a full `writing-plans` task breakdown at
+that point.
+
+### Prioritised items
+
+| # | Item | Impact | Effort | Depends on | Flags |
+| :-- | :--- | :--- | :--- | :--- | :--- |
+| **1** | Edge-case dataset corpus + fixtures | High | 0.5 d | — | |
+| **2** | Unified reader: one `read_any()` behind all five call sites | **Highest** | 1 d | 1 | **Ask First** |
+| **3** | Type coercion / repair pass | High | 1 d | 2 | |
+| **4** | Statistical rigor: effect sizes, CIs, power, validity checks | **Highest** | 1.5 d | 1 | |
+| **5** | ID-guard fix + data-sufficiency gate | High | 0.5 d | 1 | |
+| **6** | Report restructure: overview, methodology, limitations | High | 1 d | 3 | |
+| **7** | Profiling failure becomes loud + degraded-mode flag | Medium | 0.5 d | 2 | |
+| **8** | Format expansion: JSON / JSONL / Parquet / compressed | Medium | 1 d | 2 | **Ask First** |
+| **9** | Scale policy: row cap, sampling, read-once cache | Medium | 1.5 d | 2 | **Ask First** |
+| **10** | Observability: structured degradation log | Low-Med | 0.5 d | 7 | |
+
+---
+
+**1. Edge-case dataset corpus** *(do this first — it is the regression harness
+every later item is validated against)*
+
+`tests/fixtures/` + a `conftest.py` factory producing: empty, headers-only,
+single-row, single-column, all-categorical, all-text, wrong-delimiter (TSV and
+`;`), cp1252-encoded, mixed-type column, duplicate headers, high-missingness,
+1M-row synthetic, time-series, panel, geo, and high-cardinality frames. Plus a
+`test_data_shapes.py` that asserts, for each, that the pipeline either
+succeeds *or* fails with a clear actionable error — never succeeds on corrupt
+input. Several will fail immediately: that is the point, and they become the
+acceptance criteria for items 2–5.
+
+**2. Unified reader** — *closes U0.1, U0.2, U1.1, U1.2*
+
+New `src/core/io.py` exposing `read_any(path) -> tuple[pd.DataFrame, ReadReport]`:
+extension dispatch → delimiter sniffing (`csv.Sniffer` on a byte sample, with
+explicit `sep` for `.tsv`) → encoding detection (UTF-8, then BOM check, then
+`charset_normalizer`, then cp1252 fallback) → header validation (duplicate
+names, unnamed columns). `ReadReport` carries what was detected and what was
+assumed, so the report can say so (feeds item 6). Replace all five call sites.
+Reconcile the three disagreeing extension allowlists into one constant.
+
+*Breaking-change risk:* every tool's read path changes at once. Mitigated by
+item 1 landing first. *Ask First:* AGENTS.md gates new shared modules in
+`src/core/` and this sits on the boundary between the execution and core
+layers — I'd confirm placement (`src/core/io.py` vs `src/tools/_io.py`) with
+you before writing it, since the layer rules forbid `tools/*` importing from
+`core/` except `memory`.
+
+**3. Type coercion / repair pass** — *closes U0.7, part of U1.4*
+
+A `coerce_types(df) -> tuple[pd.DataFrame, list[Coercion]]` step run once at
+ingestion, before profiling: strip currency symbols/thousands separators →
+numeric; `45.3%` → 0.453 numeric; `Y/N`, `yes/no`, `true/false` → boolean;
+detect mixed-type columns and report the contaminating values rather than
+letting the column degrade to object. Every coercion is *recorded and
+reported*, never silent — same discipline as `treatments_applied`. Profiler
+then classifies the repaired frame.
+
+**4. Statistical rigor** — *closes U0.4*
+
+For every branch of `select_statistical_test`: add effect size (Cohen's d /
+Cramér's V / η² / rank-biserial as the test dictates), bootstrap or analytic
+confidence interval on the effect, a sample-size/power note, and an explicit
+`practical_significance` verdict distinct from `significant` so the p<0.05 /
+d=0.04 case reports honestly. Add chi-square expected-frequency validity check.
+Make the Shapiro subsample random (seeded), not positional. Add
+Benjamini-Hochberg correction across tests within one run. Surface all of it
+in the report's limitations section (item 6).
+
+**5. ID-guard fix + data-sufficiency gate** — *closes U0.3, U1.3*
+
+Replace `uniqueness > 0.95 and is_monotonic` with a check that cannot be
+tripped by sort order: require integer dtype **and** near-perfect uniqueness
+**and** (name hint **or** consecutive-integer spacing) — reuse
+`profiler._is_identifier_like` rather than maintaining a second, worse copy.
+Separately, add a dataset-sufficiency gate in the profiler: below a row-count
+floor, cap the quality score and emit a blocking warning that the report must
+carry, so 0-row and 1-row datasets stop scoring 81/100.
+
+**6. Report restructure** — *closes U0.6*
+
+Pass the `DatasetProfile` and the `ReadReport` into `GenerateReportTool`
+(`prepare_params` already pulls from memory — `data_profile` is in context, so
+this is an injection change, not a signature fight). Add three sections: **Data
+Overview** (shape, column kinds, quality score, missingness, what was
+detected/assumed at read time, what was coerced), **Methodology** (each tool
+that ran, with the planner's own `rationale` for it — currently computed and
+discarded), **Limitations & Caveats** (profile warnings, sufficiency flags,
+effect-size caveats from item 4, anything the unverified-claims validator from
+P0.7 flagged). This is what makes the report explain *why* these analyses, for
+*this* dataset.
+
+**7. Loud profiling failure** — *closes U0.5*
+
+Keep profiling non-fatal, but record `profile_status` in memory context and
+surface "running in degraded mode — dataset-nature tools unavailable, because
+X" in the UI, the report's limitations section, and the log. Add `.tsv` (and
+whatever item 2 supports) to the controller's reader so the most common cause
+disappears.
+
+**8. Format expansion** — JSON/JSONL (with `json_normalize` flattening for
+nested records, depth-capped), Parquet, `.gz`/`.zip` CSV. Needs a decision
+from you on nested data: flatten, or reject with a clear message? **Ask First**
+— this expands the product's supported-input promise, which is a product
+decision, not a code one.
+
+**9. Scale policy** — a configurable row cap with *reported* reservoir
+sampling above it, and a read-once cache keyed on path+mtime so a 9-tool run
+reads once rather than nine times. **Ask First** — sampling changes results,
+so whether that is acceptable (and the default threshold) is your call.
+Note the measurements in U1.5: this is about robustness beyond 1M rows and
+wasted I/O, not a current performance problem.
+
+**10. Observability** — a structured `degradations` list in memory that every
+silent fallback appends to (encoding guessed, delimiter sniffed, profiling
+skipped, sampling applied, tool gated out), rendered in the report and the UI.
+Turns every "silent" in this document into "visible".
+
+### Sequencing
+
+```
+1 (corpus) ──> 2 (reader) ──> 3 (coercion) ──> 6 (report)
+          └──> 4 (rigor) ────────────────────> 6
+          └──> 5 (guards) ───────────────────> 6
+                2 ──> 7 (loud failure) ──> 10 (observability)
+                2 ──> 8 (formats)
+                2 ──> 9 (scale)
+```
+
+Items 1–6 are the core of the brief and are worth doing in order. 7–10 are
+independent follow-ons.
+
+### If only one thing gets done
+
+**Item 2 (unified reader)**, with item 1 as its test harness. U0.1 is the only
+finding in this round where the system produces a confident, complete,
+plausible-looking analysis *of data that does not exist* — and it triggers on
+a file format Excel produces by default across most of Europe.
+
+---
+
+---
+
+# Round 6 — domain layer + capability toggles, residual backlog
+
+Round 6 was not a planned audit round. It is the residue of the session that
+added the semantic domain layer (`src/core/domains.py` + three domain tools) and
+made LLM and ML independently switchable. That session ran the full pipeline
+end-to-end on a retail export and found **4 bugs and 2 flags**.
+
+**The four bugs are fixed and in `master`** (`1bcb739`):
+
+| Bug observed | Fix, and where it lives |
+| :--- | :--- |
+| dd/mm/yyyy dates silently destroyed — 63% of rows to `NaT`, day/month swapped on the survivors | `_detect_date_convention` in `src/core/coercion.py`, returning `date_iso` / `date_dayfirst` / `date_monthfirst` / `date_ambiguous`; the datetime branch runs *before* the numeric rules |
+| A tautological model reported as the best result (CV 0.9969, accuracy 1.0000) | `_detect_target_leakage` in `src/tools/ml_pipeline.py` — per-feature purity (`_LEAKAGE_PURITY = 0.99`) plus a near-perfect-score heuristic |
+| "Trend is increasing" asserted on pure noise (R² = 0.0008) | `_TREND_MIN_R_SQUARED = 0.05` in `src/tools/time_series.py` |
+| AOV reported as 563.20 against a true 76.03 — the order-id role matched `order_date`, so revenue aggregated per *day* | sequential role claiming with an `exclude` set and most-specific-first candidates, consolidated into `domains.resolve_column` |
+
+**The two flags were deliberate non-fixes.** `cross_val_score` keeps `n_jobs=1`
+— measured **4× faster** than `n_jobs=-1` on 16 cores (0.52 s vs 2.06 s), see
+P1.3, which reached the same conclusion independently. The second flag is IQR
+over-flagging skewed data, carried below as item 6.4.
+
+**Naming warning:** the session that produced these called them **P1–P4**, and
+the user refers to them that way. They are renumbered 6.1–6.4 here because
+`P1`–`P4` in this document are priority *tiers* (P1 = Speed, P4 = Test
+coverage). The session labels are noted on each item so both handles resolve.
+
+### Prioritised items
+
+| # | Item | Impact | Effort | Depends on | Flags |
+| :-- | :--- | :--- | :--- | :--- | :--- |
+| **6.1** | Chart panels for `cohort_analysis` / `financial_analysis` / `workforce_analysis` | **Highest** | 0.5 d | — | user-requested |
+| **6.2** | Tests for the domain layer, date coercion, leakage detector, toggles, read cache | High | 1 d | — | |
+| **6.3** | Surface `date_ambiguous` as an explicit warning | Medium | 1 h | — | cheapest |
+| **6.4** | Distribution-aware outlier detection | Medium | 0.5 d | — | **Ask First** |
+
+### 6.1 — Three domain tools compute results that are never charted  *(session "P1")*
+
+`build_dashboard` resolves exactly six tool outputs
+(`src/core/dashboard.py:631-636`): `train_model`, `correlation_analysis`,
+`cluster_data`, `time_series_analysis`, `geospatial_analysis`,
+`dimensionality_analysis`. `cohort_analysis`, `financial_analysis` and
+`workforce_analysis` are absent, so RFM segments and drawdown curves reach the
+reports as prose and tables and never become a chart.
+
+Ranked top because it is the gap the user named directly ("real charts with real
+value"), and because the analysis behind the charts already exists and is
+verified — this is presentation wiring, not new computation.
+
+One `_*_chart` builder per panel, appended to `candidates`: drawdown area +
+cumulative-return line (financial), RFM segment bar + revenue-by-month line
+(cohort), tenure histogram + headcount-by-department bar (workforce). Cap rows
+at `MAX_POINTS` and mind P2.7 — dashboard specs inline raw rows, so each new
+panel adds to artifact size.
+
+### 6.2 — The new code has no tests at all  *(session "P2")*
+
+The suite is green (**326 passed, 1 deselected, 1 warning**, 69 s) and covers
+none of the last two sessions' work. Evidence that does not rot with the count:
+grepping `tests/` for
+`domains|infer_domains|_detect_target_leakage|date_dayfirst|read_cache|use_ml|use_llm`
+matches **zero files**. No `tests/test_domains.py` exists;
+`tests/test_coercion.py` predates the date work and never mentions a convention.
+
+Risk order: date-convention detection (silently rewrites data), the leakage
+detector (needs a true positive *and* a true negative), domain inference
+(structural discriminators + the `resolve_column` exclusion order that fixed
+AOV), the capability toggles (`use_ml=False` must exclude every `requires_ml`
+tool), and `invalidate_read_cache` firing on rewrite — the Windows
+mtime-granularity trap has no test holding it shut.
+
+**Do not merge this with P4.1–P4.2.** Those cover the older untested tools
+(`time_series`, `text_analysis`, `geospatial`, `dimensionality`). 6.2 is
+new-code coverage; the two are separate debts with separate scopes.
+
+### 6.3 — `date_ambiguous` is computed, then rendered as if it were a success  *(session "P3")*
+
+`_detect_date_convention` returns `"date_ambiguous"` (`src/core/coercion.py:172`)
+when no day in the column exceeds 12 — dd/mm and mm/dd are indistinguishable
+from the data, and the parser picks one silently. That verdict reaches the user
+only through the generic coercion line in `src/core/degradations.py:46-50`:
+`Column 'x' repaired from string to datetime (date_ambiguous rule): N converted, 0 left unparsed`
+— which reads as a clean repair. Nothing warns that the dates may be wrong.
+
+Fix: a dedicated branch in the degradation log for datetime coercions carrying
+the ambiguous rule, naming the column and stating the convention could not be
+determined. Worst failure mode in this round (a confidently wrong date axis on
+every chart) against the smallest fix.
+
+### 6.4 — Outlier detection ignores the skew flag the profiler already sets  *(session "P4")*
+
+`detect_outliers` (`src/tools/data_processing.py:286`) applies IQR, z-score or
+isolation-forest with no reference to the column's distribution. On the retail
+fixture it flagged **~22% of revenue rows** — revenue is right-skewed by nature,
+so the tail is the business, not an anomaly.
+
+The profiler already computes what is needed: skewness per column and a
+`severe_skew` flag (`src/core/profiler.py:317-318`, `SEVERE_SKEW_THRESHOLD`),
+surfaced in `to_prompt_string` (`profiler.py:182-184`). `detect_outliers` never
+reads it.
+
+Fix: for a `severe_skew` column, apply IQR to log-transformed values or switch
+to a robust alternative (MAD-based, or asymmetric fences), and report which rule
+was used per column. **Ask First** — the default changes reported outlier counts
+on existing datasets.
 
 ## Round 1 status — verified fixed
 

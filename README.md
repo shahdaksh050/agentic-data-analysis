@@ -8,7 +8,7 @@
 
 This project implements an autonomous AI agent system that performs end-to-end data analysis on user-uploaded datasets. The system leverages large language models (LLMs) for intelligent reasoning and tool orchestration, while delegating computational tasks to specialized Python modules. By separating reasoning from execution, the architecture achieves modularity, scalability, and interpretability in automated data science workflows.
 
-The core innovation lies in the integration of **Recursive Language Model (RLM)** inference patterns, enabling the agent to handle arbitrarily complex analytical workflows. Drawing from recent research (Zhang et al., 2024), RLM is an inference-time paradigm that treats long analysis contexts as part of an external environment, allowing the LLM to programmatically decompose tasks, recursively invoke itself on workflow segments, and process analysis pipelines beyond standard context window limitations. This approach enhances the system's ability to manage multi-step data science workflows with improved efficiency and reduced context saturation.
+The core design is a recursive inference pattern that treats long analysis contexts as part of an external environment, allowing the LLM to programmatically decompose tasks, invoke itself on workflow segments, and process analysis pipelines beyond standard context window limitations. This keeps multi-step data science workflows efficient and avoids context saturation.
 
 ---
 
@@ -29,7 +29,7 @@ There is a critical need for an autonomous system that can intelligently interpr
 
 - Develop an agentic AI system that autonomously performs comprehensive data analysis from raw datasets to actionable insights
 - Implement a modular architecture that strictly separates reasoning (LLM) from execution (Python tools) for maintainability and scalability
-- Apply Recursive Language Model (RLM) inference patterns to handle complex multi-step analytical workflows beyond standard context limitations
+- Apply recursive inference patterns to handle complex multi-step analytical workflows beyond standard context limitations
 - Achieve high accuracy in statistical testing, model selection, and insight generation comparable to expert-level analysis
 - Ensure system interpretability through natural language explanations and structured reporting
 - Enable deployment-ready architecture suitable for production environments
@@ -66,7 +66,7 @@ graph TB
         L[Visualization Tools]
     end
     
-    subgraph "RLM Inference Layer"
+    subgraph "Recursive Inference Layer"
         M[REPL Environment]
         N[Task Decomposer]
         O[Recursive Invoker]
@@ -230,16 +230,15 @@ The agent operates through an iterative **reasoning-execution cycle** that combi
 
 ---
 
-## Recursive Language Model (RLM) Integration
+## Recursive Inference Integration
 
-This system implements **Recursive Language Model (RLM)** inference patterns based on research by Zhang et al. (2024). RLM is an **inference-time paradigm** (not a trained model or reinforcement learning system) that enables processing of complex, multi-step analytical workflows beyond standard LLM context window limitations.
+This system uses a recursive inference pattern: an **inference-time scaffold** (not a trained model or reinforcement learning system) that enables processing of complex, multi-step analytical workflows beyond standard LLM context window limitations.
 
-### What is RLM?
+### What it means here
 
-**Definition** (Zhang et al., 2024):  
-> "Recursive Language Models (RLMs), a general inference paradigm that treats long prompts as part of an external environment and allows the LLM to programmatically examine, decompose, and recursively call itself over snippets of the prompt."
-
-In the context of this data analysis system:
+The idea: treat a long prompt as part of an external environment, and let the
+LLM programmatically examine, decompose, and recursively call itself over
+snippets of it. In this data analysis system:
 - The **"long prompt"** = cumulative analysis context (dataset metadata, intermediate results, prior steps)
 - The **"external environment"** = REPL-like execution environment storing workflow state
 - **"Recursive calls"** = LLM invokes itself on sub-problems (e.g., analyzing specific feature subsets)
@@ -248,7 +247,7 @@ In the context of this data analysis system:
 
 ```mermaid
 graph TB
-    subgraph "RLM Inference Scaffold"
+    subgraph "Recursive Inference Scaffold"
         A[Analysis Context] -->|Stored as variable| B[REPL Environment]
         B --> C[LLM Root Call]
         C -->|Generates code| D{Task Decomposition}
@@ -347,7 +346,7 @@ sequenceDiagram
 
 ### Implementation Highlights
 
-The system implements three core RLM design principles from Zhang et al. (2024):
+The system implements three core design principles:
 
 **Principle 1: Symbolic Prompt Handling**
 - Analysis context stored as Python dictionaries/objects in execution environment
@@ -413,11 +412,6 @@ def analyze_cancer_data(metadata):
 | **Scalability** | Limited by context window (~128K tokens) | Unbounded (processes 10M+ token workflows) |
 | **Error Recovery** | Retry entire workflow | Retry specific failed sub-calls |
 
-### References
-
-This implementation is inspired by:
-
-**Zhang, A. L., Kras Timka, T., & Khattab, O. (2024)**. *Recursive Language Models*. arXiv preprint arXiv:2512.24601v2.  
 Key contributions:
 - Formal definition of RLM as inference-time scaffold
 - Algorithm for REPL-based prompt offloading
@@ -816,7 +810,7 @@ graph LR
    - Retail: Market basket analysis, demand forecasting
 
 6. **Native RLM Model Training**
-   - Fine-tune models to operate natively as RLMs (following Zhang et al., 2024)
+   - Fine-tune models to operate natively with recursive decomposition
    - Improve programmatic task decomposition capabilities
    - Enable more efficient recursive invocation patterns
 
@@ -845,7 +839,7 @@ This project showcases expertise across multiple domains critical for modern AI 
 
 ### AI & Machine Learning
 - **Agentic AI Systems**: Design and implementation of autonomous decision-making agents
-- **Recursive Language Models**: Inference-time optimization for complex workflow handling
+- **Recursive inference**: Inference-time optimization for complex workflow handling
 - **LLM Integration**: Prompt engineering, structured output parsing, API orchestration
 - **Statistical Analysis**: Hypothesis testing, effect size calculation, assumption validation
 - **ML Pipeline Development**: End-to-end model training, evaluation, and deployment
@@ -913,9 +907,7 @@ Permission is hereby granted to use, copy, modify, merge, publish, distribute, s
 
 - **LLM Providers**: OpenAI, Anthropic for API access
 - **Open Source Community**: Contributors to pandas, scikit-learn, and visualization libraries
-- **Academic Research**: 
-  - Zhang et al. (2024) for Recursive Language Models framework
-  - Papers on agentic AI and tool-augmented LLMs
+- **Academic Research**: Papers on agentic AI and tool-augmented LLMs
 
 ---
 
@@ -942,37 +934,5 @@ If you use this project in your research or application, please cite:
 }
 ```
 
-If you use the RLM inference patterns, please also cite the original paper:
-
-```bibtex
-@article{zhang2024recursive,
-  title={Recursive Language Models},
-  author={Zhang, Alex L. and Kraşka, Tim and Khattab, Omar},
-  journal={arXiv preprint arXiv:2512.24601},
-  year={2024},
-  url={https://arxiv.org/abs/2512.24601}
-}
-```
 
 ---
-
-## References
-
-**Zhang, A. L., Kraşka, T., & Khattab, O. (2024).** Recursive Language Models. *arXiv preprint arXiv:2512.24601v2*.  
-Available at: https://arxiv.org/html/2512.24601v2  
-
-Key contributions from this paper:
-- Formal definition of RLM as an inference-time scaffold architecture
-- Algorithm for REPL-based prompt offloading to external environments
-- Three core design principles: symbolic prompt handling, programmatic recursion, and persistent state management
-- Empirical demonstration of scaling to 10M+ token contexts without performance degradation
-
----
-
-<div align="center">
-
-**Built with ❤️ for autonomous data science**
-
-[⬆ Back to Top](#agentic-ai-powered-autonomous-data-analysis-and-interpretation-system)
-
-</div>

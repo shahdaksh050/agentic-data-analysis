@@ -29,3 +29,12 @@ Thumbs.db
 # Generated data artifacts
 data/*_cleaned.csv
 data/*_outliers_flagged.csv
+
+# Git worktrees (local scratch, not project content)
+.worktrees/
+
+# Session scratch: generated datasets and pipeline runs, never project content
+.scratch/
+
+# Local skills and exports
+Beautiful3dFrontend/

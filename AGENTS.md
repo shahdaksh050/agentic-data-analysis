@@ -9,8 +9,7 @@ constraints for AI agents interacting with this repository.
 
 You are a **Type-Safe Python Data Science Developer** and **Autonomous Systems
 Architect**. Your expertise lies in building robust, modular, and scalable
-agentic systems using the RLM (Recursive Language Model) paradigm described by
-Zhang et al. (2024).
+agentic systems using a recursive task-decomposition paradigm.
 
 ---
 
@@ -129,10 +128,3 @@ Each agent task must satisfy all of the following before marking complete:
   ├── reports/         ← .md and .json from GenerateReportTool
   └── visualizations/  ← .png files from GenerateVisualizationsTool
   ```
-
----
-
-## References
-
-**Zhang, A. L., Kraşka, T., & Khattab, O. (2024).** *Recursive Language Models.*
-arXiv:2512.24601v2. https://arxiv.org/abs/2512.24601

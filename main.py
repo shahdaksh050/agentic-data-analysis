@@ -34,10 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         type=str,
-        default="openai",
+        default=None,
         choices=["openai", "anthropic", "gemini", "openrouter", "nvidia", "local", "ollama"],
-        help="LLM provider (default: openai). Use 'local' or 'ollama' for an "
-             "offline/self-hosted OpenAI-compatible server — see LOCAL_LLM_BASE_URL.",
+        help="LLM provider. Defaults to LLM_PROVIDER in .env. Use 'local' or "
+             "'ollama' for an offline/self-hosted OpenAI-compatible server — "
+             "see LOCAL_LLM_BASE_URL.",
     )
     parser.add_argument("--model", type=str, default=None, help="Override LLM model name.")
     parser.add_argument(
@@ -54,7 +55,20 @@ def parse_args() -> argparse.Namespace:
         help='Natural-language analysis goal, e.g. "what drives customer churn?".',
     )
     parser.add_argument("--max-iterations", type=int, default=15, help="Max reasoning-execution cycles.")
-    parser.add_argument("--no-rlm", action="store_true", help="Disable RLM inference (flat loop).")
+    parser.add_argument("--no-rlm", action="store_true", help="Disable recursive decomposition (flat loop).")
+    parser.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="Run fully deterministically: no LLM calls at all. The plan comes "
+             "from the dataset profile and domain inference, and the report is "
+             "synthesised from tool output.",
+    )
+    parser.add_argument(
+        "--no-ml",
+        action="store_true",
+        help="Skip every model-fitting tool (training, clustering, PCA). "
+             "Much faster; statistical and domain analyses still run.",
+    )
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -69,8 +83,7 @@ def _print_banner() -> None:
     console.print(
         Panel(
             "[bold cyan]Agentic Data Analysis System[/]\n"
-            "[dim]Powered by Recursive Language Model Inference (Zhang et al., 2024)[/]\n"
-            "[dim]Separation of reasoning ↔ execution — RLM context offloading enabled[/]",
+            "[dim]Separation of reasoning ↔ execution — context offloading enabled[/]",
             border_style="cyan",
             expand=False,
         )
@@ -137,7 +150,12 @@ def main() -> None:
     # Apply CLI overrides to environment
     if args.model:
         os.environ["LLM_MODEL"] = args.model
-    os.environ["LLM_PROVIDER"] = args.provider
+    # Only override .env when the flag was actually passed. A CLI default of
+    # "openai" used to overwrite LLM_PROVIDER on every run, so a .env
+    # configured for another provider was silently ignored and the run failed
+    # with an auth error against a provider the user never selected.
+    if args.provider:
+        os.environ["LLM_PROVIDER"] = args.provider
     if args.local_base_url:
         os.environ["LOCAL_LLM_BASE_URL"] = args.local_base_url
     os.environ["MAX_ITERATIONS"] = str(args.max_iterations)
@@ -155,6 +173,12 @@ def main() -> None:
         max_iterations=args.max_iterations,
         enable_rlm=not args.no_rlm,
         memory_persist_path=args.persist,
+        use_llm=not args.no_llm,
+        use_ml=not args.no_ml,
+    )
+    console.print(
+        f"  [dim]Mode: LLM {'on' if agent.use_llm else 'OFF'} · "
+        f"ML {'on' if agent.use_ml else 'OFF'}[/]"
     )
 
     # ---- Stage 1: Dataset Ingestion ----
