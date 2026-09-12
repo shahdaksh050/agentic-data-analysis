@@ -3,8 +3,9 @@
 ## Isolated Compute Sandbox — COMPLETE (all 4 tasks committed)
 
 Worktree `.worktrees/isolated-compute-sandbox`, branch
-`isolated-compute-sandbox`, branched from `master` at `1ae9461`. **Not yet
-merged to master.**
+`isolated-compute-sandbox`, branched from `master` at `1ae9461`. **Merged
+and in `master`** — `eff3c72` (merge of `daksh/updates`) is an ancestor of
+`master` at `1bcb739`. Nothing here is outstanding work.
 
 - Task 1 `965031f` — SandboxResult + static pre-check. Reviewed, clean.
 - Task 2 `d9154bb` — restricted worker script. Reviewed: spec compliant,
@@ -108,8 +109,135 @@ user explicitly deferred this; `src/core/io.SUPPORTED_EXTENSIONS` is still
 results and the plan marks it ASK FIRST); only the uncontroversial
 read-once cache landed. The domain layer and these changes have **no
 committed tests** — verification was manual and cross-checked, but it lives
-in the session transcript, not the repo. The 317 passing tests include zero
-domain-layer tests.
+in the session transcript, not the repo. The suite (now **326 passed, 1 deselected**)
+includes zero domain-layer tests — see Round 6 item 6.2 below.
+
+## Round 6 — open follow-ups (the "P1–P4" items from the 2026-09-12 session)
+
+The session that added the domain layer and the LLM/ML toggles closed with an
+end-to-end audit on a retail export that found **4 bugs and 2 flags**. All four
+bugs are **fixed and in master**:
+
+| Bug observed | Root cause | Fix |
+| :--- | :--- | :--- |
+| dd/mm/yyyy dates silently destroyed — 63% of rows to `NaT`, day/month swapped on the survivors | dates parsed with pandas' default month-first convention | date-convention detection in `src/core/coercion.py` (`_detect_date_convention` → `date_iso` / `date_dayfirst` / `date_monthfirst` / `date_ambiguous`) |
+| A tautological model reported as the best result (CV 0.9969, accuracy 1.0000) | a feature derived from the target was never detected | `_detect_target_leakage` in `src/tools/ml_pipeline.py` — per-feature purity plus a near-perfect-score heuristic |
+| "Trend is increasing" asserted on pure noise (R² = 0.0008) | trend direction reported with no fit-quality floor | `_TREND_MIN_R_SQUARED = 0.05` in `src/tools/time_series.py`; below it the tool reports "No clear trend" |
+| AOV reported as 563.20 against a true 76.03 | the order-id role matched `order_date` (`"order" in ["order","date"]`), so revenue aggregated per *day* | sequential role claiming with an `exclude` set, most-specific-first candidates, consolidated into `domains.resolve_column` |
+
+The **2 flags** were deliberate non-fixes and both still stand. `cross_val_score`
+keeps `n_jobs=1`: measured **4× faster** than `n_jobs=-1` on 16 cores (0.52 s vs
+2.06 s) because Windows process-spawn overhead dominates and the estimators
+already parallelise internally — do not "optimise" this back. The second flag is
+IQR over-flagging skewed data, which is item 6.4 below.
+
+What remains is the four items here. They are numbered 6.1–6.4 to match the
+Round 2/3/4/5 convention; the session that produced them called them **P1–P4**,
+noted on each heading so the original labels stay findable. Note that `P1`–`P4`
+in `IMPROVEMENTS.md` mean something entirely different — priority *tiers*
+(P1 = Speed, P4 = Test coverage). These are not those.
+
+`IMPROVEMENTS.md` carries the same four items as a ranked backlog and is the
+**authoritative copy** — update Round 6 there first, and treat this section as
+the session-state summary of it.
+
+### 6.1 — Chart panels for the three domain tools  *(session "P1")*
+
+`build_dashboard` resolves exactly six tool outputs
+(`src/core/dashboard.py:631-636`): `train_model`, `correlation_analysis`,
+`cluster_data`, `time_series_analysis`, `geospatial_analysis`,
+`dimensionality_analysis`. The three domain tools added last session —
+`cohort_analysis`, `financial_analysis`, `workforce_analysis` — are **not among
+them**. Their output reaches the Markdown and HTML reports as prose and tables,
+but never becomes a chart.
+
+This is the item the user cared about most ("real charts with real value"): the
+system now computes RFM segments and drawdown curves and then draws none of them.
+
+Proposed panels — one `_*_chart` builder each, appended to the `candidates` list:
+
+- `financial_analysis` → drawdown area chart (the series is already computed
+  inside `_max_drawdown`) and a cumulative-return line.
+- `cohort_analysis` → RFM segment bar (customer count per segment) and a
+  revenue-by-month line.
+- `workforce_analysis` → tenure histogram and a headcount-by-department bar.
+
+Effort ~0.5 d. Follow the existing builders' shape: take the tool output dict,
+return `ChartSpec | None`, cap rows at `MAX_POINTS`. Watch `_records` /
+`_to_primitive` — dashboard specs inline raw rows, the known size problem
+tracked as P2.7 in `IMPROVEMENTS.md`.
+
+### 6.2 — Tests for everything added in the last two sessions  *(session "P2")*
+
+The suite is green — **326 passed, 1 deselected, 1 warning, 69 s** — and covers
+**none** of the new code. The durable evidence, independent of the test count:
+grepping `tests/` for
+`domains|infer_domains|_detect_target_leakage|date_dayfirst|read_cache|use_ml|use_llm`
+matches **zero files**. There is no `tests/test_domains.py`, and
+`tests/test_coercion.py` predates the date work — it never mentions a date
+convention.
+
+Untested, in rough risk order:
+
+1. **Date-convention detection** (`coercion.py`) — it silently rewrites data, so
+   a wrong call corrupts every number downstream. That is precisely the bug it
+   was written to fix, now guarded by nothing.
+2. **Target-leakage detector** (`ml_pipeline.py`) — needs both a true positive
+   (a leaked column is caught) and a true negative (a legitimately strong
+   feature is not flagged).
+3. **Domain inference** (`domains.py`) — the structural cardinality
+   discriminators, and the `resolve_column` exclusion ordering that fixed AOV.
+4. **Capability toggles** (`controller.py`) — that `use_ml=False` really excludes
+   every `requires_ml` tool, and that `default_params` stops the deterministic
+   planner scheduling steps it cannot fill.
+5. **Read cache** (`io.py`) — specifically that `invalidate_read_cache` fires on
+   rewrite. The Windows mtime-granularity trap is documented above and has no
+   test holding it shut.
+
+This is **distinct from P4.1–P4.2** in `IMPROVEMENTS.md`, which is the older test
+debt for `time_series`, `text_analysis`, `geospatial` and `dimensionality`. Keep
+the two entries separate: 6.2 is new-code coverage, P4.1 is old-tool coverage.
+
+Effort ~1 d. The Round 5 fixtures corpus (`tests/fixtures`, 19 factories) is the
+natural place to build from.
+
+### 6.3 — `date_ambiguous` never reaches the user as a warning  *(session "P3")*
+
+`_detect_date_convention` returns `"date_ambiguous"` when a date column has no
+day greater than 12 anywhere (`src/core/coercion.py:172`) — meaning dd/mm and
+mm/dd are indistinguishable from the data itself, and the parse is a coin flip
+that silently picks one.
+
+That verdict currently reaches the user only through the generic coercion line in
+`src/core/degradations.py:46-50`, rendered as
+`Column 'x' repaired from string to datetime (date_ambiguous rule): N converted, 0 left unparsed`
+— which reads like a clean success. Nothing anywhere says "these dates may be
+wrong."
+
+Fix: a dedicated branch in the degradation log that emits an explicit warning
+when `to_kind` is datetime and the rule is ambiguous, naming the column and
+stating that the convention could not be determined from the data. ~1 h. The
+cheapest item here and the one with the worst failure mode — a confidently wrong
+date axis on every chart, with no hint that anything is off.
+
+### 6.4 — Outlier detection ignores the skew flag the profiler already computes  *(session "P4")*
+
+`detect_outliers` (`src/tools/data_processing.py:286`) applies IQR, z-score or
+isolation-forest as asked, with no reference to the column's distribution. On the
+retail fixture this flagged **~22% of revenue rows** as outliers. Revenue is
+right-skewed by nature — the long tail *is* the business, not an anomaly — and a
+22% outlier rate is a broken detector, not a finding.
+
+The profiler already knows this: it computes skewness and sets a `severe_skew`
+flag per column (`src/core/profiler.py:317-318`, threshold
+`SEVERE_SKEW_THRESHOLD`) and even surfaces it in `to_prompt_string`
+(`profiler.py:182-184`). `detect_outliers` never reads it.
+
+Fix: make the method distribution-aware. For a `severe_skew` column, either apply
+IQR to log-transformed values or switch to a robust alternative (MAD-based, or
+asymmetric fences), and state in the summary which rule was used per column.
+Effort ~0.5 d. The default choice is a judgement call that changes reported
+numbers — confirm the approach before coding.
 
 ## Round 5 — SUBSTANTIALLY COMPLETE (the section below is STALE)
 
@@ -126,9 +254,11 @@ below for the original detail, not for current status.
 
 ---
 
-# Session Handover") is a separate, ongoing piece of
-work (Round 5 hardening) — see "Relationship to Round 5" at the end of this
-section for how the two connect.
+# Session Handover — Isolated Compute Sandbox (historical detail)
+
+Round 5 hardening is a separate, ongoing piece of work — see
+"Relationship to Round 5" at the end of this section for how the two
+connect.
 
 ## What this is
 
