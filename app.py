@@ -98,7 +98,7 @@ def _inject_theme_css(theme: str = "day") -> None:
     sheet       = "#2f251a" if is_night else "#fffbf2"
     sheet_alt   = "#3a2e1f" if is_night else "#f1e4cb"
     ink         = "#f3e9d8" if is_night else "#3a2b1e"
-    graphite    = "#b8a688" if is_night else "#8a7660"
+    graphite    = "#d0c2a8" if is_night else "#8a7660"
     pen         = "#f0a24a" if is_night else "#a34f20"
     pen_hover   = "#ffb86b" if is_night else "#7e3d18"
     risk        = "#e2685a" if is_night else "#a33526"
@@ -263,21 +263,25 @@ code, kbd, pre, .stCode {{ font-family: var(--mono) !important; }}
 }}
 
 /* ── Tabs ── */
-.stTabs [data-baseweb="tab-list"] {{
-    gap: 6px; background: var(--sheet-alt); border-radius: var(--radius-pill);
-    padding: 5px; overflow-x: auto; border: none;
+.stTabs [role="tablist"] {{
+    gap: 0 !important; background: var(--sheet-alt) !important; border-radius: var(--radius-pill) !important;
+    padding: 6px !important; overflow-x: auto; border: none; border-bottom: none !important;
+    display: flex !important; width: 100% !important;
 }}
-.stTabs [data-baseweb="tab"] {{
-    border-radius: var(--radius-pill); padding: 8px 18px; background: transparent;
-    border: none; transition: all 0.14s ease;
+.stTabs [role="tab"] {{
+    flex: 1 1 0px !important; justify-content: center !important; text-align: center !important;
+    border-radius: var(--radius-pill) !important; padding: 6px 16px !important; background-color: transparent !important;
+    border: none !important; transition: all 0.14s ease; margin: 0 !important; outline: none !important;
 }}
-.stTabs [data-baseweb="tab"] p {{ font-size: 14px; font-weight: 700;
-                                 color: var(--graphite); letter-spacing: 0; }}
-.stTabs [data-baseweb="tab"]:hover p {{ color: var(--ink); }}
-.stTabs [aria-selected="true"] {{ background: var(--pen) !important; }}
-.stTabs [aria-selected="true"] p {{ color: var(--sheet) !important; }}
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] {{ display: none; }}
-.stTabs [data-baseweb="tab-panel"] {{ padding-top: 1.5rem; }}
+.stTabs [role="tab"]:last-child {{ margin-right: 0 !important; }}
+.stTabs [role="tab"]:focus, .stTabs [role="tab"]:focus-visible {{ outline: none !important; }}
+.stTabs [role="tab"] p {{ font-size: 14.5px; font-weight: 700;
+                                 color: var(--graphite) !important; letter-spacing: 0; margin: 0 !important; }}
+.stTabs [role="tab"]:hover p {{ color: var(--ink) !important; }}
+.stTabs [role="tab"][aria-selected="true"] {{ background-color: var(--pen) !important; }}
+.stTabs [role="tab"][aria-selected="true"] p {{ color: var(--sheet) !important; }}
+.stTabs [data-testid="stTabIndicator"] {{ display: none !important; }}
+.stTabs [data-testid="stTabsContent"] {{ padding-top: 1.5rem; }}
 
 /* ── 3D & Viewport Enhancements ── */
 iframe {{
@@ -298,9 +302,18 @@ iframe:hover {{
 }}
 [data-testid="stFileUploaderDropzone"]:hover {{ border-color: var(--pen);
                                                background: var(--sheet); }}
+[data-testid="stFileUploader"] button {{
+    background: var(--sheet) !important; border: 1px solid var(--rule) !important; color: var(--ink) !important;
+}}
+[data-testid="stFileUploader"] button:hover {{
+    background: var(--sheet-alt) !important; border-color: var(--pen) !important;
+}}
 .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {{
     border-radius: 10px !important; border-color: var(--rule) !important;
     background: var(--sheet) !important; color: var(--ink) !important;
+}}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {{
+    color: var(--graphite) !important; opacity: 0.8 !important;
 }}
 .stTextInput input:focus, .stTextArea textarea:focus {{ border-color: var(--pen) !important; }}
 
@@ -486,12 +499,12 @@ iframe:hover {{
 }}
 
 /* ── Cards ── */
-[data-testid="stExpander"] details {{
-    background: var(--sheet); border: 1px solid var(--rule) !important;
+[data-testid="stExpander"] {{
+    background: var(--sheet) !important; border: 1px solid var(--rule) !important;
     border-radius: var(--radius); box-shadow: var(--lift-sm);
 }}
-[data-testid="stExpander"] summary {{ font-weight: 700; font-size: 14.5px; }}
-[data-testid="stExpander"] summary:hover {{ color: var(--pen); }}
+[data-testid="stExpander"] summary {{ font-weight: 700; font-size: 14.5px; color: var(--ink) !important; }}
+[data-testid="stExpander"] summary:hover {{ color: var(--pen) !important; }}
 [data-testid="stCode"] pre, pre {{
     background: var(--code-bg) !important; border: 1px solid var(--rule);
     border-radius: 10px; font-size: 12.5px; color: var(--ink) !important;
@@ -519,14 +532,14 @@ iframe:hover {{
 .sc {{ display: flex; align-items: center; gap: 12px;
       padding: .6rem .2rem; border-bottom: 1px solid var(--rule-faint);
       font-size: 14.5px; color: var(--graphite); }}
-.sc .sc-num {{ font-family: var(--sans); font-size: 12px; font-weight: 700; color: var(--sheet);
+.sc .sc-num {{ font-family: var(--sans); font-size: 12px; font-weight: 700; color: var(--ink);
               flex: none; width: 1.8em; height: 1.8em; display: flex; align-items: center;
-              justify-content: center; border-radius: 50%; background: var(--rule); }}
+              justify-content: center; border-radius: 50%; background: var(--rule); border: 1px solid transparent; }}
 .sc .nm {{ color: var(--ink); font-weight: 600; }}
 .sc .detail {{ margin-left: auto; font-size: 12px;
               color: var(--graphite); text-align: right; padding-left: 1rem; }}
-.sc.done  .sc-num {{ background: var(--pen); }}
-.sc.active .sc-num {{ background: var(--pen); }}
+.sc.done  .sc-num {{ background: var(--pen); color: var(--sheet); }}
+.sc.active .sc-num {{ background: var(--pen); color: var(--sheet); }}
 .sc.active {{ background: color-mix(in srgb, var(--pen) 6%, transparent); border-radius: 10px; }}
 .sc.active .nm::after {{ content: " — working"; font-weight: 400;
                         color: var(--pen); font-size: 12.5px; }}
@@ -572,6 +585,14 @@ iframe:hover {{
 .empty .steps div {{ background: var(--sheet); border: 1px solid var(--rule);
                      border-radius: var(--radius-pill); padding: .4rem 1rem;
                      font-size: 13px; font-weight: 600; color: var(--graphite); }}
+
+@media (max-width: 600px) {{
+    .datum {{ flex-direction: column; }}
+    .datum .cell {{ border-right: none; border-bottom: 1px solid var(--rule-faint); padding: .8rem 1.1rem; }}
+    .datum .cell:last-child {{ border-bottom: none; }}
+    .agent-grid {{ grid-template-columns: 1fr; }}
+    .side-head {{ margin: 1.2rem 0 .5rem; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -594,6 +615,7 @@ _DEFAULTS: dict[str, Any] = {
     "tmp_dir":        None,
     "progress_lines": [],
     "llm_warning":    None,
+    "from_uploader":  False,
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -706,9 +728,21 @@ def _stage_card(num: str, name: str,
     cls = {"done": "done", "active": "active",
            "skipped": "skip", "error": "err"}.get(status, "")
     det = f'<span class="detail">{detail}</span>' if detail else ""
-    return (f'<div class="sc {cls}">'
+    aria = ' aria-live="polite"' if status == "active" else ""
+    return (f'<div class="sc {cls}"{aria}>'
             f'<span class="sc-num">{num.zfill(2)}</span>'
             f'<span class="nm">{name}</span>{det}</div>')
+
+
+def _render_steps_list(stage_log: list[tuple[str, str, str]]) -> str:
+    """Render the primary, always-visible numbered steps list."""
+    log_map = {n: (s, d) for n, s, d in stage_log}
+    html_out = ['<div aria-live="polite" aria-atomic="false">']
+    for num, name in STAGE_DEFS:
+        status, detail = log_map.get(num, ("pending", ""))
+        html_out.append(_stage_card(num, name, status, detail))
+    html_out.append('</div>')
+    return "".join(html_out)
 
 
 def _datum(cells: list[tuple[str, str]]) -> str:
@@ -936,9 +970,19 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
     """Render visual architecture cards for the autonomous multi-agent teamwork roster."""
     log_map = {n: s for n, s, _ in stage_log}
 
+    # SVG simple line icons using --ink or --pen styling (currentColor)
+    i_compass = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>'
+    i_shield = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
+    i_ruler = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.3 15.3l-7.6-7.6a2 2 0 0 0-2.8 0l-1.6 1.6a2 2 0 0 0 0 2.8l7.6 7.6c.8.8 2 .8 2.8 0l1.6-1.6a2 2 0 0 0 0-2.8Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>'
+    i_zap = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
+    i_search = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
+    i_repeat = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>'
+    i_globe = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
+    i_chart = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
+
     agents = [
         {
-            "icon": "🧭",
+            "icon": i_compass,
             "name": "Planner",
             "role": "Plans the approach",
             "desc": "Reads your question and breaks it into a step-by-step plan, then decides when enough checking has been done.",
@@ -946,7 +990,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Reasoning",
         },
         {
-            "icon": "🛡️",
+            "icon": i_shield,
             "name": "File Checker",
             "role": "Checks your file is safe and healthy",
             "desc": "Makes sure your file is safe to open, figures out what each column means, spots anything unusual, and gives your data a health score out of 100.",
@@ -954,7 +998,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Checks & cleans",
         },
         {
-            "icon": "📐",
+            "icon": i_ruler,
             "name": "Fact-Checker",
             "role": "Tests what's actually true",
             "desc": "Runs the right statistical tests to check whether a pattern is real or could just be chance, and finds which columns move together.",
@@ -962,7 +1006,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Statistical tests",
         },
         {
-            "icon": "⚡",
+            "icon": i_zap,
             "name": "Model Builder",
             "role": "Builds and tests prediction models",
             "desc": "Trains several different prediction models and tests each one on different slices of your data, so a lucky guess doesn't get mistaken for a good model.",
@@ -970,7 +1014,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Model training",
         },
         {
-            "icon": "🔍",
+            "icon": i_search,
             "name": "Reality-Checker",
             "role": "Catches models that just memorised",
             "desc": "Compares how each model does on data it trained on versus data it's never seen. If a model only looks good because it memorised the examples, this agent flags it and marks it down.",
@@ -978,7 +1022,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Model checking",
         },
         {
-            "icon": "🔁",
+            "icon": i_repeat,
             "name": "Double-Checker",
             "role": "Goes back for another pass",
             "desc": "Looks at what's been found so far, and if there are loose ends or your question isn't fully answered yet, sends the work back for another round.",
@@ -986,7 +1030,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Another pass",
         },
         {
-            "icon": "🌐",
+            "icon": i_globe,
             "name": "Detail Handler",
             "role": "Handles the tricky, many-part questions",
             "desc": "When a question has too many moving parts to answer in one go, this splits it into smaller pieces, solves each one separately, and brings the answers back together.",
@@ -994,7 +1038,7 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             "tool": "Splitting up work",
         },
         {
-            "icon": "📊",
+            "icon": i_chart,
             "name": "Report Writer",
             "role": "Builds your charts and report",
             "desc": "Builds charts that fit your data, then puts everything together into the report you can download and share.",
@@ -1167,6 +1211,7 @@ def _load_teamwork_preview() -> None:
     st.session_state["preview_name"] = "sample_customer_churn.csv"
     st.session_state["orig_name"] = "sample_customer_churn.csv"
     st.session_state["preview_bytes"] = raw_bytes
+    st.session_state["from_uploader"] = False
 
     tmp = tempfile.mkdtemp()
     st.session_state["tmp_dir"] = tmp
@@ -1433,6 +1478,17 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
+    if uploaded is None and st.session_state["preview_df"] is None:
+        if st.button("📂 Try a sample dataset", width='stretch'):
+            sample_path = ROOT / "data" / "sample_customer_churn.csv"
+            if sample_path.exists():
+                st.session_state["preview_df"], _ = read_any(str(sample_path))
+                st.session_state["preview_name"] = "sample_customer_churn.csv"
+                st.session_state["orig_name"] = "sample_customer_churn.csv"
+                st.session_state["preview_bytes"] = sample_path.read_bytes()
+                st.session_state["from_uploader"] = False
+                st.rerun()
+
     # Persist to session_state immediately on upload / clear on removal.
     # Every upload passes through src.core.security before touching disk:
     # extension allowlist, size ceiling, magic-byte sniffing, safe filename.
@@ -1466,10 +1522,14 @@ with st.sidebar:
                 except Exception as _e:
                     st.session_state["preview_df"] = None
                     st.error(f"Could not read file: {_e}")
+                st.session_state["from_uploader"] = True
     else:
-        if st.session_state.get("orig_name"):
+        if st.session_state.get("orig_name") and st.session_state.get("from_uploader"):
+            _theme = st.session_state.get("theme", "day")
             for _k2, _v2 in _DEFAULTS.items():
                 st.session_state[_k2] = _v2
+            st.session_state["theme"] = _theme
+            st.session_state["from_uploader"] = False
 
     target_col = st.text_input(
         "Target column",
@@ -1634,14 +1694,6 @@ with st.sidebar:
         st.rerun()
 
     if not has_file:
-        if st.button("📂 Load Sample Data", width='stretch'):
-            sample_path = ROOT / "data" / "sample_customer_churn.csv"
-            if sample_path.exists():
-                st.session_state["preview_df"], _ = read_any(str(sample_path))
-                st.session_state["preview_name"] = "sample_customer_churn.csv"
-                st.session_state["orig_name"] = "sample_customer_churn.csv"
-                st.session_state["preview_bytes"] = sample_path.read_bytes()
-                st.rerun()
         st.caption("Upload a CSV/Excel file or click \"See a Sample Report\" above.")
     elif not has_key:
         st.caption("Add your API key to enable the run.")
@@ -1673,6 +1725,7 @@ with hero_text:
 # script pass, so the drawing is filled into this placeholder afterwards — that
 # way it shows the state of the run that just happened.
 with hero_plate.container(key="plate"):
+    steps_list_slot = st.empty()
     pipeline_slot = st.empty()
 
 # The datum line under the hero carries the run's readings, filled at the same
@@ -1770,12 +1823,24 @@ if run_clicked:
     # ── Collect progress lines into session state (no st.write during run) ─
     _progress_lines: list[str] = []
 
+    def _upd_live_ui() -> None:
+        """Update the steps list in the hero placeholder during a run."""
+        steps_list_slot.markdown(_render_steps_list(st.session_state["stage_log"]), unsafe_allow_html=True)
+
     def _upd(num: str, s: str, detail: str = "") -> None:
         _set_stage(num, s, detail)
         _ico = {"done": "[done]", "active": "[run ]", "error": "[fail]",
                 "skipped": "[skip]"}.get(s, "[    ]")
         _nm  = next(n for no, n in STAGE_DEFS if no == num)
         _progress_lines.append(f"{_ico} Stage {num}: {_nm}" + (f"  {detail}" if detail else ""))
+        _upd_live_ui()
+
+    # Set up the expander right away
+    with pipeline_slot.container():
+        with st.expander("Show how it's working", expanded=False):
+            _draw_pipeline_rig(st.empty())
+            st.markdown("#### The Team at Work")
+            st.markdown(_render_agent_grid([]), unsafe_allow_html=True)
 
     # ── LLM preflight — fail fast with the REAL error instead of running
     #    the whole pipeline on the deterministic fallback ──────────────────
@@ -1832,6 +1897,13 @@ if run_clicked:
         def _on_step(tool_name: str, status: str, detail: str) -> None:
             _set_stage("3", "active", detail)
             _progress_lines.append(f"       {'ok  ' if status=='success' else '... '}{detail}")
+            _upd_live_ui()
+            if tool_name == "train_model":
+                _spinner_ph.markdown(
+                    '<div class="run-banner">Running the analysis'
+                    '<span class="sub">Still working — training models can take a few minutes depending on the data size...</span></div>',
+                    unsafe_allow_html=True,
+                )
 
         def _on_iter(iteration: int, stage: str) -> None:
             if "stage2" in stage:
@@ -1841,6 +1913,13 @@ if run_clicked:
                 _set_stage("4", "active", f"iter {iteration} — interpreting results…")
                 _set_stage("5", "active", f"iter {iteration} — refining plan…")
                 _progress_lines.append(f"[run ] Iteration {iteration}: interpreting and refining")
+            _upd_live_ui()
+            if iteration > 1:
+                _spinner_ph.markdown(
+                    '<div class="run-banner">Running the analysis'
+                    '<span class="sub">Still working — refining answers can take a few minutes...</span></div>',
+                    unsafe_allow_html=True,
+                )
 
         agent.on_step_callback      = _on_step
         agent.on_iteration_callback = _on_iter
@@ -1896,10 +1975,22 @@ if run_clicked:
 # ══════════════════════════════════════════════════════════════════════════════
 # HERO PLATE & DATUM REFRESH
 # ══════════════════════════════════════════════════════════════════════════════
-stages_3d = _draw_pipeline_rig(pipeline_slot)
+_done = sum(1 for _, s, _ in st.session_state["stage_log"] if s == "done")
+_errored = any(s == "error" for _, s, _ in st.session_state["stage_log"])
+_running = any(s == "active" for _, s, _ in st.session_state["stage_log"])
+
+if st.session_state.get("analysis_done") or _errored or _running:
+    steps_list_slot.markdown(_render_steps_list(st.session_state["stage_log"]), unsafe_allow_html=True)
+    with pipeline_slot.container():
+        with st.expander("Show how it's working", expanded=False):
+            _draw_pipeline_rig(st.empty())
+            st.markdown("#### The Team at Work")
+            st.markdown(_render_agent_grid(st.session_state["stage_log"]), unsafe_allow_html=True)
+else:
+    steps_list_slot.empty()
+    stages_3d = _draw_pipeline_rig(pipeline_slot)
 
 # The datum line: the same run state as the drawing, in words and figures.
-_done = sum(1 for _, s, _ in st.session_state["stage_log"] if s == "done")
 _errored = any(s == "error" for _, s, _ in st.session_state["stage_log"])
 _running = any(s == "active" for _, s, _ in st.session_state["stage_log"])
 _status_str = (
@@ -1930,6 +2021,31 @@ if st.session_state.get("analysis_done"):
     outdir = str(Path(tmp_dir) / "output") if tmp_dir else ""
     dash: list[dict[str, Any]] | None = st.session_state.get("dashboard")
     profile: dict[str, Any] | None = st.session_state.get("profile")
+
+    # Executive Objective Answer
+    # _user_obj is straight from the sidebar's free-text box, and
+    # report["reasoning"] is LLM output over (possibly hostile) dataset
+    # content — neither is trusted HTML. Escape both before
+    # interpolating into markup rendered with unsafe_allow_html=True
+    # (IMPROVEMENTS.md #10).
+    _user_obj = os.environ.get("USER_OBJECTIVE") or objective.strip()
+    if _user_obj and report.get("reasoning"):
+        st.markdown(
+            f'<div class="exec-directive">'
+            f'<div class="dir-label">Bottom Line</div>'
+            f'<div style="font-weight:700;margin-bottom:6px;color:var(--pen);">You asked: {html.escape(_user_obj)}</div>'
+            f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif report.get("reasoning"):
+        st.markdown(
+            f'<div class="exec-directive">'
+            f'<div class="dir-label">Bottom Line</div>'
+            f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
     (tab_brief, tab_team, tab_dash, tab_lab, tab_cinema, tab_vault) = st.tabs([
         "📋 Summary",
@@ -1974,31 +2090,6 @@ if st.session_state.get("analysis_done"):
             f"{outlier_out.get('outlier_percentage','—')}%"
             if outlier_out else "—"
         )
-
-        # Executive Objective Answer
-        # _user_obj is straight from the sidebar's free-text box, and
-        # report["reasoning"] is LLM output over (possibly hostile) dataset
-        # content — neither is trusted HTML. Escape both before
-        # interpolating into markup rendered with unsafe_allow_html=True
-        # (IMPROVEMENTS.md #10).
-        _user_obj = os.environ.get("USER_OBJECTIVE") or objective.strip()
-        if _user_obj and report.get("reasoning"):
-            st.markdown(
-                f'<div class="exec-directive">'
-                f'<div class="dir-label">Executive Directive · Answer to Objective</div>'
-                f'<div style="font-weight:700;margin-bottom:6px;color:var(--pen);">You asked: {html.escape(_user_obj)}</div>'
-                f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        elif report.get("reasoning"):
-            st.markdown(
-                f'<div class="exec-directive">'
-                f'<div class="dir-label">Executive Finding · Agent Synthesis</div>'
-                f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
 
         # When there's no ML target, the gauges below are mostly "—" —
         # promote whatever analysis actually ran (segments, trend, map,
