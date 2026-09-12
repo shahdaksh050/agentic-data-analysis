@@ -33,6 +33,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from src.core.coercion import coerce_types
 from src.core.dashboard import build_dashboard, dashboard_to_json
 from src.core.degradations import collect_degradations
+from src.core.domains import infer_domains
 from src.core.io import read_any
 from src.core.memory import AnalysisStep, DatasetMetadata, MemorySystem, ToolResult
 from src.core.profiler import DatasetProfile, profile_dataframe
@@ -436,6 +437,7 @@ class ToolRegistry:
 
     def _register_builtin_tools(self) -> None:
         from src.tools.clustering import ClusterDataTool
+        from src.tools.cohort_analysis import CohortAnalysisTool
         from src.tools.data_processing import (
             CleanDataTool,
             CorrelationAnalysisTool,
@@ -444,6 +446,7 @@ class ToolRegistry:
         )
         from src.tools.dimensionality import DimensionalityAnalysisTool
         from src.tools.dynamic_code import DynamicCodeExecutionTool
+        from src.tools.financial_analysis import FinancialAnalysisTool
         from src.tools.geospatial import GeospatialAnalysisTool
         from src.tools.ml_pipeline import EvaluateModelTool, TrainModelTool
         from src.tools.report_generator import GenerateReportTool
@@ -451,6 +454,7 @@ class ToolRegistry:
         from src.tools.text_analysis import TextAnalysisTool
         from src.tools.time_series import TimeSeriesAnalysisTool
         from src.tools.visualization import GenerateVisualizationsTool
+        from src.tools.workforce_analysis import WorkforceAnalysisTool
 
         for tool in (
             IngestDatasetTool(),
@@ -468,6 +472,9 @@ class ToolRegistry:
             DimensionalityAnalysisTool(),
             GeospatialAnalysisTool(),
             DynamicCodeExecutionTool(),
+            FinancialAnalysisTool(),
+            CohortAnalysisTool(),
+            WorkforceAnalysisTool(),
         ):
             self.register(tool)
 
@@ -699,6 +706,15 @@ class AgentController:
             df, read_report = read_any(file_path)
             df, coercions = coerce_types(df, delimiter=read_report.delimiter)
             profile = profile_dataframe(df, target_column=metadata.target_column)
+            # Semantic domain inference needs the dataframe as well as the
+            # structural profile, so it runs here rather than inside
+            # profile_dataframe. Never fatal: an unrecognised dataset simply
+            # has no domain and falls back to the generic tool set.
+            try:
+                profile.domains = infer_domains(df, profile)
+            except Exception as exc:
+                profile.domains = []
+                console.print(f"  [yellow]⚠ Domain inference skipped: {exc}[/]")
             self.last_profile = profile
             self.memory.set_context("data_profile", profile.to_dict())
             self.memory.set_context("data_profile_summary", profile.to_prompt_string())

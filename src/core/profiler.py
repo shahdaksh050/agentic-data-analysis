@@ -14,9 +14,12 @@ Pure computation — no file I/O, no LLM calls, deterministic.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from src.core.domains import DomainMatch
 
 #: A categorical column with more unique values than this is "high cardinality".
 HIGH_CARDINALITY_THRESHOLD = 50
@@ -121,6 +124,14 @@ class DatasetProfile:
     is_sufficient: bool = True
     sufficiency_reason: str | None = None
 
+    # ---- Semantic domain (src/core/domains.py) — what the data is *about*,
+    # populated by the controller after profiling because inference needs the
+    # dataframe as well as this profile. Defaulted to empty so every
+    # DatasetProfile always carries the attribute: BaseTool.applies_to reads
+    # it directly, and a missing attribute would silently gate every
+    # domain tool out (the failure mode U0.5 documented for time-series). ----
+    domains: list[DomainMatch] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "row_count": self.row_count,
@@ -139,6 +150,7 @@ class DatasetProfile:
             "panel_group_cols": self.panel_group_cols,
             "is_sufficient": self.is_sufficient,
             "sufficiency_reason": self.sufficiency_reason,
+            "domains": [d.to_dict() for d in self.domains],
         }
 
     def columns_of_kind(self, *kinds: str) -> list[ColumnProfile]:
@@ -186,6 +198,12 @@ class DatasetProfile:
             nature.append(f"grouped/panel structure via: {', '.join(_sp(c) for c in self.panel_group_cols[:3])}")
         if nature:
             lines.append("Data nature: " + "; ".join(nature) + ".")
+        for match in self.domains:
+            roles = ", ".join(f"{r}={_sp(c)}" for r, c in sorted(match.roles.items()))
+            lines.append(
+                f"Data domain: {match.domain} (confidence {match.confidence:.2f}) "
+                f"— roles: {roles}."
+            )
         if self.warnings:
             lines.append(
                 "Warnings: " + " | ".join(_sp(w, max_len=160) for w in self.warnings[:max_warnings])

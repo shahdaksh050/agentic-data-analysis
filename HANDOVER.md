@@ -1,7 +1,98 @@
-# HANDOVER: Isolated Compute Sandbox — subagent-driven implementation IN PROGRESS
+# HANDOVER: state as of 2026-09-12
 
-**Read this first if you're resuming a session.** Everything below this
-section (starting at "# Session Handover") is a separate, ongoing piece of
+## Isolated Compute Sandbox — COMPLETE (all 4 tasks committed)
+
+Worktree `.worktrees/isolated-compute-sandbox`, branch
+`isolated-compute-sandbox`, branched from `master` at `1ae9461`. **Not yet
+merged to master.**
+
+- Task 1 `965031f` — SandboxResult + static pre-check. Reviewed, clean.
+- Task 2 `d9154bb` — restricted worker script. Reviewed: spec compliant,
+  quality approved. 3 Minor findings deferred (see the SDD ledger); the one
+  worth promoting is **no regression test for the dotted-submodule import
+  gate** (`name.split(".")[0]`), the most security-relevant line in the file.
+- Task 3 `7a68c2e` — `run_sandboxed` subprocess orchestration.
+- Task 4 `45a22cb` — `DynamicCodeExecutionTool` + registration.
+
+Tasks 3 and 4 were written directly (user directed "just coding, no
+testing"). Their 12 tests have since run green as part of the full suite
+(**317 passed**, up from the 305 baseline — exactly those 12). Deviations
+from the plan text: `ignore_cleanup_errors=True` on the scratch
+TemporaryDirectory (Windows holds the killed child's cwd; without it a
+PermissionError escapes `run_sandboxed` and breaks its "never raises"
+contract), and longer timeouts in the two kill tests (the worker imports
+pandas first, so the plan's 0.3s budget fired during startup and never
+reached the busy loop it claimed to test).
+
+## Domain layer — NEW, complete
+
+`src/core/domains.py` adds semantic domain inference on top of the
+structural profiler: what the data is *about*, not just its shape.
+
+- Extensible registry — `register_domain(DomainSpec)` adds a domain without
+  touching the module or any tool.
+- Three built-ins: `financial`, `transactional`, `workforce`.
+- Name-hint role resolution **plus a structural check**, because names alone
+  cannot separate these domains (`date`/`amount`/`price`/`id` appear in all
+  of them). Cardinality is the discriminator: one row per date = price
+  series; many rows per customer = transaction log; one row per person =
+  roster. A structural check returns a negative delta to veto a name-only
+  coincidence.
+- Returns a **ranked list with confidences**, not one winner — real files are
+  mixed, and `applies_to` returns a float, so a plausible second domain still
+  contributes.
+- `DatasetProfile.domains` is a defaulted field (populated by the controller
+  after profiling, since inference needs the dataframe too). Defaulted so
+  `applies_to` always finds the attribute — a missing one would silently gate
+  every domain tool out.
+- Surfaced to the planner via `DatasetProfile.to_prompt_string()`.
+
+New tools, each gated by `domain_confidence(profile, <domain>)`:
+`src/tools/financial_analysis.py` (returns, annualised volatility, drawdown,
+Sharpe, autocorrelation; single series or multi-symbol panel),
+`src/tools/cohort_analysis.py` (RFM, repeat rate, AOV, revenue
+concentration, top products), `src/tools/workforce_analysis.py` (headcount,
+tenure, attrition, pay distribution, **unadjusted** pay gap).
+
+Full suite after all of this: **317 passed, 1 deselected, 1 warning** (the
+warning is a pre-existing sklearn FitFailedWarning from a one-class CV fold,
+present in the baseline). `ruff check .` and `mypy src/` clean (34 files).
+
+**Verified manually** (the domain layer has no committed tests yet): domain inference and
+exclusive gating across stock/shop/HR fixtures; financial volatility,
+max-drawdown and total return cross-checked against independent pandas
+calculations; attrition and pay gap cross-checked; no false positives on
+generic, IoT-sensor or single-column data; a currency-string retail export
+(`$1,234.56`) flows read_any -> coerce_types -> profile -> domain -> tool.
+
+**Ordering constraint that makes this work:** `coerce_types` must run BEFORE
+`profile_dataframe`, or money-as-string columns stay non-numeric and the
+transactional domain never matches. `controller.load_dataset` already does
+this; do not reorder it.
+
+Deferred / known gaps: no non-CSV formats (JSON/JSONL/Parquet/.gz) — the
+user explicitly deferred this; `src/core/io.SUPPORTED_EXTENSIONS` is still
+`{.csv,.tsv,.xlsx,.xls}`. `app.py` still previews uploads with a bare
+`pd.read_csv` in 4 places, so a `;`-delimited or cp1252 file previews wrong
+in the UI even though the analysis is correct. No read-once cache: every
+tool re-reads from disk (a 9-tool run pays the read 9 times).
+
+## Round 5 — SUBSTANTIALLY COMPLETE (the section below is STALE)
+
+Everything from "Round 5 remediation plan" down was written before the work
+landed and says "Nothing below is implemented." That is **no longer true**.
+Verified present and wired: item 1 (fixtures corpus, 19 factories +
+`tests/test_data_shapes.py`), item 2 (`src/core/io.py`, all 5 call sites),
+item 3 (`src/core/coercion.py`, called before profiling), item 4 (effect
+sizes + `src/core/multiple_testing.py`), item 5 (public
+`profiler.is_identifier_like`, `is_sufficient`), item 6 (report Data
+Overview / Methodology / Limitations), item 7 (`profile_status`), item 10
+(`src/core/degradations.py`). Items 8 and 9 remain open. Read the section
+below for the original detail, not for current status.
+
+---
+
+# Session Handover") is a separate, ongoing piece of
 work (Round 5 hardening) — see "Relationship to Round 5" at the end of this
 section for how the two connect.
 

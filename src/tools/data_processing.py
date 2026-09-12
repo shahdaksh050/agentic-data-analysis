@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 
+from src.core.coercion import coerce_types
 from src.core.io import DatasetReadError, read_any
 from src.core.memory import DatasetMetadata
 from src.tools.base import BaseTool, ToolExecutionError
@@ -31,6 +32,25 @@ def _read_df(file_path: str) -> pd.DataFrame:
     except DatasetReadError as exc:
         raise ToolExecutionError(str(exc)) from exc
     return df
+
+
+def _read_coerced_df(file_path: str) -> pd.DataFrame:
+    """
+    read_any + coerce_types, for tools that must work on a raw upload.
+
+    The domain tools (financial/cohort/workforce) can be pointed at a file
+    that never went through the cleaning stage — a planner may select them
+    before clean_data runs, and they are also callable directly. Retail and
+    finance exports routinely carry money as "$1,234.56" and rates as
+    "45.3%", which read back as strings; without this the tool would reject
+    a perfectly good revenue column as non-numeric.
+
+    Coercions are reported by the ingestion path (src.core.controller
+    records them in memory context); repeating them here is idempotent.
+    """
+    df = _read_df(file_path)
+    repaired, _coercions = coerce_types(df)
+    return repaired
 
 
 # ============================================================
