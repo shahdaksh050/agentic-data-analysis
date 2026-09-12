@@ -2,14 +2,7 @@
 # Warm paper, friendly ink, one terracotta pen for actions, one soft red for warnings.
 
 [theme]
-base = "light"
 primaryColor = "#A34F20"                      # Terracotta pen — buttons, links, the agent's own marks
-backgroundColor = "#F7EEDD"                   # Warm cream — the page itself
-secondaryBackgroundColor = "#FFFBF2"          # Lifted card — panels and tiles
-textColor = "#3A2B1E"                         # Warm ink
-linkColor = "#A34F20"
-borderColor = "#E4D4BC"                       # Soft tan hairline
-codeBackgroundColor = "#F1E4CB"
 font = "Mukta, 'Segoe UI', sans-serif"
 headingFont = "'Baloo 2', 'Mukta', 'Segoe UI', sans-serif"
 codeFont = "'Cascadia Code', Consolas, monospace"
