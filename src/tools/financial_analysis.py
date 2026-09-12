@@ -26,7 +26,7 @@ import pandas as pd
 
 from src.core.domains import domain_confidence, resolve_column
 from src.tools.base import BaseTool, ToolExecutionError
-from src.tools.data_processing import _read_coerced_df
+from src.tools.data_processing import _read_df
 
 if TYPE_CHECKING:
     from src.core.memory import DatasetMetadata
@@ -173,7 +173,7 @@ class FinancialAnalysisTool(BaseTool):
         symbol_column: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
-        df = _read_coerced_df(file_path)
+        df = _read_df(file_path)
 
         # Sequential resolution so one column cannot fill two roles.
         claimed: set[str] = {c for c in (date_column, price_column, symbol_column) if c}

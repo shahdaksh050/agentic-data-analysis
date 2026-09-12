@@ -26,7 +26,7 @@ import pandas as pd
 
 from src.core.domains import domain_confidence, resolve_column
 from src.tools.base import BaseTool, ToolExecutionError
-from src.tools.data_processing import _read_coerced_df
+from src.tools.data_processing import _read_df
 
 if TYPE_CHECKING:
     from src.core.memory import DatasetMetadata
@@ -111,7 +111,7 @@ class CohortAnalysisTool(BaseTool):
         product_column: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
-        df = _read_coerced_df(file_path)
+        df = _read_df(file_path)
 
         # Resolved in sequence, each claimed column removed from the pool, so
         # one column can never fill two roles at different grains.

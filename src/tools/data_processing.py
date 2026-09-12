@@ -25,8 +25,8 @@ if TYPE_CHECKING:
     from src.core.profiler import DatasetProfile
 
 
-def _read_df(file_path: str) -> pd.DataFrame:
-    """Read a dataset via the unified reader (src.core.io.read_any)."""
+def _read_raw_df(file_path: str) -> pd.DataFrame:
+    """Read a dataset exactly as stored, with no repair applied."""
     try:
         df, _report = read_any(file_path)
     except DatasetReadError as exc:
@@ -34,21 +34,24 @@ def _read_df(file_path: str) -> pd.DataFrame:
     return df
 
 
-def _read_coerced_df(file_path: str) -> pd.DataFrame:
+def _read_df(file_path: str) -> pd.DataFrame:
     """
-    read_any + coerce_types, for tools that must work on a raw upload.
+    Read a dataset ready for analysis: unified reader + type coercion.
 
-    The domain tools (financial/cohort/workforce) can be pointed at a file
-    that never went through the cleaning stage — a planner may select them
-    before clean_data runs, and they are also callable directly. Retail and
-    finance exports routinely carry money as "$1,234.56" and rates as
-    "45.3%", which read back as strings; without this the tool would reject
-    a perfectly good revenue column as non-numeric.
+    Coercion belongs here, not at individual call sites. A retail export
+    carries money as "$1,234.56" and rates as "45.3%", which read back as
+    strings. `controller.load_dataset` coerces before profiling, so the
+    *profile* saw them as numeric — but every tool re-read the file through
+    this helper and got the strings back, so revenue was invisible to the
+    entire analysis. On a real sales file that left correlation running on
+    a customer ID and a quantity, and reporting r=-0.06 between them as the
+    headline finding, while never once looking at revenue.
 
-    Coercions are reported by the ingestion path (src.core.controller
-    records them in memory context); repeating them here is idempotent.
+    Coercion is idempotent, and every repair is recorded and reported by
+    the ingestion path (memory context "coercions" -> the report's Data
+    Overview), so nothing here is silent.
     """
-    df = _read_df(file_path)
+    df = _read_raw_df(file_path)
     repaired, _coercions = coerce_types(df)
     return repaired
 
@@ -85,7 +88,8 @@ class IngestDatasetTool(BaseTool):
             raise ToolExecutionError(f"File not found: {file_path}")
 
         try:
-            df = _read_df(file_path)
+            # Raw: this tool reports what the file actually contains.
+            df = _read_raw_df(file_path)
         except ToolExecutionError:
             raise
         except Exception as exc:

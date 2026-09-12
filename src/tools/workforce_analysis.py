@@ -25,7 +25,7 @@ import pandas as pd
 
 from src.core.domains import domain_confidence, resolve_column
 from src.tools.base import BaseTool, ToolExecutionError
-from src.tools.data_processing import _read_coerced_df
+from src.tools.data_processing import _read_df
 
 if TYPE_CHECKING:
     from src.core.memory import DatasetMetadata
@@ -108,7 +108,7 @@ class WorkforceAnalysisTool(BaseTool):
         group_column: str | None = None,
         **_: Any,
     ) -> dict[str, Any]:
-        df = _read_coerced_df(file_path)
+        df = _read_df(file_path)
 
         # Sequential resolution with each claimed column withdrawn from the
         # pool — hire/exit dates and status flags share name fragments, and a

@@ -322,6 +322,76 @@ def _split_train_test(
     return X_train, X_test, y_train, y_test, cv, groups_train
 
 
+#: A feature explaining at least this much of the target is reported as
+#: leakage rather than as a finding. Set just below 1.0 because the cases
+#: that matter are near-deterministic, not merely strong.
+_LEAKAGE_PURITY = 0.99
+
+#: Below this many distinct feature values the "determines the target"
+#: test is vacuous — a column that is unique per row trivially "predicts"
+#: anything, which is a different defect (an identifier) already handled.
+_LEAKAGE_MIN_GROUP_RATIO = 0.5
+
+
+def _detect_target_leakage(
+    X: pd.DataFrame, y: pd.Series[Any], task_type: str
+) -> list[str]:
+    """
+    Find features that trivially determine the target.
+
+    A near-perfect model is the most misleading thing this system can
+    report, because it looks like the best possible result. On a shop
+    export, `Unit Price` and `Product Name` are the same fact written twice
+    — every product has exactly one price — so a model "predicting" the
+    product from its price scores 1.00 and means nothing. An analyst asks
+    "what leaked?" the moment they see 100% accuracy; this asks it
+    automatically.
+
+    Returns human-readable warnings, empty when nothing looks tautological.
+    """
+    warnings: list[str] = []
+    if len(X) == 0 or y.nunique(dropna=True) < 2:
+        return warnings
+
+    for column in X.columns:
+        feature = X[column]
+        try:
+            if task_type == "classification":
+                n_groups = int(feature.nunique(dropna=True))
+                # Skip near-unique columns: they separate every row by
+                # construction and say nothing about the target.
+                if n_groups < 2 or n_groups > len(X) * _LEAKAGE_MIN_GROUP_RATIO:
+                    continue
+                # Share of rows whose target equals their group's majority
+                # class. 1.0 means the feature fixes the target exactly.
+                purity = (
+                    pd.DataFrame({"f": feature, "y": y})
+                    .groupby("f", observed=True)["y"]
+                    .transform(lambda g: g.value_counts().iloc[0] / len(g))
+                    .mean()
+                )
+                if float(purity) >= _LEAKAGE_PURITY:
+                    warnings.append(
+                        f"'{column}' determines the target in "
+                        f"{float(purity) * 100:.1f}% of rows — the model is "
+                        f"likely restating a definition, not learning a "
+                        f"relationship. Drop it and re-train to get a "
+                        f"meaningful score."
+                    )
+            elif pd.api.types.is_numeric_dtype(feature):
+                corr = float(pd.Series(feature).corr(pd.Series(y)))
+                if abs(corr) >= _LEAKAGE_PURITY:
+                    warnings.append(
+                        f"'{column}' correlates with the target at r={corr:.4f} "
+                        f"— near-perfect, so the model is likely restating a "
+                        f"definition. Drop it and re-train."
+                    )
+        except Exception:
+            # A diagnostic must never take the training run down.
+            continue
+    return warnings
+
+
 def _encode_target(y: pd.Series[Any]) -> tuple[pd.Series[Any], list[str]]:
     """
     Deterministically encode non-numeric classification targets to integers.
@@ -427,6 +497,8 @@ class TrainModelTool(BaseTool):
                 task_type = "classification"
             else:
                 task_type = "regression"
+
+        leakage_warnings = _detect_target_leakage(X, y, task_type)
 
         # Encode non-numeric classification targets (XGBoost requires
         # numeric labels; roc_auc_score requires {0,1} for binary tasks)
@@ -604,6 +676,16 @@ class TrainModelTool(BaseTool):
 
         best_summary = results.get(best_model, {})
 
+        # A near-perfect score is a red flag, not a headline. Say so in the
+        # summary itself, because the summary is what reaches the report and
+        # the LLM synthesis — a caveat buried in a sibling key gets read as
+        # an endorsement of the score.
+        leak_note = (
+            f" ⚠ Score is near-perfect and likely tautological: "
+            f"{leakage_warnings[0]}"
+            if leakage_warnings
+            else ""
+        )
         return {
             "summary": (
                 f"Trained {len(results)} model(s) [{task_type}, "
@@ -611,12 +693,14 @@ class TrainModelTool(BaseTool):
                 f"Best: {best_model} | "
                 f"CV mean={best_summary.get('cv_mean', 'N/A')} "
                 f"± {best_summary.get('cv_std', 'N/A')}."
+                f"{leak_note}"
             ),
             "task_type": task_type,
             "models_trained": results,
             "best_model": best_model,
             "class_labels": class_labels,
             "overfit_warnings": overfit_warnings,
+            "leakage_warnings": leakage_warnings,
             "treatments_applied": treatments,
             "hyperparameter_tuning": do_tune,
             "test_size": test_size,

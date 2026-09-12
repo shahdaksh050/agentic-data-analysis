@@ -31,6 +31,11 @@ _SEASONALITY_THRESHOLD = 0.3
 #: Two-sided ADF p-value at/below this rejects the unit-root (non-stationary) null.
 _ADF_ALPHA = 0.05
 
+#: R² a fitted trend line must reach before its direction is worth naming.
+#: Below this the line explains almost none of the variation, so calling the
+#: series "increasing" reports the sign of noise as a finding.
+_TREND_MIN_R_SQUARED = 0.05
+
 
 def _autodetect_datetime_column(df: pd.DataFrame) -> str | None:
     for col in df.columns:
@@ -111,7 +116,15 @@ class TimeSeriesAnalysisTool(BaseTool):
         ss_res = float(np.sum((values - fitted) ** 2))
         ss_tot = float(np.sum((values - values.mean()) ** 2))
         r_squared = round(1 - ss_res / ss_tot, 4) if ss_tot > 0 else 0.0
-        direction = "increasing" if slope > 0 else "decreasing" if slope < 0 else "flat"
+        # The sign of a fitted slope is never zero on real data, so reporting
+        # "increasing" off the sign alone calls pure noise a trend. R² is what
+        # says whether the line describes the series at all: below the
+        # threshold the honest answer is that there is no trend, and the
+        # direction is not worth naming.
+        if r_squared < _TREND_MIN_R_SQUARED:
+            direction = "no clear trend"
+        else:
+            direction = "increasing" if slope > 0 else "decreasing" if slope < 0 else "flat"
 
         # ---- Stationarity (Augmented Dickey-Fuller) ----
         try:
@@ -142,8 +155,13 @@ class TimeSeriesAnalysisTool(BaseTool):
 
         return {
             "summary": (
-                f"Trend is {direction} (slope={slope:.4g}, R²={r_squared}) over "
-                f"{len(working)} points. "
+                (
+                    f"No clear trend (R²={r_squared} — a fitted line explains "
+                    f"almost none of the variation) over {len(working)} points. "
+                    if direction == "no clear trend"
+                    else f"Trend is {direction} (slope={slope:.4g}, R²={r_squared}) over "
+                         f"{len(working)} points. "
+                )
                 + (
                     f"Series is {'stationary' if is_stationary else 'non-stationary'} "
                     f"(ADF p={adf_p_value})."

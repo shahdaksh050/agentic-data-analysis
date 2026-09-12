@@ -40,8 +40,8 @@ class Coercion:
 
     column: str
     from_kind: str          # "string"
-    to_kind: str             # "numeric" | "boolean"
-    rule: str                 # "currency" | "percent" | "thousands" | "yes_no" | "numeric"
+    to_kind: str             # "numeric" | "boolean" | "datetime"
+    rule: str                 # currency|percent|thousands|yes_no|numeric|date_*
     n_converted: int
     n_failed: int
     failed_examples: list[str] = field(default_factory=list)
@@ -119,6 +119,62 @@ _RULES: list[tuple[str, str, Callable[[str], Any]]] = [
     ("yes_no", "boolean", _parse_bool),
 ]
 
+#: A date written with separators: 09/02/2023, 2023-02-09, 9.2.2023, with an
+#: optional time part. Deliberately narrow — arbitrary prose must not be fed
+#: to the date parser, which is both slow and prone to false positives.
+_DATE_LIKE_RE = re.compile(
+    r"^\s*\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}"
+    r"([ T]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?\s*(Z|[+-]\d{2}:?\d{2})?)?\s*$"
+)
+
+#: The first two numeric components of a separator-style date.
+_DATE_PARTS_RE = re.compile(r"^\s*(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})")
+
+
+def _detect_date_convention(values: pd.Series) -> tuple[str, bool] | None:
+    """
+    Decide whether a date column is day-first, month-first, or ISO.
+
+    pandas defaults to month-first, so a `dd/mm/yyyy` export — the norm
+    across most of the world — silently turns every day>12 into NaT and
+    *silently swaps day and month on the rows that survive*. On a real
+    1500-row shop export that dropped 63% of rows and shifted the date
+    range by five months, with nothing reported.
+
+    The convention is read off the data: a first component above 12 can
+    only be a day, a second component above 12 can only be a day in
+    month-first order. When every row is ambiguous (all components <= 12)
+    there is genuinely no way to tell, so pandas' default is kept and the
+    caller records the ambiguity rather than implying certainty.
+
+    Returns (rule_name, dayfirst) or None when this is not a date column.
+    """
+    sample = values.head(2000)
+    if sample.empty:
+        return None
+    matches = sample.str.match(_DATE_LIKE_RE)
+    if matches.mean() < COERCE_MATCH_THRESHOLD:
+        return None
+
+    parts = sample.str.extract(_DATE_PARTS_RE).dropna()
+    if parts.empty:
+        return None
+    first = pd.to_numeric(parts[0], errors="coerce")
+    second = pd.to_numeric(parts[1], errors="coerce")
+
+    # A 4-digit leading component is ISO (yyyy-mm-dd) — unambiguous.
+    if bool((first > 31).any()):
+        return "date_iso", False
+    if bool((first > 12).any()):
+        return "date_dayfirst", True
+    if bool((second > 12).any()):
+        return "date_monthfirst", False
+    return "date_ambiguous", False
+
+
+def _parse_dates(values: pd.Series, dayfirst: bool) -> pd.Series:
+    return pd.to_datetime(values, errors="coerce", dayfirst=dayfirst)
+
 
 def _try_coerce_column(
     values: pd.Series, decimal_comma: bool
@@ -169,6 +225,34 @@ def coerce_types(df: pd.DataFrame, delimiter: str | None = None) -> tuple[pd.Dat
         non_null = non_null[non_null != ""]
         if non_null.empty:
             continue
+
+        # Dates first: a date column must never reach the numeric rules, and
+        # parsing it once here means no downstream tool re-parses it with
+        # pandas' month-first default and quietly disagrees.
+        date_rule = _detect_date_convention(non_null)
+        if date_rule is not None:
+            rule_name, dayfirst = date_rule
+            parsed_dates = _parse_dates(non_null, dayfirst)
+            converted = int(parsed_dates.notna().sum())
+            if converted and converted / len(non_null) >= COERCE_MATCH_THRESHOLD:
+                failed = non_null[parsed_dates.isna()]
+                new_dates = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
+                new_dates.loc[non_null.index] = parsed_dates
+                out[col] = new_dates
+                coercions.append(
+                    Coercion(
+                        column=str(col),
+                        from_kind="string",
+                        to_kind="datetime",
+                        rule=rule_name,
+                        n_converted=converted,
+                        n_failed=len(non_null) - converted,
+                        failed_examples=[
+                            str(x) for x in dict.fromkeys(failed.tolist())
+                        ][:5],
+                    )
+                )
+                continue
 
         result = _try_coerce_column(non_null, decimal_comma)
         if result is None:

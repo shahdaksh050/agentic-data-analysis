@@ -971,9 +971,20 @@ class AgentController:
     #: scores them at full confidence (1.0) — same tools, same gating logic
     #: the LLM planner sees, so there's one source of truth for "what suits
     #: this data" (controller._should_decompose folds in the same way).
-    _FALLBACK_NATURE_TOOLS = (
-        "time_series_analysis", "text_analysis", "dimensionality_analysis", "geospatial_analysis",
-    )
+    #: Tools the deterministic plan sequences explicitly (or never runs from
+    #: the profile sweep): pipeline control, the supervised branch decided
+    #: below on the target, and code execution, which needs an LLM to write
+    #: the code and is meaningless without one.
+    _FALLBACK_EXCLUDED_TOOLS = frozenset({
+        "ingest_dataset", "clean_data", "generate_report",
+        "train_model", "evaluate_model", "cluster_data",
+        "execute_dynamic_code",
+    })
+
+    #: applies_to score a tool must reach to earn a slot in the deterministic
+    #: plan. Below 1.0 so a domain matched on partial evidence (0.65 for a
+    #: ticker+price file with no OHLC) still contributes its analysis.
+    _FALLBACK_MIN_SCORE = 0.6
 
     def _build_fallback_plan(self) -> dict[str, Any]:
         """
@@ -1018,14 +1029,32 @@ class AgentController:
                     "rationale": rationale,
                 })
 
-        for name in self._FALLBACK_NATURE_TOOLS:
-            if self.tool_registry.has(name) and self.tool_registry.get(name).applies_to(profile, meta) >= 1.0:
-                steps.append({
-                    "step_number": len(steps) + 1,
-                    "tool_name": name,
-                    "parameters": {"file_path": fp},
-                    "rationale": f"Fallback plan: data profile indicates '{name}' applies to this dataset.",
-                })
+        # Every registered tool the profile says fits, ranked by its own
+        # applies_to score — not a hardcoded name list. This is what makes the
+        # no-LLM path a real analyst rather than a stub: a tool registered
+        # after this function was written (the domain tools, anything added
+        # later) is planned automatically, and a dataset recognised as
+        # transactional gets its cohort analysis without an LLM ever being
+        # reachable. The previous hardcoded tuple silently excluded every
+        # tool it predated.
+        already = {s["tool_name"] for s in steps} | self._FALLBACK_EXCLUDED_TOOLS
+        for tool in self.tool_registry.candidate_tools(profile, meta):
+            name = getattr(tool, "name", "")
+            if name in already:
+                continue
+            score = tool.applies_to(profile, meta)
+            if score < self._FALLBACK_MIN_SCORE:
+                continue
+            steps.append({
+                "step_number": len(steps) + 1,
+                "tool_name": name,
+                "parameters": {"file_path": fp},
+                "rationale": (
+                    f"Fallback plan: profile-driven selection scored '{name}' "
+                    f"at {score:.2f} for this dataset."
+                ),
+            })
+            already.add(name)
 
         if meta.target_column and meta.task_type in ("classification", "regression"):
             steps += [
