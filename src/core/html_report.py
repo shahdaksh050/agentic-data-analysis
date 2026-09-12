@@ -23,53 +23,81 @@ from src.core.multiple_testing import apply_benjamini_hochberg
 # "Ledger" (DESIGN.md): warm paper, friendly ink, one terracotta pen.
 # The shared report is the same warm sheet as the console, printed.
 _CSS = """
-:root { color-scheme: light; }
+:root { 
+  color-scheme: light dark;
+  --stock:       #f7eedd;
+  --sheet:       #fffbf2;
+  --sheet-alt:   #f1e4cb;
+  --ink:         #3a2b1e;
+  --graphite:    #8a7660;
+  --pen:         #a34f20;
+  --risk:        #a33526;
+  --rule:        #e4d4bc;
+  --rule-faint:  #eee3cb;
+  --lift:        0 4px 14px rgba(58,43,30,.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --stock:       #241c14;
+    --sheet:       #2f251a;
+    --sheet-alt:   #3a2e1f;
+    --ink:         #f3e9d8;
+    --graphite:    #d0c2a8;
+    --pen:         #f0a24a;
+    --risk:        #e2685a;
+    --rule:        #4a3c28;
+    --rule-faint:  #3a2e1f;
+    --lift:        0 4px 18px rgba(0,0,0,.35);
+  }
+}
+
 * { box-sizing: border-box; }
 body {
-  background: #f7eedd;
-  color: #3a2b1e;
+  background: var(--stock);
+  color: var(--ink);
   font-family: 'Mukta', 'Segoe UI', system-ui, sans-serif;
   margin: 0; padding: 3.5rem 1.5rem; line-height: 1.65;
 }
 .wrap { max-width: 900px; margin: 0 auto; }
 h1 { font-family: 'Baloo 2', 'Mukta', sans-serif; font-weight: 800;
      font-size: clamp(32px, 5vw, 52px); line-height: 1.06;
-     margin: .3rem 0 .2rem; max-width: 18ch; color: #3a2b1e; }
+     margin: .3rem 0 .2rem; max-width: 18ch; color: var(--ink); }
 h2 { font-family: 'Baloo 2', 'Mukta', sans-serif; font-weight: 700; font-size: 25px;
-     line-height: 1.15; color: #3a2b1e;
-     border-bottom: 2px solid #e4d4bc; padding-bottom: .4rem; margin: 3rem 0 1rem; }
-.sub { color: #8a7660; font-size: .85rem; margin-bottom: 2rem; }
-.objective { border-left: 4px solid #a34f20; border-radius: 0 10px 10px 0;
-             background: #fffbf2; padding: .6rem 0 .6rem 1rem;
+     line-height: 1.15; color: var(--ink);
+     border-bottom: 2px solid var(--rule); padding-bottom: .4rem; margin: 3rem 0 1rem; }
+.sub { color: var(--graphite); font-size: .85rem; margin-bottom: 2rem; }
+.objective { border-left: 4px solid var(--pen); border-radius: 0 10px 10px 0;
+             background: var(--sheet); padding: .6rem 0 .6rem 1rem;
              margin: 1.4rem 0; max-width: 72ch; }
 .card { padding: .5rem 0 .5rem 1rem; margin: .1rem 0 .8rem;
-        border-left: 3px solid #e4d4bc; border-radius: 0 10px 10px 0;
-        background: #fffbf2; max-width: 74ch; }
-.card.exec { background: #fffbf2; border: 1px solid #e4d4bc; border-left: 4px solid #a34f20;
-             border-radius: 14px; box-shadow: 0 4px 14px rgba(58,43,30,.12);
+        border-left: 3px solid var(--rule); border-radius: 0 10px 10px 0;
+        background: var(--sheet); max-width: 74ch; }
+.card.exec { background: var(--sheet); border: 1px solid var(--rule); border-left: 4px solid var(--pen);
+             border-radius: 14px; box-shadow: var(--lift);
              padding: 1.5rem 1.7rem; max-width: 72ch; }
-.insight { border-left-color: #8a7660; }
-.rec { border-left-color: #a34f20; }
-.driver { border-left-color: #8a7660; font-size: .95rem; }
-.treat { border-left-color: #e4d4bc; font-size: .9rem; color: #8a7660; }
-.warn { border-left-color: #a33526; color: #a33526; }
+.insight { border-left-color: var(--graphite); }
+.rec { border-left-color: var(--pen); }
+.driver { border-left-color: var(--graphite); font-size: .95rem; }
+.treat { border-left-color: var(--rule); font-size: .9rem; color: var(--graphite); }
+.warn { border-left-color: var(--risk); color: var(--risk); }
 table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: .88rem;
-        background: #fffbf2; border: 1px solid #e4d4bc; border-radius: 12px; overflow: hidden;
-        box-shadow: 0 4px 14px rgba(58,43,30,.10); }
-th, td { border-bottom: 1px solid #eee3cb; padding: .55rem .8rem; text-align: left; }
-th { background: #f1e4cb; color: #3a2b1e; font-weight: 700; font-size: .8rem; }
-.chart { background: #fffbf2; border: 1px solid #e4d4bc; border-radius: 14px;
-         box-shadow: 0 4px 14px rgba(58,43,30,.10);
+        background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden;
+        box-shadow: var(--lift); }
+th, td { border-bottom: 1px solid var(--rule-faint); padding: .55rem .8rem; text-align: left; }
+th { background: var(--sheet-alt); color: var(--ink); font-weight: 700; font-size: .8rem; }
+.chart { background: var(--sheet); border: 1px solid var(--rule); border-radius: 14px;
+         box-shadow: var(--lift);
          padding: 1.2rem 1.3rem 1.1rem; margin: 1.4rem 0; }
 .chart h3 { margin: .1rem 0 .2rem; font-weight: 700; font-size: 1.05rem;
             font-family: 'Baloo 2', 'Mukta', sans-serif; }
-.chart p { margin: .15rem 0 .9rem; color: #8a7660; font-size: .85rem; max-width: 68ch; }
+.chart p { margin: .15rem 0 .9rem; color: var(--graphite); font-size: .85rem; max-width: 68ch; }
 .vega-holder { width: 100%; }
-.badge { display: inline-block; border: 1px solid #a34f20; color: #a34f20;
-         background: #fffbf2; border-radius: 999px; font-weight: 600;
+.badge { display: inline-block; border: 1px solid var(--pen); color: var(--pen);
+         background: var(--sheet); border-radius: 999px; font-weight: 600;
          padding: .25rem .85rem; font-size: .78rem; margin: 0 .4rem .4rem 0; }
-.footer { margin-top: 4rem; border-top: 1px solid #e4d4bc; padding-top: .8rem;
-          color: #8a7660; font-size: .8rem; }
+.footer { margin-top: 4rem; border-top: 1px solid var(--rule); padding-top: .8rem;
+          color: var(--graphite); font-size: .8rem; }
 """
 
 _FONTS_CDN = (

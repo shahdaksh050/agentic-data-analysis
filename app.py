@@ -43,6 +43,29 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Landing Page (Phase 2 Narrative) ─────────────────────────────────────────
+if not st.session_state.get("entered", False):
+    from ui.landing import show_landing_page
+    
+    # We overlay a hidden native Streamlit button. The iframe JS will click this directly!
+    st.markdown("""
+        <style>
+            /* Hide the native button so it doesn't float over the 3D scene */
+            div.stButton > button {
+                opacity: 0;
+                position: fixed;
+                top: -9999px;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    if st.button("HIDDEN_ENTER", key="hidden_enter"):
+        st.session_state["entered"] = True
+        st.rerun()
+
+    show_landing_page()
+    st.stop()
+
 
 # ── Rich stub ─────────────────────────────────────────────────────────────────
 def _stub_rich() -> None:
@@ -91,45 +114,53 @@ def _stub_rich() -> None:
 _stub_rich()
 
 
-def _inject_theme_css(theme: str = "day") -> None:
-    """Inject dynamic Ledger CSS supporting Day and Night modes."""
-    is_night = theme == "night"
-    stock       = "#241c14" if is_night else "#f7eedd"
-    sheet       = "#2f251a" if is_night else "#fffbf2"
-    sheet_alt   = "#3a2e1f" if is_night else "#f1e4cb"
-    ink         = "#f3e9d8" if is_night else "#3a2b1e"
-    graphite    = "#d0c2a8" if is_night else "#8a7660"
-    pen         = "#f0a24a" if is_night else "#a34f20"
-    pen_hover   = "#ffb86b" if is_night else "#7e3d18"
-    risk        = "#e2685a" if is_night else "#a33526"
-    accent      = "#d99a4e" if is_night else "#e08a3e"
-    positive    = "#7fb77e" if is_night else "#5b8c5a"
-    rule        = "#4a3c28" if is_night else "#e4d4bc"
-    rule_faint  = "#3a2e1f" if is_night else "#eee3cb"
-    lift        = "0 4px 18px rgba(0,0,0,.35)" if is_night else "0 4px 14px rgba(58,43,30,.14)"
-    lift_sm     = "0 2px 8px rgba(0,0,0,.3)" if is_night else "0 2px 8px rgba(58,43,30,.10)"
-    code_bg     = "#2a2015" if is_night else "#f1e4cb"
+def _inject_theme_css() -> None:
+    """Inject dynamic Ledger CSS supporting Day and Night modes via Python state."""
+    theme = st.session_state.get("theme", "night")
+    
+    if theme == "dark" or theme == "night":
+        theme_vars = """
+        --stock:       #241c14;
+        --sheet:       #2f251a;
+        --sheet-alt:   #3a2e1f;
+        --ink:         #f3e9d8;
+        --graphite:    #d0c2a8;
+        --pen:         #f0a24a;
+        --pen-hover:   #ffb86b;
+        --risk:        #e2685a;
+        --accent:      #d99a4e;
+        --positive:    #7fb77e;
+        --rule:        #4a3c28;
+        --rule-faint:  #3a2e1f;
+        --lift:        0 4px 18px rgba(0,0,0,.35);
+        --lift-sm:     0 2px 8px rgba(0,0,0,.3);
+        --code-bg:     #2a2015;
+        """
+    else:
+        theme_vars = """
+        --stock:       #f7eedd;
+        --sheet:       #fffbf2;
+        --sheet-alt:   #f1e4cb;
+        --ink:         #3a2b1e;
+        --graphite:    #8a7660;
+        --pen:         #a34f20;
+        --pen-hover:   #7e3d18;
+        --risk:        #a33526;
+        --accent:      #e08a3e;
+        --positive:    #5b8c5a;
+        --rule:        #e4d4bc;
+        --rule-faint:  #eee3cb;
+        --lift:        0 4px 14px rgba(58,43,30,.14);
+        --lift-sm:     0 2px 8px rgba(58,43,30,.10);
+        --code-bg:     #f1e4cb;
+        """
 
     st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@400;500;600;700&display=swap');
 
 :root {{
-    --stock:       {stock};
-    --sheet:       {sheet};
-    --sheet-alt:   {sheet_alt};
-    --ink:         {ink};
-    --graphite:    {graphite};
-    --pen:         {pen};
-    --pen-hover:   {pen_hover};
-    --risk:        {risk};
-    --accent:      {accent};
-    --positive:    {positive};
-    --rule:        {rule};
-    --rule-faint:  {rule_faint};
-    --lift:        {lift};
-    --lift-sm:     {lift_sm};
-    --code-bg:     {code_bg};
+    {theme_vars}
     --radius:      14px;
     --radius-pill: 999px;
 
@@ -137,6 +168,7 @@ def _inject_theme_css(theme: str = "day") -> None:
     --heading: 'Baloo 2', 'Mukta', ui-sans-serif, sans-serif;
     --mono:    'Cascadia Code', Consolas, ui-monospace, monospace;
 }}
+
 
 /* ── The page ── */
 #MainMenu, footer, .stAppDeployButton {{ visibility: hidden; }}
@@ -622,7 +654,7 @@ for _k, _v in _DEFAULTS.items():
         st.session_state[_k] = _v
 
 # ── Inject theme-aware CSS immediately (must run after session_state is ready) ─
-_inject_theme_css(st.session_state.get("theme", "day"))
+_inject_theme_css()
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -645,31 +677,17 @@ PLOT_RULE = "#e4d4bc"
 PEN_BLUE = "#a34f20"
 PEN_RED = "#a33526"
 
-def _get_vega_config(theme: str = "day") -> dict[str, Any]:
-    is_night = theme == "night"
-    p_ink = "#f3e9d8" if is_night else "#3a2b1e"
-    p_graphite = "#b8a688" if is_night else "#8a7660"
-    p_rule = "#4a3c28" if is_night else "#e4d4bc"
-    p_pen = "#f0a24a" if is_night else "#a34f20"
-    p_risk = "#e2685a" if is_night else "#a33526"
-
+def _get_vega_config() -> dict[str, Any]:
     return {
         "font": "Mukta, 'Segoe UI', sans-serif",
         "axis": {
-            "labelColor": p_graphite,
-            "titleColor": p_graphite,
-            "gridColor": p_rule,
             "gridDash": [2, 3],
-            "domainColor": p_ink,
-            "tickColor": p_ink,
             "labelFont": "Mukta, sans-serif",
             "labelFontSize": 11,
             "titleFont": "Baloo 2, sans-serif",
             "titleFontWeight": 600,
         },
         "legend": {
-            "labelColor": p_ink,
-            "titleColor": p_graphite,
             "labelFont": "Mukta, sans-serif",
             "titleFont": "Baloo 2, sans-serif",
             "symbolType": "square",
@@ -677,17 +695,17 @@ def _get_vega_config(theme: str = "day") -> dict[str, Any]:
         "view": {"stroke": "transparent"},
         "range": {
             "category": [
-                p_pen,
-                p_risk,
-                "#d99a4e" if is_night else "#c08a2e",
-                "#7fb77e" if is_night else "#5b8c5a",
-                "#e2c58a" if is_night else "#8a7660",
-                "#c98a6b" if is_night else "#b5714a",
+                PEN_BLUE,
+                PEN_RED,
+                "#c08a2e",
+                "#5b8c5a",
+                "#8a7660",
+                "#b5714a",
             ]
         },
     }
 
-VEGA_PLOT_CONFIG = _get_vega_config("day")
+VEGA_PLOT_CONFIG = _get_vega_config()
 
 # OpenRouter slugs use DOT version notation for Claude (claude-sonnet-4.6,
 # not claude-sonnet-4-6). Every entry below is verified against the live
@@ -1525,6 +1543,7 @@ with st.sidebar:
                 st.session_state["from_uploader"] = True
     else:
         if st.session_state.get("orig_name") and st.session_state.get("from_uploader"):
+
             _theme = st.session_state.get("theme", "day")
             for _k2, _v2 in _DEFAULTS.items():
                 st.session_state[_k2] = _v2
@@ -2062,7 +2081,7 @@ if st.session_state.get("analysis_done"):
     outlier_out = _find_tool(tool_results, "detect_outliers")
     stat_out    = _find_tool(tool_results, "select_statistical_test")
     clean_out   = _find_tool(tool_results, "clean_data")
-    vega_cfg    = _get_vega_config(st.session_state.get("theme", "day"))
+    vega_cfg    = _get_vega_config()
 
     # ═════════════════════════════════════════════════════════════════════════
     # TIER 1: EXECUTIVE BRIEFING
@@ -2177,7 +2196,6 @@ if st.session_state.get("analysis_done"):
                                 "field": "metric",
                                 "scale": {
                                     "domain": ["Train", "Test", "CV mean"],
-                                    "range": ["#8aa6c2", PEN_BLUE, PLOT_INK],
                                 },
                                 "legend": {"orient": "top", "title": None},
                             },
