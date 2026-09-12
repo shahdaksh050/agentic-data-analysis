@@ -32,3 +32,6 @@ data/*_outliers_flagged.csv
 
 # Git worktrees (local scratch, not project content)
 .worktrees/
+
+# Session scratch: generated datasets and pipeline runs, never project content
+.scratch/
