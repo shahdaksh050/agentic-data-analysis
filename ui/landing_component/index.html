@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Data Analysis</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fullPage.js/4.0.20/fullpage.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg: #1c1610;
+            --text: #f6eedf;
+            --accent: #d99a4e;
+            --accent-hover: #f0a24a;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+            /* Hide cursor for custom cursor */
+            cursor: none;
+        }
+
+        /* Film grain overlay */
+        .grain {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        #fullpage {
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Custom Cursor */
+        #cursor-dot {
+            position: fixed;
+            top: 0; left: 0;
+            width: 8px; height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 9999;
+            transition: width 0.2s, height 0.2s, background 0.2s;
+            mix-blend-mode: screen;
+        }
+        #cursor-ring {
+            position: fixed;
+            top: 0; left: 0;
+            width: 32px; height: 32px;
+            border: 1px solid rgba(217, 154, 78, 0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 9998;
+            transition: width 0.2s, height 0.2s, border-color 0.2s;
+        }
+
+        /* Fallback for touch devices */
+        @media (hover: none) and (pointer: coarse) {
+            #cursor-dot, #cursor-ring { display: none; }
+            body { cursor: auto; }
+        }
+
+        .section {
+            text-align: left;
+            padding: 0 10vw;
+        }
+
+        h1 {
+            font-size: 6vw;
+            font-weight: 900;
+            line-height: 1.1;
+            margin: 0 0 1rem 0;
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-size: 4vw;
+            font-weight: 700;
+            line-height: 1.2;
+            margin: 0 0 1.5rem 0;
+            color: var(--accent);
+        }
+
+        p {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.2rem;
+            line-height: 1.6;
+            max-width: 600px;
+            color: #d0c2a8;
+            margin: 0;
+        }
+
+        .cta-container {
+            margin-top: 3rem;
+            position: relative;
+            display: inline-block;
+        }
+
+        .cta-button {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #1c1610;
+            background: var(--accent);
+            border: none;
+            padding: 1.2rem 2.5rem;
+            border-radius: 0;
+            cursor: none; /* Let custom cursor handle it */
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 20;
+        }
+
+        .cta-button:hover {
+            background: var(--accent-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(217, 154, 78, 0.3);
+        }
+
+        /* Animation target classes */
+        .anim-line {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        /* Layout variations */
+        .layout-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            text-align: right;
+        }
+        .layout-right p {
+            text-align: right;
+        }
+        .layout-center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        .layout-center p {
+            text-align: center;
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="grain"></div>
+    <div id="canvas-container"></div>
+    
+    <div id="cursor-dot"></div>
+    <div id="cursor-ring"></div>
+
+    <div id="fullpage">
+        <!-- Section 0: Hero -->
+        <div class="section">
+            <h1 class="anim-line">Raw data<br>becomes insight.</h1>
+            <p class="anim-line">Agentic Data Analysis orchestrates a 7-stage autonomous workflow, turning messy CSVs into executive action.</p>
+        </div>
+
+        <!-- Section 1: Profiling (Bar Chart Formation) -->
+        <div class="section layout-right">
+            <h2 class="anim-line">1. Ingest & Structure</h2>
+            <p class="anim-line">Before answering a single question, the agent profiles your dataset—identifying types, resolving anomalies, and building a structured mental model.</p>
+        </div>
+
+        <!-- Section 2: Network / Agents -->
+        <div class="section">
+            <h2 class="anim-line">2. Recursive Reasoning</h2>
+            <p class="anim-line">A network of specialized sub-agents decomposes complex statistical problems, securely executing code in an isolated REPL to find the absolute truth.</p>
+        </div>
+
+        <!-- Section 3: CTA -->
+        <div class="section layout-center">
+            <h2 class="anim-line">Ready to Deploy</h2>
+            <p class="anim-line">No more chat boxes. Drop in your data and generate a production-ready HTML report.</p>
+            <div class="cta-container anim-line">
+                <button class="cta-button" id="enter-btn">Enter Workspace</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fullPage.js/4.0.20/fullpage.min.js"></script>
+
+    <script>
+        // --- Streamlit Custom Component Messaging ---
+        // Get the component ID from the URL so Streamlit knows EXACTLY which component sent this!
+        const args = new URLSearchParams(window.location.search);
+        let componentId = args.get("id"); // Can be null in some older versions, but if present, we must send it!
+
+        function sendToStreamlit(type, data) {
+            const outData = Object.assign({
+                isStreamlitMessage: true,
+                type: type,
+            }, data);
+            
+            // If we have an ID, we MUST attach it to ensure Streamlit routes the message correctly
+            if (componentId) {
+                outData.id = componentId;
+            }
+            window.parent.postMessage(outData, "*");
+        }
+
+        // Notify Streamlit that we are ready
+        sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+
+        // Notify Streamlit of our height (full screen)
+        function updateHeight() {
+            sendToStreamlit("setFrameHeight", { height: window.innerHeight });
+        }
+        window.addEventListener('resize', updateHeight);
+        setTimeout(updateHeight, 100);
+
+        document.getElementById('enter-btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            // Bypass Streamlit's custom component messaging entirely!
+            // We search the parent document (the Streamlit app) for our hidden native button and click it directly.
+            try {
+                const parentDoc = window.parent.document;
+                const buttons = parentDoc.querySelectorAll('button');
+                for (let btn of buttons) {
+                    // Our hidden button has the text "HIDDEN_ENTER"
+                    if (btn.innerText && btn.innerText.includes("HIDDEN_ENTER")) {
+                        btn.click();
+                        return;
+                    }
+                }
+            } catch(err) {
+                console.error("DOM access failed:", err);
+            }
+        });
+
+        // --- Custom Cursor ---
+        const cursorDot = document.getElementById('cursor-dot');
+        const cursorRing = document.getElementById('cursor-ring');
+        const ctaBtn = document.getElementById('enter-btn');
+        let mouseX = window.innerWidth / 2;
+        let mouseY = window.innerHeight / 2;
+        let ringX = mouseX;
+        let ringY = mouseY;
+        let isHoveringCTA = false;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            cursorDot.style.left = mouseX + 'px';
+            cursorDot.style.top = mouseY + 'px';
+        });
+
+        // Smooth follow for the ring
+        function animateCursor() {
+            ringX += (mouseX - ringX) * 0.15;
+            ringY += (mouseY - ringY) * 0.15;
+            cursorRing.style.left = ringX + 'px';
+            cursorRing.style.top = ringY + 'px';
+            requestAnimationFrame(animateCursor);
+        }
+        animateCursor();
+
+        ctaBtn.addEventListener('mouseenter', () => {
+            isHoveringCTA = true;
+            cursorDot.style.transform = 'translate(-50%, -50%) scale(0)';
+            cursorRing.style.width = '180px';
+            cursorRing.style.height = '60px';
+            cursorRing.style.borderRadius = '0';
+            cursorRing.style.borderColor = 'var(--accent)';
+            cursorRing.style.backgroundColor = 'rgba(217, 154, 78, 0.1)';
+        });
+        ctaBtn.addEventListener('mouseleave', () => {
+            isHoveringCTA = false;
+            cursorDot.style.transform = 'translate(-50%, -50%) scale(1)';
+            cursorRing.style.width = '32px';
+            cursorRing.style.height = '32px';
+            cursorRing.style.borderRadius = '50%';
+            cursorRing.style.backgroundColor = 'transparent';
+        });
+
+        // Forced false for demo so users on strict OS settings still see the effect
+        const prefersReducedMotion = false;
+
+        // --- Three.js Particle System ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x1c1610, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 40;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        const particlesCount = 800;
+        const geometry = new THREE.BufferGeometry();
+        
+        // Arrays for different state targets
+        const positions = new Float32Array(particlesCount * 3);
+        const targetPositions = new Float32Array(particlesCount * 3);
+        const stateRandom = new Float32Array(particlesCount * 3); // Chaotic
+        const stateBarChart = new Float32Array(particlesCount * 3); // Bar chart
+        const stateNetwork = new Float32Array(particlesCount * 3); // Network graph
+        
+        // Generate states
+        for(let i = 0; i < particlesCount; i++) {
+            const i3 = i * 3;
+            // 0: Chaotic scatter
+            stateRandom[i3] = (Math.random() - 0.5) * 80;
+            stateRandom[i3+1] = (Math.random() - 0.5) * 60;
+            stateRandom[i3+2] = (Math.random() - 0.5) * 40;
+            
+            // 1: Bar Chart (clustered into 5 vertical bars)
+            const barIndex = i % 5;
+            const barX = (barIndex - 2) * 12; // -24, -12, 0, 12, 24
+            const barHeight = 10 + (Math.sin(barIndex * 1.4) + 1) * 15; // Varying heights
+            const yPos = (Math.random() * barHeight) - 15;
+            stateBarChart[i3] = barX + (Math.random() - 0.5) * 4;
+            stateBarChart[i3+1] = yPos;
+            stateBarChart[i3+2] = (Math.random() - 0.5) * 4;
+
+            // 2: Network Graph (Nodes and links on a sphere-ish surface)
+            const u = Math.random();
+            const v = Math.random();
+            const theta = u * 2.0 * Math.PI;
+            const phi = Math.acos(2.0 * v - 1.0);
+            const r = 25 + (Math.random() * 5); // hollow sphere
+            stateNetwork[i3] = r * Math.sin(phi) * Math.cos(theta);
+            stateNetwork[i3+1] = r * Math.sin(phi) * Math.sin(theta);
+            stateNetwork[i3+2] = r * Math.cos(phi);
+
+            // Init
+            positions[i3] = stateRandom[i3];
+            positions[i3+1] = stateRandom[i3+1];
+            positions[i3+2] = stateRandom[i3+2];
+            targetPositions[i3] = stateRandom[i3];
+            targetPositions[i3+1] = stateRandom[i3+1];
+            targetPositions[i3+2] = stateRandom[i3+2];
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({
+            size: 1.5,
+            color: 0xd99a4e,
+            transparent: true,
+            opacity: 0.7,
+            blending: THREE.AdditiveBlending
+        });
+
+        const particlesMesh = new THREE.Points(geometry, material);
+        scene.add(particlesMesh);
+
+        // Lines for Network state (initially transparent)
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0xd99a4e, transparent: true, opacity: 0 });
+        const lineGeometry = new THREE.BufferGeometry();
+        // Create 200 random lines connecting particles
+        const lineIndices = [];
+        for(let i = 0; i < 200; i++) {
+            lineIndices.push(Math.floor(Math.random() * particlesCount));
+            lineIndices.push(Math.floor(Math.random() * particlesCount));
+        }
+        lineGeometry.setIndex(lineIndices);
+        lineGeometry.setAttribute('position', geometry.getAttribute('position')); // share positions
+        const linesMesh = new THREE.LineSegments(lineGeometry, lineMaterial);
+        scene.add(linesMesh);
+
+        let currentSection = 0;
+        let globalTime = 0;
+        
+        function updateTargets(sectionIndex) {
+            currentSection = sectionIndex;
+            let targetArray;
+            if (sectionIndex === 0) targetArray = stateRandom;
+            else if (sectionIndex === 1) targetArray = stateBarChart;
+            else if (sectionIndex === 2) targetArray = stateNetwork;
+            else targetArray = stateRandom; // CTA fallback
+
+            for(let i = 0; i < particlesCount * 3; i++) {
+                targetPositions[i] = targetArray[i];
+            }
+            
+            // Fade lines in on network state
+            anime({
+                targets: lineMaterial,
+                opacity: sectionIndex === 2 ? 0.15 : 0,
+                duration: 1500,
+                easing: 'easeInOutQuad'
+            });
+        }
+
+        // --- Animation Loop ---
+        const clock = new THREE.Clock();
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            const delta = clock.getDelta();
+            globalTime += delta;
+
+            const posAttribute = geometry.getAttribute('position');
+            const pos = posAttribute.array;
+
+            // Camera Parallax
+            const w = window.innerWidth || 1;
+            const h = window.innerHeight || 1;
+            const targetCamX = (mouseX / w - 0.5) * 10;
+            const targetCamY = -(mouseY / h - 0.5) * 10;
+            if (!prefersReducedMotion && !isNaN(targetCamX) && !isNaN(targetCamY)) {
+                camera.position.x += (targetCamX - camera.position.x) * 0.05;
+                camera.position.y += (targetCamY - camera.position.y) * 0.05;
+                camera.lookAt(new THREE.Vector3(0, 0, 0));
+            }
+
+            // Particle Physics
+            for(let i = 0; i < particlesCount; i++) {
+                const i3 = i * 3;
+                
+                // Guard against NaN poisoning
+                if (isNaN(pos[i3])) pos[i3] = stateRandom[i3];
+                if (isNaN(pos[i3+1])) pos[i3+1] = stateRandom[i3+1];
+                if (isNaN(pos[i3+2])) pos[i3+2] = stateRandom[i3+2];
+                
+                // 1. Lerp toward target shape
+                if (!prefersReducedMotion) {
+                    pos[i3] += (targetPositions[i3] - pos[i3]) * 0.03;
+                    pos[i3+1] += (targetPositions[i3+1] - pos[i3+1]) * 0.03;
+                    pos[i3+2] += (targetPositions[i3+2] - pos[i3+2]) * 0.03;
+                }
+
+                // 2. Add subtle drift based on time and index
+                if (!prefersReducedMotion) {
+                    const driftFactor = currentSection === 0 ? 0.05 : 0.01; // more drift in chaotic state
+                    pos[i3] += Math.sin(globalTime + i) * driftFactor;
+                    pos[i3+1] += Math.cos(globalTime + i * 1.1) * driftFactor;
+                }
+
+                // 3. Cursor Gravity Attractor
+                // Convert mouse screen pos to world pos approximately at z=0
+                const vec = new THREE.Vector3(
+                    (mouseX / w) * 2 - 1,
+                    -(mouseY / h) * 2 + 1,
+                    0.5
+                );
+                vec.unproject(camera);
+                vec.sub(camera.position).normalize();
+                const distance = -camera.position.z / vec.z;
+                const worldMouse = camera.position.clone().add(vec.multiplyScalar(distance));
+
+                const dx = worldMouse.x - pos[i3];
+                const dy = worldMouse.y - pos[i3+1];
+                const dz = worldMouse.z - pos[i3+2];
+                const distSq = dx*dx + dy*dy + dz*dz;
+                
+                // If hovering CTA, increase gravity massively
+                const pullStrength = isHoveringCTA ? 2.0 : 0.2;
+                const radiusSq = isHoveringCTA ? 400 : 100;
+
+                if (!prefersReducedMotion && !isNaN(distSq) && distSq < radiusSq) {
+                    const force = (1.0 - distSq / radiusSq) * pullStrength;
+                    pos[i3] += dx * force * 0.05;
+                    pos[i3+1] += dy * force * 0.05;
+                    pos[i3+2] += dz * force * 0.05;
+                }
+            }
+            
+            posAttribute.needsUpdate = true;
+            
+            // Slow rotation for the network graph
+            if (currentSection === 2 && !prefersReducedMotion) {
+                particlesMesh.rotation.y = globalTime * 0.1;
+                linesMesh.rotation.y = globalTime * 0.1;
+            } else {
+                particlesMesh.rotation.y += (0 - particlesMesh.rotation.y) * 0.05;
+                linesMesh.rotation.y += (0 - linesMesh.rotation.y) * 0.05;
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate3D();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- fullPage.js & Anime.js Choreography ---
+        new fullpage('#fullpage', {
+            scrollingSpeed: 1000,
+            navigation: true,
+            navigationPosition: 'right',
+            
+            onLeave: function(origin, destination, direction) {
+                // Update Three.js target shapes
+                updateTargets(destination.index);
+                
+                // Animate text out
+                if (origin) {
+                    const lines = origin.item.querySelectorAll('.anim-line');
+                    anime({
+                        targets: lines,
+                        opacity: 0,
+                        translateY: direction === 'down' ? -20 : 20,
+                        duration: 500,
+                        easing: 'easeInQuad'
+                    });
+                }
+            },
+            
+            afterLoad: function(origin, destination, direction) {
+                // Animate text in
+                const lines = destination.item.querySelectorAll('.anim-line');
+                // Reset position before animating in
+                anime.set(lines, { opacity: 0, translateY: direction === 'down' ? 20 : -20 });
+                
+                anime({
+                    targets: lines,
+                    opacity: 1,
+                    translateY: 0,
+                    duration: 1000,
+                    delay: anime.stagger(150),
+                    easing: 'easeOutQuart'
+                });
+            }
+        });
+
+    </script>
+</body>
+</html>
