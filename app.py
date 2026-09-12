@@ -2127,7 +2127,7 @@ if st.session_state.get("analysis_done"):
                             "tooltip": [{"field": "model"}, {"field": "metric"}, {"field": "score", "title": f"{_pk} %"}],
                         },
                     },
-                    use_container_width=True,
+                    width='stretch',
                 )
 
         if corr_out:
@@ -2154,7 +2154,7 @@ if st.session_state.get("analysis_done"):
                             "tooltip": [{"field": "pair"}, {"field": "correlation"}],
                         },
                     },
-                    use_container_width=True,
+                    width='stretch',
                 )
 
     # ═════════════════════════════════════════════════════════════════════════
@@ -2220,7 +2220,7 @@ if st.session_state.get("analysis_done"):
                 _spec = dict(_ch.get("spec", {}))
                 _spec.setdefault("background", "transparent")
                 _spec.setdefault("config", vega_cfg)
-                st.vega_lite_chart(_spec, use_container_width=True)
+                st.vega_lite_chart(_spec, width='stretch')
                 if _ch.get("description"):
                     st.caption(_ch["description"])
 
@@ -2436,3 +2436,9 @@ if (preview_df is None
     if st.button("▶ See a Sample Report (Demo)", type="primary"):
         _load_teamwork_preview()
         st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MICRO-INTERACTIONS (Phase 3)
+# ══════════════════════════════════════════════════════════════════════════════
+from ui.animations import inject_micro_interactions
+inject_micro_interactions()
