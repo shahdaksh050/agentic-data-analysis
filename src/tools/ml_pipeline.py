@@ -327,6 +327,10 @@ def _split_train_test(
 #: that matter are near-deterministic, not merely strong.
 _LEAKAGE_PURITY = 0.99
 
+#: Cross-validated score at or above which the result is reported as a data
+#: check rather than a finding. Genuine business problems do not score here.
+_NEAR_PERFECT_SCORE = 0.99
+
 #: Below this many distinct feature values the "determines the target"
 #: test is vacuous — a column that is unique per row trivially "predicts"
 #: anything, which is a different defect (an identifier) already handled.
@@ -419,6 +423,8 @@ class TrainModelTool(BaseTool):
       Clustering     : KMeans, DBSCAN
     """
 
+    requires_ml = True
+
     name = "train_model"
     description = (
         "Train one or more ML models with built-in cross-validation (k=5) "
@@ -491,9 +497,20 @@ class TrainModelTool(BaseTool):
         X, y, treatments = _prepare_features(df, target_column)
         treatments.extend(split_notes)
 
-        # Auto-detect task type
+        # Auto-detect task type. Must agree with
+        # DatasetMetadata.infer_task_type, which is the canonical rule: a
+        # FLOAT target is continuous no matter how few distinct values it
+        # happens to take. The previous "nunique <= 20 -> classification"
+        # test ignored dtype, so a revenue column taking 18 distinct prices
+        # was treated as an 18-class problem and every model failed with
+        # "Supported target types are ('binary', 'multiclass'). Got
+        # 'continuous'" — the whole ML stage dying on ordinary money data.
         if task_type == "auto":
-            if not pd.api.types.is_numeric_dtype(y) or y.nunique() <= 20:
+            if not pd.api.types.is_numeric_dtype(y):
+                task_type = "classification"
+            elif pd.api.types.is_bool_dtype(y):
+                task_type = "classification"
+            elif pd.api.types.is_integer_dtype(y) and y.nunique() <= 20:
                 task_type = "classification"
             else:
                 task_type = "regression"
@@ -676,13 +693,27 @@ class TrainModelTool(BaseTool):
 
         best_summary = results.get(best_model, {})
 
+        # A near-perfect score is itself evidence, even when no single column
+        # explains it. Total = Unit Price x Qty is a definition spread across
+        # two features, so the per-feature check above cannot see it, but an
+        # R² of 0.995 on ordinary business data still means the model is
+        # reconstructing an identity rather than learning anything.
+        best_cv = best_summary.get("cv_mean")
+        if isinstance(best_cv, (int, float)) and float(best_cv) >= _NEAR_PERFECT_SCORE:
+            leakage_warnings.append(
+                f"Cross-validated score is {float(best_cv):.4f} — near-perfect. "
+                f"On real data this almost always means a feature (or a "
+                f"combination of them, such as a total that is the product of "
+                f"two other columns) defines the target. Treat this as a data "
+                f"check, not a result."
+            )
+
         # A near-perfect score is a red flag, not a headline. Say so in the
         # summary itself, because the summary is what reaches the report and
         # the LLM synthesis — a caveat buried in a sibling key gets read as
         # an endorsement of the score.
         leak_note = (
-            f" ⚠ Score is near-perfect and likely tautological: "
-            f"{leakage_warnings[0]}"
+            f" ⚠ {leakage_warnings[0]}"
             if leakage_warnings
             else ""
         )
@@ -968,6 +999,8 @@ class EvaluateModelTool(BaseTool):
     not memorisation. Produces a classification report or regression
     metrics plus the train-test gap as an overfitting diagnostic.
     """
+
+    requires_ml = True
 
     name = "evaluate_model"
     description = (

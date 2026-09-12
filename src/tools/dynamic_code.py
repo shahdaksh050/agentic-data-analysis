@@ -17,6 +17,8 @@ from src.tools.base import BaseTool, ToolExecutionError
 class DynamicCodeExecutionTool(BaseTool):
     """Execute custom Python code against the dataset in an isolated subprocess."""
 
+    requires_llm = True
+
     name = "execute_dynamic_code"
     description = (
         "Execute custom Python code against the dataset when no other tool "

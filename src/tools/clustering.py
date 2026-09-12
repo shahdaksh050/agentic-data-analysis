@@ -66,6 +66,8 @@ def _select_cluster_features(df: pd.DataFrame) -> pd.DataFrame:
 class ClusterDataTool(BaseTool):
     """Discover natural segments in the data with auto-tuned KMeans."""
 
+    requires_ml = True
+
     name = "cluster_data"
     description = (
         "Segment the dataset into natural groups using KMeans clustering. "

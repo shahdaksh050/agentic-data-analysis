@@ -362,8 +362,62 @@ class LLMClient:
         repaired = LLMClient._repair_truncated_json(cleaned)
         try:
             return cast(dict[str, Any], json.loads(repaired))
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"LLM returned non-JSON: {raw[:300]}") from exc
+        except json.JSONDecodeError:
+            pass
+
+        # Prose wrapped around the object: small models very often answer
+        # "Looking at the results, I think... {...}" instead of bare JSON,
+        # which used to abort the whole iteration. Pull out the first
+        # balanced {...} and try again — this is what makes a lightweight
+        # model usable at all, and it costs nothing when the reply was
+        # already clean.
+        extracted = LLMClient._extract_json_object(cleaned)
+        if extracted is not None:
+            for candidate in (extracted, LLMClient._repair_truncated_json(extracted)):
+                try:
+                    return cast(dict[str, Any], json.loads(candidate))
+                except json.JSONDecodeError:
+                    continue
+
+        raise ValueError(f"LLM returned non-JSON: {raw[:300]}")
+
+    @staticmethod
+    def _extract_json_object(text: str) -> str | None:
+        """
+        First balanced {...} in `text`, or None.
+
+        Brace counting is string-aware: a `{` or `}` inside a JSON string
+        value (or escaped) must not change the depth, or a reply containing
+        a brace in prose — or in an analysis rationale — truncates at the
+        wrong place and produces something worse than no match.
+        """
+        start = text.find("{")
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : index + 1]
+        # Unbalanced: hand back the tail so the truncation repair can try.
+        return text[start:]
 
     @staticmethod
     def _repair_truncated_json(s: str) -> str:
@@ -501,21 +555,44 @@ class ToolRegistry:
         return "\n\n".join(t.to_prompt_description() for t in self._registry.values())
 
     def candidate_tools(
-        self, profile: Any | None, metadata: Any | None
+        self,
+        profile: Any | None,
+        metadata: Any | None,
+        use_ml: bool = True,
+        use_llm: bool = True,
     ) -> list[Any]:
         """
         Tools relevant to this dataset, ranked by applies_to() score
         (highest first). A tool scoring 0.0 is excluded entirely — this
         IS the dynamic-selection mechanism: what the planner sees is
         already filtered to what fits the data's nature.
+
+        `use_ml`/`use_llm` drop the tools that declare they need those
+        capabilities (BaseTool.requires_ml / requires_llm). Filtering here
+        rather than at plan time means a disabled capability is invisible
+        everywhere at once: the planner never sees the tool, the
+        deterministic plan never schedules it, and the prompt never
+        describes it.
         """
         scored = [(t, t.applies_to(profile, metadata)) for t in self._registry.values()]
-        relevant = [(t, s) for t, s in scored if s > 0.0]
+        relevant = [
+            (t, s)
+            for t, s in scored
+            if s > 0.0
+            and not (getattr(t, "requires_ml", False) and not use_ml)
+            and not (getattr(t, "requires_llm", False) and not use_llm)
+        ]
         relevant.sort(key=lambda ts: ts[1], reverse=True)
         return [t for t, _ in relevant]
 
-    def get_candidate_descriptions(self, profile: Any | None, metadata: Any | None) -> str:
-        tools = self.candidate_tools(profile, metadata)
+    def get_candidate_descriptions(
+        self,
+        profile: Any | None,
+        metadata: Any | None,
+        use_ml: bool = True,
+        use_llm: bool = True,
+    ) -> str:
+        tools = self.candidate_tools(profile, metadata, use_ml=use_ml, use_llm=use_llm)
         if not tools:
             return self.get_all_descriptions()
         return "\n\n".join(t.to_prompt_description() for t in tools)
@@ -539,7 +616,24 @@ class AgentController:
         max_iterations: int | None = None,
         enable_rlm: bool | None = None,
         memory_persist_path: str | None = None,
+        use_llm: bool | None = None,
+        use_ml: bool | None = None,
     ) -> None:
+        # Capability switches. Both default on, and both are honest about
+        # what they cost: with use_llm off the run is fully deterministic
+        # (no network, no narrative synthesis, plans come from the profile);
+        # with use_ml off no model is fitted, which is the single largest
+        # time saving available since training dominates every run.
+        self.use_llm = (
+            use_llm
+            if use_llm is not None
+            else os.getenv("ENABLE_LLM", "true").strip().lower() == "true"
+        )
+        self.use_ml = (
+            use_ml
+            if use_ml is not None
+            else os.getenv("ENABLE_ML", "true").strip().lower() == "true"
+        )
         self.max_iterations = (
             max_iterations
             if max_iterations is not None
@@ -783,7 +877,10 @@ class AgentController:
         # filtered/ranked against the dataset's profile — the planner only
         # ever sees tools that actually apply to this data's nature.
         tool_desc = self.tool_registry.get_candidate_descriptions(
-            self.last_profile, self.memory.dataset_metadata
+            self.last_profile,
+            self.memory.dataset_metadata,
+            use_ml=self.use_ml,
+            use_llm=self.use_llm,
         )
         self._prompt_manager = PromptManager(self.memory, tool_desc)
         self._rlm_engine = RLMEngine(
@@ -820,6 +917,33 @@ class AgentController:
 
                 if self.on_iteration_callback:
                     self.on_iteration_callback(iteration, stage_label)
+
+                # ---- Deterministic mode: no LLM, by choice ----
+                # Distinct from the failure path below. Nothing is "degraded"
+                # here — the user asked for a deterministic run, so the
+                # profile-driven plan executes once and the report is
+                # synthesised from tool output without any network call.
+                if not self.use_llm:
+                    if iteration == 1:
+                        console.print(
+                            "[cyan]🔌 LLM disabled — running the deterministic "
+                            "profile-driven plan.[/]"
+                        )
+                        llm_response = self._build_fallback_plan()
+                        llm_response["reasoning"] = (
+                            "LLM disabled for this run — plan selected from the "
+                            "dataset profile and domain inference."
+                        )
+                    steps = self._parse_steps(llm_response)
+                    if steps:
+                        self.memory.store_analysis_plan(steps)
+                        progress.update(
+                            task_id, description=f"Stage 3 — Executing {len(steps)} tool(s)…"
+                        )
+                        self._execute_steps(steps)
+                        self.memory.save()
+                    final_result = self._deterministic_final()
+                    break
 
                 # ---- Reasoning with graceful degradation ----
                 # An LLM/API failure must never abort a running analysis:
@@ -1038,17 +1162,47 @@ class AgentController:
         # reachable. The previous hardcoded tuple silently excluded every
         # tool it predated.
         already = {s["tool_name"] for s in steps} | self._FALLBACK_EXCLUDED_TOOLS
-        for tool in self.tool_registry.candidate_tools(profile, meta):
+        for tool in self.tool_registry.candidate_tools(
+            profile, meta, use_ml=self.use_ml, use_llm=self.use_llm
+        ):
             name = getattr(tool, "name", "")
             if name in already:
                 continue
             score = tool.applies_to(profile, meta)
             if score < self._FALLBACK_MIN_SCORE:
                 continue
+
+            tool_params: dict[str, Any] = {"file_path": fp}
+            try:
+                tool_params.update(tool.default_params(profile, meta) or {})
+            except Exception:
+                pass
+
+            # Never schedule a step that cannot run. file_path and output_dir
+            # are injected by BaseTool.prepare_params, and requires_context
+            # entries are filled from memory, so only genuinely unfilled
+            # required parameters disqualify a tool.
+            try:
+                schema = tool.get_schema()
+            except Exception:
+                schema = {}
+            injected = {"file_path", "output_dir"} | set(
+                getattr(tool, "requires_context", {}).values()
+            )
+            unfilled = [
+                key
+                for key, spec in schema.items()
+                if spec.get("required")
+                and key not in tool_params
+                and key not in injected
+            ]
+            if unfilled:
+                continue
+
             steps.append({
                 "step_number": len(steps) + 1,
                 "tool_name": name,
-                "parameters": {"file_path": fp},
+                "parameters": tool_params,
                 "rationale": (
                     f"Fallback plan: profile-driven selection scored '{name}' "
                     f"at {score:.2f} for this dataset."
@@ -1056,7 +1210,12 @@ class AgentController:
             })
             already.add(name)
 
-        if meta.target_column and meta.task_type in ("classification", "regression"):
+        if not self.use_ml:
+            # No model-fitting branch at all: no supervised training and no
+            # clustering fallback. The profile-driven analyses above already
+            # ran, so the plan is complete and genuinely ML-free.
+            pass
+        elif meta.target_column and meta.task_type in ("classification", "regression"):
             steps += [
                 {
                     "step_number": len(steps) + 1,
@@ -1222,25 +1381,49 @@ class AgentController:
 
         if not insights:
             insights.append("Analysis produced no tool results to synthesise.")
-        if not recommendations:
-            recommendations.append(
-                "Re-run with a reachable LLM provider for narrative interpretation "
-                "of these deterministic findings."
+        # Chosen deterministic mode and a mid-run LLM failure produce the same
+        # findings but are not the same event, and saying so matters: telling
+        # someone to "re-run with a reachable provider" when they deliberately
+        # switched the LLM off reads as a malfunction rather than the mode
+        # working as asked.
+        if not self.use_llm:
+            reasoning = (
+                "Deterministic run: the LLM was switched off, so the plan came "
+                "from the dataset profile and domain inference and these "
+                "findings were compiled directly from tool output."
             )
+            if not recommendations:
+                recommendations.append(
+                    "Turn the AI narrative on to get these same findings "
+                    "interpreted and prioritised in plain language."
+                )
+        else:
+            if not recommendations:
+                recommendations.append(
+                    "Re-run with a reachable LLM provider for narrative interpretation "
+                    "of these deterministic findings."
+                )
+            reasoning = (
+                "Deterministic synthesis: the LLM became unreachable mid-run, so "
+                "findings were compiled directly from tool outputs."
+            )
+            llm_error = self.memory.get_context("llm_error")
+            if llm_error:
+                reasoning += f" (LLM error: {llm_error})"
 
-        llm_error = self.memory.get_context("llm_error")
-        reasoning = (
-            "Deterministic synthesis: the LLM became unreachable mid-run, so "
-            "findings were compiled directly from tool outputs."
-        )
-        if llm_error:
-            reasoning += f" (LLM error: {llm_error})"
+        if not self.use_ml:
+            recommendations.append(
+                "Machine learning was switched off for this run — no model was "
+                "fitted. Turn it on for predictive modelling and clustering."
+            )
         if self.objective:
             reasoning = f"User objective: {self.objective}\n{reasoning}"
 
         return {
             "status": "complete",
-            "llm_fallback": True,
+            "llm_fallback": not self.use_llm or bool(self.memory.get_context("llm_error")),
+            "deterministic_mode": not self.use_llm,
+            "ml_enabled": self.use_ml,
             "reasoning": reasoning,
             "insights": insights,
             "recommendations": recommendations,

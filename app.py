@@ -1546,10 +1546,42 @@ with st.sidebar:
         placeholder=key_ph,
     )
 
+    # ── Engine ────────────────────────────────────────────────────────────────
+    # The two capability switches. Both default on; either can be turned off
+    # independently, and the analysis still runs end to end and still writes a
+    # full report — that is the point of them.
+    st.markdown('<div class="side-head">Engine</div>', unsafe_allow_html=True)
+    use_llm = st.toggle(
+        "AI narrative (LLM)",
+        value=True,
+        help=(
+            "On: the LLM plans the analysis and writes the narrative.\n"
+            "Off: fully deterministic — the plan comes from the data profile "
+            "and domain detection, and the report is built from tool output. "
+            "No network calls, no API key needed, and much faster."
+        ),
+    )
+    use_ml = st.toggle(
+        "Machine learning",
+        value=True,
+        help=(
+            "On: trains models, clusters, and runs PCA.\n"
+            "Off: skips every model-fitting step. Statistical tests, "
+            "correlations and the domain analyses still run. This is the "
+            "single biggest speed-up available — training dominates runtime."
+        ),
+    )
+    if not use_llm and not use_ml:
+        st.caption("⚡ Fully deterministic, statistics-only mode — fastest.")
+    elif not use_llm:
+        st.caption("🔌 Deterministic planning, ML still on.")
+    elif not use_ml:
+        st.caption("⚡ AI narrative on, no models fitted.")
+
     # ── Analysis Settings ─────────────────────────────────────────────────────
     st.markdown('<div class="side-head">Analysis Settings</div>', unsafe_allow_html=True)
     max_iter   = st.slider("Max iterations", 3, 25, 10)
-    enable_rlm = st.toggle("Enable RLM decomposition (Stage 6)", value=True)
+    enable_rlm = st.toggle("Enable recursive decomposition (Stage 6)", value=True)
 
     st.markdown('<div class="side-head">Anti-Overfitting</div>', unsafe_allow_html=True)
     max_depth = st.slider("Max tree depth", 2, 15, 6,
@@ -1685,6 +1717,8 @@ if run_clicked:
     os.environ["LLM_MODEL"]             = final_model
     os.environ["MAX_ITERATIONS"]        = str(max_iter)
     os.environ["ENABLE_RLM_INFERENCE"]  = "true" if enable_rlm else "false"
+    os.environ["ENABLE_LLM"]            = "true" if use_llm else "false"
+    os.environ["ENABLE_ML"]             = "true" if use_ml else "false"
     os.environ["OUTPUT_DIR"]            = outdir
     if objective.strip():
         os.environ["USER_OBJECTIVE"] = objective.strip()
@@ -1725,7 +1759,10 @@ if run_clicked:
     #    the whole pipeline on the deterministic fallback ──────────────────
     from src.core.controller import AgentController, LLMClient
 
-    _ok, _ping_err = LLMClient().ping()
+    # In no-LLM mode there is nothing to preflight — the run is fully
+    # deterministic, so requiring a reachable model (or any API key) would
+    # block the very mode that exists to work without one.
+    _ok, _ping_err = (True, "") if not use_llm else LLMClient().ping()
     if not _ok:
         _spinner_ph.empty()
         _set_stage("2", "error", "LLM unreachable")
@@ -1747,6 +1784,8 @@ if run_clicked:
         agent = AgentController(
             max_iterations=max_iter,
             enable_rlm=enable_rlm,
+            use_llm=use_llm,
+            use_ml=use_ml,
         )
         meta = agent.load_dataset(
             dpath,
@@ -1757,7 +1796,9 @@ if run_clicked:
         _upd("1", "done",
              f"{meta.row_count:,} rows × {meta.column_count} cols · task={meta.task_type} · target={meta.target_column}")
 
-        _upd("2", "active", "calling LLM for analysis plan…")
+        _upd("2", "active",
+             "calling LLM for analysis plan…" if use_llm
+             else "building deterministic plan from the data profile…")
         _upd("3", "pending")
         _upd("4", "pending")
         _upd("5", "pending")

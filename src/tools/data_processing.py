@@ -88,8 +88,14 @@ class IngestDatasetTool(BaseTool):
             raise ToolExecutionError(f"File not found: {file_path}")
 
         try:
-            # Raw: this tool reports what the file actually contains.
-            df = _read_raw_df(file_path)
+            # Coerced, deliberately. This tool's metadata drives target
+            # auto-detection and task-type inference for the whole run, so it
+            # must describe the same frame every other tool analyses. Reading
+            # raw here made a "$18.50" revenue column look like a string, so
+            # the task was inferred as classification while train_model saw a
+            # float and every model failed on a continuous target. What was
+            # repaired is reported separately, in the report's Data Overview.
+            df = _read_df(file_path)
         except ToolExecutionError:
             raise
         except Exception as exc:

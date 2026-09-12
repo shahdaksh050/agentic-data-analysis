@@ -19,7 +19,8 @@ from src.core.io import DatasetReadError, read_any
 from src.tools.base import BaseTool, ToolExecutionError
 
 if TYPE_CHECKING:
-    from src.core.memory import MemorySystem
+    from src.core.memory import DatasetMetadata, MemorySystem
+    from src.core.profiler import DatasetProfile
 
 
 def _read_df(file_path: str) -> pd.DataFrame:
@@ -62,6 +63,24 @@ class GenerateVisualizationsTool(BaseTool):
             if not raw_mp or not Path(raw_mp).exists():
                 params["model_path"] = best_path
         return params
+
+    def default_params(
+        self, profile: DatasetProfile | None, metadata: DatasetMetadata | None
+    ) -> dict[str, Any]:
+        """Choose a chart the data can actually support.
+
+        A correlation heatmap needs two or more numeric columns; below that
+        distributions still work. Without this the deterministic planner
+        scheduled the tool with no chart_type at all and it failed every run.
+        """
+        if profile is None:
+            return {"chart_type": "distributions"}
+        n_numeric = sum(1 for c in profile.columns if c.kind == "numeric")
+        if n_numeric >= 2:
+            return {"chart_type": "correlation_heatmap"}
+        if n_numeric >= 1:
+            return {"chart_type": "distributions"}
+        return {}
 
     def execute(  # type: ignore[override]
         self,

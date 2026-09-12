@@ -216,6 +216,28 @@ class SelectStatisticalTestTool(BaseTool):
     )
     requires_context: ClassVar[dict[str, str]] = {"target_column": "group_column"}
 
+    def default_params(
+        self, profile: DatasetProfile | None, metadata: DatasetMetadata | None
+    ) -> dict[str, Any]:
+        """Pick a numeric measure and a small categorical grouping itself.
+
+        A hypothesis test needs both, and the deterministic planner has no
+        way to choose them. The group must have at least two levels and few
+        enough of them to be a grouping rather than an identifier."""
+        if profile is None:
+            return {}
+        numeric = [
+            c.name for c in profile.columns
+            if c.kind == "numeric" and c.nunique > 1
+        ]
+        groups = [
+            c.name for c in profile.columns
+            if c.kind in ("categorical", "boolean") and 2 <= c.nunique <= 10
+        ]
+        if not numeric or not groups:
+            return {}
+        return {"feature_column": numeric[0], "group_column": groups[0]}
+
     def applies_to(self, profile: DatasetProfile | None, metadata: DatasetMetadata | None) -> float:
         if metadata and metadata.target_column and metadata.task_type == "classification":
             return 1.0

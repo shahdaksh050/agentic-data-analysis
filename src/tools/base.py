@@ -48,6 +48,18 @@ class BaseTool(ABC):
     #: produced one. Ingestion/cleaning tools themselves opt out.
     uses_cleaned_file: bool = True
 
+    #: True when this tool fits a model (supervised training, clustering,
+    #: dimensionality reduction). Declared per tool rather than held as a
+    #: name list in the controller, so a tool added later opts itself in and
+    #: "run without ML" keeps meaning what it says. These are also the
+    #: slowest tools by a wide margin — turning them off is the single
+    #: biggest speed lever the system has.
+    requires_ml: ClassVar[bool] = False
+
+    #: True when this tool is meaningless without a reachable LLM (e.g. it
+    #: executes LLM-generated code). Excluded outright in no-LLM mode.
+    requires_llm: ClassVar[bool] = False
+
     #: {memory_context_key: param_name} — filled in from MemorySystem
     #: context whenever the plan step left `param_name` empty. Covers the
     #: common case (e.g. target_column); tools with bespoke injection logic
@@ -65,6 +77,24 @@ class BaseTool(ABC):
         target column...) override this to gate themselves in or out.
         """
         return 1.0
+
+    def default_params(
+        self, profile: DatasetProfile | None, metadata: DatasetMetadata | None
+    ) -> dict[str, Any]:
+        """
+        Parameters this tool can choose for itself from the data profile.
+
+        Used by the deterministic (no-LLM) planner, which otherwise knows
+        only the file path. A tool whose schema requires more than that —
+        `select_statistical_test` needs a feature and a group column,
+        `generate_visualizations` needs a chart type — is unrunnable without
+        this hook, and was being scheduled and failing on every no-LLM run.
+
+        Returning {} means "I need nothing beyond file_path"; the planner
+        skips any tool whose required parameters are still unfilled rather
+        than scheduling a step it knows will fail.
+        """
+        return {}
 
     def prepare_params(
         self, params: dict[str, Any], memory: MemorySystem, output_root: str
