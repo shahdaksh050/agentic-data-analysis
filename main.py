@@ -69,8 +69,7 @@ def _print_banner() -> None:
     console.print(
         Panel(
             "[bold cyan]Agentic Data Analysis System[/]\n"
-            "[dim]Powered by Recursive Language Model Inference (Zhang et al., 2024)[/]\n"
-            "[dim]Separation of reasoning ↔ execution — RLM context offloading enabled[/]",
+            "[dim]Separation of reasoning ↔ execution — context offloading enabled[/]",
             border_style="cyan",
             expand=False,
         )

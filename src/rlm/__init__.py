@@ -1,1 +1,1 @@
-"""Recursive Language Model (RLM) inference layer."""
+"""Recursive inference layer — task decomposition and context offloading."""

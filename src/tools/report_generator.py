@@ -334,7 +334,6 @@ class GenerateReportTool(BaseTool):
             "",
             f"**Dataset**: {dataset_name}  ",
             f"**Generated**: {timestamp}  ",
-            "**Powered by**: Recursive Language Model Inference (Zhang et al., 2024)",
             "",
             "---",
             "",

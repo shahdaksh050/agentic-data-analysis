@@ -1,0 +1,19 @@
+{
+  "status": "complete",
+  "llm_fallback": true,
+  "reasoning": "Deterministic synthesis: the LLM became unreachable mid-run, so findings were compiled directly from tool outputs. (LLM error: AuthenticationError: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-.... You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401})",
+  "insights": [
+    "Best model 'xgboost' reached cross-validated score 0.9969 \u00b1 0.0063 with train-test gap 0.0.",
+    "Strongest feature correlation: Customer ID \u2194 Qty (r=-0.0591).",
+    "Outlier scan (iqr): 0 rows flagged (0.0% of data)."
+  ],
+  "recommendations": [
+    "Re-run with a reachable LLM provider for narrative interpretation of these deterministic findings."
+  ],
+  "best_model": "xgboost",
+  "key_metrics": {
+    "cv_mean": 0.9969,
+    "cv_std": 0.0063,
+    "train_test_gap": 0.0
+  }
+}

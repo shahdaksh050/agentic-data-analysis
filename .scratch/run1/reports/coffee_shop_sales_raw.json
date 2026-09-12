@@ -1,0 +1,746 @@
+{
+  "timestamp": "2026-09-12 14:50:51",
+  "dataset": "coffee_shop_sales",
+  "llm_insights": {
+    "status": "complete",
+    "llm_fallback": true,
+    "reasoning": "Deterministic synthesis: the LLM became unreachable mid-run, so findings were compiled directly from tool outputs. (LLM error: AuthenticationError: Error code: 401 - {'error': {'message': 'Incorrect API key provided: sk-.... You can find your API key at https://platform.openai.com/account/api-keys.', 'type': 'invalid_request_error', 'code': 'invalid_api_key', 'param': None}, 'status': 401})",
+    "insights": [
+      "Best model 'xgboost' reached cross-validated score 0.9969 \u00b1 0.0063 with train-test gap 0.0.",
+      "Strongest feature correlation: Customer ID \u2194 Qty (r=-0.0591).",
+      "Outlier scan (iqr): 0 rows flagged (0.0% of data)."
+    ],
+    "recommendations": [
+      "Re-run with a reachable LLM provider for narrative interpretation of these deterministic findings."
+    ],
+    "best_model": "xgboost",
+    "key_metrics": {
+      "cv_mean": 0.9969,
+      "cv_std": 0.0063,
+      "train_test_gap": 0.0
+    }
+  },
+  "tool_results": [
+    {
+      "tool_name": "ingest_dataset",
+      "status": "success",
+      "output": {
+        "summary": "Ingested: 1,500 rows \u00d7 9 cols | 2 numerical, 7 categorical | 60 missing cells | task=clustering",
+        "metadata": {
+          "file_path": "D:\\(Dev2)DSA_AGENT\\.worktrees\\isolated-compute-sandbox\\.scratch\\coffee_shop_sales.csv",
+          "row_count": 1500,
+          "column_count": 9,
+          "columns": {
+            "Order Date": "str",
+            "Invoice No": "str",
+            "Customer ID": "int64",
+            "Product Name": "str",
+            "Qty": "int64",
+            "Unit Price": "str",
+            "Total": "str",
+            "Region": "str",
+            "Channel": "str"
+          },
+          "missing_values": {
+            "Region": 60
+          },
+          "numerical_cols": [
+            "Customer ID",
+            "Qty"
+          ],
+          "categorical_cols": [
+            "Order Date",
+            "Invoice No",
+            "Product Name",
+            "Unit Price",
+            "Total",
+            "Region",
+            "Channel"
+          ],
+          "target_column": null,
+          "task_type": "clustering",
+          "class_balance": {},
+          "high_cardinality_cols": [
+            "Order Date",
+            "Invoice No"
+          ],
+          "column_nunique": {
+            "Order Date": 506,
+            "Invoice No": 870,
+            "Customer ID": 394,
+            "Product Name": 6,
+            "Qty": 3,
+            "Unit Price": 6,
+            "Total": 18,
+            "Region": 4,
+            "Channel": 2
+          },
+          "summary_stats": {}
+        },
+        "column_list": [
+          "Order Date",
+          "Invoice No",
+          "Customer ID",
+          "Product Name",
+          "Qty",
+          "Unit Price",
+          "Total",
+          "Region",
+          "Channel"
+        ]
+      },
+      "error": null,
+      "execution_time_ms": 38.48910005763173,
+      "timestamp": 1789204801.2682157
+    },
+    {
+      "tool_name": "clean_data",
+      "status": "success",
+      "output": {
+        "summary": "Cleaned 0 missing values using 'median'. Shape: (1500, 9) \u2192 (1500, 9). Saved to '.scratch\\run1\\data\\coffee_shop_sales_cleaned.csv'.",
+        "cleaned_file_path": ".scratch\\run1\\data\\coffee_shop_sales_cleaned.csv",
+        "rows_before": 1500,
+        "rows_after": 1500,
+        "missing_before": 60,
+        "missing_after": 60,
+        "strategy_used": "median"
+      },
+      "error": null,
+      "execution_time_ms": 8.23210016824305,
+      "timestamp": 1789204816.3311226
+    },
+    {
+      "tool_name": "detect_outliers",
+      "status": "success",
+      "output": {
+        "summary": "Outlier detection (iqr): 0 outliers (0.0% of data). Flagged dataset saved to '.scratch\\run1\\data\\coffee_shop_sales_cleaned_outliers_flagged.csv'.",
+        "flagged_file_path": ".scratch\\run1\\data\\coffee_shop_sales_cleaned_outliers_flagged.csv",
+        "method": "iqr",
+        "total_outliers": 0,
+        "per_column_outliers": {
+          "Customer ID": 0,
+          "Qty": 0
+        },
+        "outlier_percentage": 0.0
+      },
+      "error": null,
+      "execution_time_ms": 20.200699800625443,
+      "timestamp": 1789204816.3527148
+    },
+    {
+      "tool_name": "correlation_analysis",
+      "status": "success",
+      "output": {
+        "summary": "Correlation (pearson) on 2 features. Top pair: Customer ID \u2194 Qty (r=-0.0591).",
+        "method": "pearson",
+        "top_correlations": [
+          {
+            "col_a": "Customer ID",
+            "col_b": "Qty",
+            "correlation": -0.0591
+          }
+        ],
+        "target_correlations": {
+          "Qty": 1.0,
+          "Customer ID": 0.0128
+        },
+        "target_correlation_method": "eta-squared",
+        "target_encoded_binary": true,
+        "features_analyzed": [
+          "Customer ID",
+          "Qty"
+        ],
+        "n_features": 2
+      },
+      "error": null,
+      "execution_time_ms": 7.677300134673715,
+      "timestamp": 1789204816.3612645
+    },
+    {
+      "tool_name": "time_series_analysis",
+      "status": "success",
+      "output": {
+        "summary": "Trend is increasing (slope=0.002406, R\u00b2=0.0001) over 1500 points. Series is stationary (ADF p=0.0). No strong seasonal signal at checked lags.",
+        "date_column": "Order Date",
+        "value_column": "Customer ID",
+        "rows_used": 1500,
+        "trend_direction": "increasing",
+        "trend_slope": 0.002406,
+        "trend_r_squared": 0.0001,
+        "is_stationary": true,
+        "adf_p_value": 0.0,
+        "autocorrelation_lag1": 0.0055,
+        "seasonality_by_lag": {
+          "7": -0.0095,
+          "12": -0.0105,
+          "30": -0.0419,
+          "365": 0.0436
+        },
+        "seasonal_lags_detected": []
+      },
+      "error": null,
+      "execution_time_ms": 897.8189998306334,
+      "timestamp": 1789204817.2598994
+    },
+    {
+      "tool_name": "train_model",
+      "status": "success",
+      "output": {
+        "summary": "Trained 3 model(s) [classification, split=time_series]. Best: xgboost | CV mean=0.9969 \u00b1 0.0063.",
+        "task_type": "classification",
+        "models_trained": {
+          "random_forest": {
+            "train_metrics": {
+              "accuracy": 1.0,
+              "f1_score": 1.0
+            },
+            "test_metrics": {
+              "accuracy": 1.0,
+              "f1_score": 1.0
+            },
+            "cv_mean": 0.9806,
+            "cv_std": 0.0225,
+            "train_test_gap": 0.0,
+            "model_path": ".scratch\\run1\\models\\random_forest.pkl",
+            "best_params": {
+              "n_estimators": 300,
+              "min_samples_leaf": 1,
+              "max_depth": 5
+            }
+          },
+          "xgboost": {
+            "train_metrics": {
+              "accuracy": 1.0,
+              "f1_score": 1.0
+            },
+            "test_metrics": {
+              "accuracy": 1.0,
+              "f1_score": 1.0
+            },
+            "cv_mean": 0.9969,
+            "cv_std": 0.0063,
+            "train_test_gap": 0.0,
+            "model_path": ".scratch\\run1\\models\\xgboost.pkl",
+            "best_params": {
+              "subsample": 1.0,
+              "n_estimators": 300,
+              "learning_rate": 0.01
+            }
+          },
+          "logistic_regression": {
+            "train_metrics": {
+              "accuracy": 0.905,
+              "f1_score": 0.9051
+            },
+            "test_metrics": {
+              "accuracy": 0.98,
+              "f1_score": 0.9799
+            },
+            "cv_mean": 0.7038,
+            "cv_std": 0.2867,
+            "train_test_gap": -0.075,
+            "model_path": ".scratch\\run1\\models\\logistic_regression.pkl",
+            "best_params": {
+              "C": 1.0
+            }
+          }
+        },
+        "best_model": "xgboost",
+        "class_labels": [
+          "$1,347.00",
+          "$119.70",
+          "$12.75",
+          "$129.00",
+          "$18.50",
+          "$24.00",
+          "$258.00",
+          "$37.00",
+          "$387.00",
+          "$39.90",
+          "$4.25",
+          "$449.00",
+          "$48.00",
+          "$55.50",
+          "$72.00",
+          "$79.80",
+          "$8.50",
+          "$898.00"
+        ],
+        "overfit_warnings": [],
+        "treatments_applied": [
+          "Expanded datetime column 'Order Date' into year/month/day/dayofweek/hour/is_weekend/days_since_min trend features.",
+          "Dropped ID-like text column 'Invoice No' (>50% unique).",
+          "Class weighting applied \u2014 minority class is 2.7% of rows (threshold 10%).",
+          "Applied log1p to 'Order Date_is_weekend' (skew=2.08 \u2014 heavy tail compressed)."
+        ],
+        "hyperparameter_tuning": true,
+        "test_size": 0.2,
+        "n_cv_folds": 5,
+        "train_samples": 1200,
+        "test_samples": 300,
+        "split_strategy": "time_series",
+        "time_column": "Order Date",
+        "group_column": null
+      },
+      "error": null,
+      "execution_time_ms": 31927.593500120565,
+      "timestamp": 1789204849.1890428
+    },
+    {
+      "tool_name": "evaluate_model",
+      "status": "success",
+      "output": {
+        "summary": "Held-out evaluation complete. Test accuracy: 1.0000 (train: 1.0000, gap: +0.0000).",
+        "classification_report": {
+          "$1,347.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 10.0
+          },
+          "$119.70": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 10.0
+          },
+          "$12.75": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 22.0
+          },
+          "$129.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 16.0
+          },
+          "$18.50": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 35.0
+          },
+          "$24.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 13.0
+          },
+          "$258.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 14.0
+          },
+          "$37.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 27.0
+          },
+          "$387.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 17.0
+          },
+          "$39.90": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 8.0
+          },
+          "$4.25": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 19.0
+          },
+          "$449.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 5.0
+          },
+          "$48.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 11.0
+          },
+          "$55.50": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 35.0
+          },
+          "$72.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 5.0
+          },
+          "$79.80": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 12.0
+          },
+          "$8.50": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 31.0
+          },
+          "$898.00": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 10.0
+          },
+          "accuracy": 1.0,
+          "macro avg": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 300.0
+          },
+          "weighted avg": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 300.0
+          }
+        },
+        "task_type": "classification",
+        "accuracy": 1.0,
+        "train_accuracy": 1.0,
+        "train_test_gap": 0.0,
+        "class_labels": [
+          "$1,347.00",
+          "$119.70",
+          "$12.75",
+          "$129.00",
+          "$18.50",
+          "$24.00",
+          "$258.00",
+          "$37.00",
+          "$387.00",
+          "$39.90",
+          "$4.25",
+          "$449.00",
+          "$48.00",
+          "$55.50",
+          "$72.00",
+          "$79.80",
+          "$8.50",
+          "$898.00"
+        ],
+        "top_drivers": [
+          {
+            "feature": "Qty",
+            "importance": 0.67,
+            "direction": "increases"
+          },
+          {
+            "feature": "Unit Price",
+            "importance": 0.412,
+            "direction": null
+          },
+          {
+            "feature": "Product Name",
+            "importance": 0.3947,
+            "direction": null
+          }
+        ],
+        "driver_narrative": [
+          "#1 driver: 'Qty' \u2014 higher values push predictions toward the higher-encoded class (permutation importance 0.670).",
+          "#2 driver: 'Unit Price' \u2014 a categorical feature (permutation importance 0.412).",
+          "#3 driver: 'Product Name' \u2014 a categorical feature (permutation importance 0.395)."
+        ]
+      },
+      "error": null,
+      "execution_time_ms": 1261.5633001551032,
+      "timestamp": 1789204850.451965
+    }
+  ],
+  "data_profile": {
+    "row_count": 1500,
+    "column_count": 9,
+    "duplicate_rows": 0,
+    "memory_mb": 0.16,
+    "columns": [
+      {
+        "name": "Order Date",
+        "dtype": "str",
+        "kind": "datetime",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 506,
+        "stats": {},
+        "top_values": {},
+        "flags": []
+      },
+      {
+        "name": "Invoice No",
+        "dtype": "str",
+        "kind": "categorical",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 870,
+        "stats": {
+          "avg_word_count": 1.0
+        },
+        "top_values": {
+          "INV-00329": 6,
+          "INV-00315": 5,
+          "INV-00859": 5,
+          "INV-01195": 5,
+          "INV-00087": 5
+        },
+        "flags": [
+          "high_cardinality"
+        ]
+      },
+      {
+        "name": "Customer ID",
+        "dtype": "int64",
+        "kind": "numeric",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 394,
+        "stats": {
+          "mean": 1198.604,
+          "std": 115.2729,
+          "min": 1000.0,
+          "max": 1399.0,
+          "median": 1201.0,
+          "skew": -0.0058
+        },
+        "top_values": {},
+        "flags": []
+      },
+      {
+        "name": "Product Name",
+        "dtype": "str",
+        "kind": "categorical",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 6,
+        "stats": {
+          "avg_word_count": 2.21
+        },
+        "top_values": {
+          "Coffee Beans 1kg": 509,
+          "Filter Papers": 357,
+          "Grinder": 214,
+          "Mug Set": 161,
+          "Milk Frother": 137
+        },
+        "flags": []
+      },
+      {
+        "name": "Qty",
+        "dtype": "int64",
+        "kind": "numeric",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 3,
+        "stats": {
+          "mean": 1.9927,
+          "std": 0.8212,
+          "min": 1.0,
+          "max": 3.0,
+          "median": 2.0,
+          "skew": 0.0136
+        },
+        "top_values": {},
+        "flags": []
+      },
+      {
+        "name": "Unit Price",
+        "dtype": "float64",
+        "kind": "numeric",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 6,
+        "stats": {
+          "mean": 68.432,
+          "std": 120.1055,
+          "min": 4.25,
+          "max": 449.0,
+          "median": 18.5,
+          "skew": 2.5435
+        },
+        "top_values": {},
+        "flags": [
+          "severe_skew"
+        ]
+      },
+      {
+        "name": "Total",
+        "dtype": "float64",
+        "kind": "numeric",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 18,
+        "stats": {
+          "mean": 137.0922,
+          "std": 267.7123,
+          "min": 4.25,
+          "max": 1347.0,
+          "median": 37.0,
+          "skew": 3.2392
+        },
+        "top_values": {},
+        "flags": [
+          "severe_skew"
+        ]
+      },
+      {
+        "name": "Region",
+        "dtype": "str",
+        "kind": "categorical",
+        "missing_count": 60,
+        "missing_pct": 4.0,
+        "nunique": 4,
+        "stats": {
+          "avg_word_count": 1.0
+        },
+        "top_values": {
+          "North": 377,
+          "East": 375,
+          "South": 348,
+          "West": 340
+        },
+        "flags": []
+      },
+      {
+        "name": "Channel",
+        "dtype": "str",
+        "kind": "categorical",
+        "missing_count": 0,
+        "missing_pct": 0.0,
+        "nunique": 2,
+        "stats": {
+          "avg_word_count": 1.0
+        },
+        "top_values": {
+          "Online": 928,
+          "In-store": 572
+        },
+        "flags": []
+      }
+    ],
+    "warnings": [
+      "Column 'Invoice No' has 870 categories \u2014 one-hot encoding would explode; consider dropping or target-encoding."
+    ],
+    "quality_score": 98,
+    "datetime_cols": [
+      "Order Date"
+    ],
+    "is_time_series": true,
+    "text_cols": [],
+    "geo_lat_col": null,
+    "geo_lon_col": null,
+    "is_high_dimensional": false,
+    "panel_group_cols": [
+      "Product Name",
+      "Region",
+      "Channel"
+    ],
+    "is_sufficient": true,
+    "sufficiency_reason": null,
+    "domains": [
+      {
+        "domain": "transactional",
+        "confidence": 1.0,
+        "roles": {
+          "amount": "Total",
+          "customer_id": "Customer ID",
+          "date": "Order Date",
+          "order_id": "Invoice No",
+          "product": "Product Name",
+          "quantity": "Qty"
+        },
+        "evidence": [
+          "3.8 rows per customer \u2014 repeat purchases present.",
+          "Order/transaction identifier present.",
+          "Product column present."
+        ]
+      }
+    ]
+  },
+  "read_report": {
+    "path": ".scratch\\coffee_shop_sales.csv",
+    "format": "csv",
+    "encoding": "utf-8",
+    "encoding_confident": true,
+    "delimiter": ",",
+    "delimiter_sniffed": true,
+    "duplicate_headers": [],
+    "notes": []
+  },
+  "coercions": [
+    {
+      "column": "Unit Price",
+      "from_kind": "string",
+      "to_kind": "numeric",
+      "rule": "currency",
+      "n_converted": 1500,
+      "n_failed": 0,
+      "failed_examples": []
+    },
+    {
+      "column": "Total",
+      "from_kind": "string",
+      "to_kind": "numeric",
+      "rule": "currency",
+      "n_converted": 1500,
+      "n_failed": 0,
+      "failed_examples": []
+    }
+  ],
+  "plan_rationales": [
+    {
+      "step_number": 1,
+      "tool_name": "clean_data",
+      "rationale": "Fallback plan: impute missing values before analysis."
+    },
+    {
+      "step_number": 2,
+      "tool_name": "detect_outliers",
+      "rationale": "Fallback plan: flag anomalous rows."
+    },
+    {
+      "step_number": 3,
+      "tool_name": "correlation_analysis",
+      "rationale": "Fallback plan: quantify feature relationships."
+    },
+    {
+      "step_number": 4,
+      "tool_name": "time_series_analysis",
+      "rationale": "Fallback plan: data profile indicates 'time_series_analysis' applies to this dataset."
+    },
+    {
+      "step_number": 5,
+      "tool_name": "train_model",
+      "rationale": "Fallback plan: train baseline models with CV."
+    },
+    {
+      "step_number": 6,
+      "tool_name": "evaluate_model",
+      "rationale": "Fallback plan: evaluate the best model on held-out data."
+    }
+  ],
+  "statistical_test_pvalues_bh_corrected": [],
+  "unverified_claims": null,
+  "profile_status": "ok",
+  "degradations": [
+    "Column 'Unit Price' repaired from string to numeric (currency rule): 1500 converted, 0 left unparsed.",
+    "Column 'Total' repaired from string to numeric (currency rule): 1500 converted, 0 left unparsed.",
+    "Column 'Invoice No' has 870 categories \u2014 one-hot encoding would explode; consider dropping or target-encoding."
+  ]
+}

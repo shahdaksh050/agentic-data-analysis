@@ -13,7 +13,7 @@ A system where the user **only uploads a dataset** and optionally types **what t
 4. Plans and executes statistical / ML analysis via LLM agents (with deterministic non-AI fallbacks).
 5. Hands results to a **dashboard agent** that builds charts *fitted to the data's nature* (not hardcoded).
 6. Generates a final report answering the user's stated objective.
-7. Uses the RLM (Recursive Language Model) pattern for context offloading: full data stays in the Memory System; agents see only compact summaries.
+7. Uses recursive task decomposition for context offloading: full data stays in the Memory System; agents see only compact summaries.
 
 **Replace-the-data-scientist principle**: every AI step must have a deterministic fallback so the pipeline completes even with no API key.
 
