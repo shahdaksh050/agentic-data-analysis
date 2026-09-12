@@ -443,6 +443,7 @@ class ToolRegistry:
             IngestDatasetTool,
         )
         from src.tools.dimensionality import DimensionalityAnalysisTool
+        from src.tools.dynamic_code import DynamicCodeExecutionTool
         from src.tools.geospatial import GeospatialAnalysisTool
         from src.tools.ml_pipeline import EvaluateModelTool, TrainModelTool
         from src.tools.report_generator import GenerateReportTool
@@ -466,6 +467,7 @@ class ToolRegistry:
             TextAnalysisTool(),
             DimensionalityAnalysisTool(),
             GeospatialAnalysisTool(),
+            DynamicCodeExecutionTool(),
         ):
             self.register(tool)
 
