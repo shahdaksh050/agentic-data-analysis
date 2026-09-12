@@ -46,7 +46,7 @@ st.set_page_config(
 # ── Landing Page (Phase 2 Narrative) ─────────────────────────────────────────
 if not st.session_state.get("entered", False):
     from ui.landing import show_landing_page
-    
+
     # We overlay a hidden native Streamlit button. The iframe JS will click this directly!
     st.markdown("""
         <style>
@@ -58,7 +58,7 @@ if not st.session_state.get("entered", False):
             }
         </style>
     """, unsafe_allow_html=True)
-    
+
     if st.button("HIDDEN_ENTER", key="hidden_enter"):
         st.session_state["entered"] = True
         st.rerun()
@@ -117,7 +117,7 @@ _stub_rich()
 def _inject_theme_css() -> None:
     """Inject dynamic Ledger CSS supporting Day and Night modes via Python state."""
     theme = st.session_state.get("theme", "night")
-    
+
     if theme == "dark" or theme == "night":
         theme_vars = """
         --stock:       #241c14;

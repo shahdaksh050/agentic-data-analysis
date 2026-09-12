@@ -23,7 +23,7 @@ from src.core.multiple_testing import apply_benjamini_hochberg
 # "Ledger" (DESIGN.md): warm paper, friendly ink, one terracotta pen.
 # The shared report is the same warm sheet as the console, printed.
 _CSS = """
-:root { 
+:root {
   color-scheme: light dark;
   --stock:       #f7eedd;
   --sheet:       #fffbf2;
