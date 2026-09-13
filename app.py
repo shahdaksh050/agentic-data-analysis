@@ -59,11 +59,10 @@ if not st.session_state.get("entered", False):
         </style>
     """, unsafe_allow_html=True)
 
-    if st.button("HIDDEN_ENTER", key="hidden_enter"):
+    if st.button("HIDDEN_ENTER", key="hidden_enter") or show_landing_page():
         st.session_state["entered"] = True
         st.rerun()
 
-    show_landing_page()
     st.stop()
 
 
