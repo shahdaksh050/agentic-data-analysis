@@ -770,15 +770,38 @@
       display: none;
     }
 
-    /* STEP 0 (compact mode only): title and scroll hint over the unformed particle cloud */
-    .intro-title {
-      margin-bottom: 14px;
+    /* STEP 0 (compact mode only): centered title + scroll hint beneath the unformed particle cloud.
+       The generic `.fp-overflow > div` rule pads the text wrapper a second time inside its 42vw cap,
+       which left a ~100px column in the hero box; step 0 opts out and stacks below the cloud. */
+    html.compact .intro-section .fp-overflow {
+      align-items: center !important;
+      justify-content: flex-end !important;
+      text-align: center !important;
+      padding: 64px 24px 40px !important;
+    }
+
+    html.compact .intro-section .section-content-wrapper {
+      width: 100% !important;
+      max-width: none;
+      padding: 0 !important;
+      height: auto !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      text-align: center !important;
+    }
+
+    html.compact .intro-section .intro-title {
+      text-align: center !important;
+      font-size: clamp(22px, 5.2vw, 32px);
+      margin-bottom: 8px;
     }
 
     .intro-hint {
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      white-space: nowrap;
       font-family: var(--sans);
       font-size: 14px;
       font-weight: 600;

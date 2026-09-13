@@ -820,7 +820,11 @@ let activeStageIndex = 0;
 // Step 0 weight: 1 = loose cloud (compact mode opens here), 0 = the journey formation
 let introTarget = HAS_INTRO ? 1.0 : 0.0;
 let introWeight = introTarget;
+let introEaseNow = introWeight;
 const INTRO_HUD_TAG = 'RAW ROWS // NOT YET ANALYZED';
+// Step 0 lifts the cloud by this fraction of the viewport so the title can sit beneath it
+const INTRO_VIEW_LIFT = 0.12;
+let viewOffsetBaseX = 0;
 
 // Reusable calculation vectors to guarantee ZERO per-frame heap allocations (Pillar 7)
 const vCamPos = new THREE.Vector3();
@@ -1010,6 +1014,13 @@ window.addEventListener('resize', resizeLeaderCanvas);
 
 function updateProjectedHudAndLeaderLines() {
   if (!hudPinActive) return;
+
+  // Step 0 keeps the stage clear: no floating tag or leader line over the unformed cloud
+  if (introEaseNow > 0.35) {
+    hudPinActive.classList.remove('visible');
+    if (leaderCtx) leaderCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    return;
+  }
   const currentWp = WAYPOINTS[activeStageIndex];
   const targetObj = currentWp?.anchorObj || rlmCore;
   if (!targetObj) return;
@@ -1142,8 +1153,10 @@ function enterIntro() {
 function setHudTag(text, className) {
   // Animated HUD Tag text transition
   if (hudTextActive && hudTextActive.textContent !== text) {
-    if (typeof animate === 'function') {
-      animate(hudPinActive, {
+    // Flash the inner tag, not the pin: a tween leaves inline opacity behind, and on the pin
+    // that would override the `.visible` class that hides it (step 0, behind-camera)
+    if (typeof animate === 'function' && hudTagActive) {
+      animate(hudTagActive, {
         opacity: [1, 0.3, 1],
         scale: [1, 0.96, 1],
         duration: MOTION.dur.micro,
@@ -1185,7 +1198,8 @@ try {
         '05 Overfit Guard',
         '06 Executive Ledger',
       ]),
-      showActiveTooltip: true,
+      // A permanently shown tooltip collides with the HUD tag in the small hero box
+      showActiveTooltip: !HAS_INTRO,
       anchors: (HAS_INTRO ? ['intro'] : []).concat(['overview', 'ingestion', 'stats', 'pipeline', 'diagnostics', 'report']),
       touchSensitivity: 8,
       normalScrollElements: '.mini-table, .glass-card, #correlations-list',
@@ -1265,6 +1279,7 @@ renderer.setAnimationLoop((timestamp) => {
     ? introTarget
     : introWeight + (introTarget - introWeight) * (1.0 - Math.exp(-3.2 * delta));
   const introEase = smoothstep(introWeight);
+  introEaseNow = introEase;
 
   // Scroll Velocity Dynamics (§4.4)
   const instantVel = Math.abs(s - lastS) / Math.max(delta, 0.001);
@@ -1274,6 +1289,12 @@ renderer.setAnimationLoop((timestamp) => {
   // Dynamic Camera FOV Widening during fast scroll
   const fovWiden = prefersReducedMotion ? 0 : Math.min(scrollVelocity * 0.65, 3.0);
   camera.fov = BASE_FOV + fovWiden;
+  if (HAS_INTRO && camera.view) {
+    // Step 0 frames the cloud centered and lifted above the stacked title; it glides back
+    // to the right-pane framing as the cloud assembles into stage 0
+    camera.view.offsetX = viewOffsetBaseX * (1.0 - introEase);
+    camera.view.offsetY = window.innerHeight * INTRO_VIEW_LIFT * introEase;
+  }
   camera.updateProjectionMatrix();
 
   // Derive Journey Stage Indices & Fractional Progress
@@ -1554,8 +1575,8 @@ function updateCameraProjection() {
   camera.aspect = w / h;
   // Shift optical center so the 3D focal subject appears centered in the right pane (X ~ 70%).
   // The compact hero box is narrower than 768px but still has a text column, so keep the shift there.
-  const xOffset = w > 768 || HAS_INTRO ? -w * 0.22 : 0;
-  camera.setViewOffset(w, h, xOffset, 0, w, h);
+  viewOffsetBaseX = w > 768 || HAS_INTRO ? -w * 0.22 : 0;
+  camera.setViewOffset(w, h, viewOffsetBaseX, 0, w, h);
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
