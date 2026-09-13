@@ -38,3 +38,6 @@ data/*_outliers_flagged.csv
 
 # Local skills and exports
 Beautiful3dFrontend/
+beautiful-3d-frontend/
+3d-ui-skill/
+*.zip

@@ -100,6 +100,10 @@ if (engine && typeof engine === 'object') {
 /* STATE & PALETTE MANAGEMENT (Warm Ledger Aesthetic)                         */
 /* -------------------------------------------------------------------------- */
 const RAW_STATE = window.__CINEMATIC_STATE__ || {};
+// Compact mode (workspace hero box) prepends a step 0 section, so fullPage section N maps to
+// journey stage N - SECTION_OFFSET. The journey scalar s in [0, 5] itself never changes.
+const HAS_INTRO = !!RAW_STATE.compact;
+const SECTION_OFFSET = HAS_INTRO ? 1 : 0;
 let THEME = RAW_STATE.theme || 'night';
 let isNight = THEME === 'night';
 const P = RAW_STATE.palette || {};
@@ -423,6 +427,27 @@ for (let i = 0; i < MATTER_COUNT; i++) {
     stageColors[5][i3 + 1] = cPen.g;
     stageColors[5][i3 + 2] = cPen.b;
   }
+}
+
+// -- Step 0 (compact mode): loose, unformed cloud of raw rows that assembles into stage 0.
+// Blended over the journey morph by the intro weight, so it needs no slot in stageBuffers.
+const cloudBuffer = new Float32Array(MATTER_COUNT * 3);
+const cloudColors = new Float32Array(MATTER_COUNT * 3);
+for (let i = 0; i < MATTER_COUNT; i++) {
+  const i3 = i * 3;
+  // Uniform direction, radius biased toward the middle so the cloud reads as a soft volume
+  const u = Math.random() * 2 - 1;
+  const phi = Math.random() * Math.PI * 2;
+  const r = Math.pow(Math.random(), 0.7);
+  const sq = Math.sqrt(1 - u * u);
+  cloudBuffer[i3] = r * sq * Math.cos(phi) * 2.7;
+  cloudBuffer[i3 + 1] = r * u * 2.1;
+  cloudBuffer[i3 + 2] = r * sq * Math.sin(phi) * 2.4;
+  const roll = Math.random();
+  const c = roll < 0.72 ? cGraphite : roll < 0.92 ? cPen : cAccent;
+  cloudColors[i3] = c.r;
+  cloudColors[i3 + 1] = c.g;
+  cloudColors[i3 + 2] = c.b;
 }
 
 // Instantiate The Matter Field (Single Draw Call, Alive Whole Journey)
@@ -792,6 +817,14 @@ let gestureNudge = 0.0;
 let scrollVelocity = 0.0;
 let lastS = 0.0;
 let activeStageIndex = 0;
+// Step 0 weight: 1 = loose cloud (compact mode opens here), 0 = the journey formation
+let introTarget = HAS_INTRO ? 1.0 : 0.0;
+let introWeight = introTarget;
+let introEaseNow = introWeight;
+const INTRO_HUD_TAG = 'RAW ROWS // NOT YET ANALYZED';
+// Step 0 lifts the cloud by this fraction of the viewport so the title can sit beneath it
+const INTRO_VIEW_LIFT = 0.12;
+let viewOffsetBaseX = 0;
 
 // Reusable calculation vectors to guarantee ZERO per-frame heap allocations (Pillar 7)
 const vCamPos = new THREE.Vector3();
@@ -855,6 +888,93 @@ class MouseTrackingPhysics {
 const mousePhysics = new MouseTrackingPhysics();
 
 /* -------------------------------------------------------------------------- */
+/* PARTICLE INSPECTION: hover lens, left-click ripple, right-click gather     */
+/* -------------------------------------------------------------------------- */
+// Hover: particles near the cursor's line of sight swell and brighten in place (a loupe over
+// the data, so the formation stays readable). Left-click: a shockwave ring travels outward
+// through the formation. Right-click: particles within reach are pulled into a knot at the
+// cursor, held, then released back into formation. All effects are in parallaxGroup space.
+const LENS = { radius: 0.85, swell: 1.6, glow: 0.6, damp: 8.0 };
+const RIPPLE = { speed: 3.6, width: 0.42, amp: 0.38, pop: 0.6, life: 1.5, max: 4 };
+const GATHER = { radius: 1.7, rise: 0.35, hold: 0.45, release: 0.9, knot: 0.16 };
+
+const cursorNDC = new THREE.Vector2();
+const cursorRaycaster = new THREE.Raycaster();
+const cursorPlane = new THREE.Plane();
+const cursorWorld = new THREE.Vector3();
+const cursorLocal = new THREE.Vector3();
+const lensOrigin = new THREE.Vector3();
+const lensDir = new THREE.Vector3();
+const camForward = new THREE.Vector3();
+const sceneOrigin = new THREE.Vector3(0, 0, 0);
+const cLensGlow = new THREE.Color(isNight ? 0xffe2b8 : pal.pen);
+let cursorInside = false;
+let lensStrength = 0;
+const ripples = [];
+const gatherState = { active: false, x: 0, y: 0, z: 0, t0: 0 };
+
+function isUiTarget(target) {
+  return !!(target && target.closest &&
+    target.closest('button, a, input, .glass-card, #global-header, #fp-nav, .datum-strip, .scroll-hint'));
+}
+
+// Intersect the cursor ray with the camera-facing plane through the subject; result in local space
+function resolveCursorLocal() {
+  cursorRaycaster.setFromCamera(cursorNDC, camera);
+  camera.getWorldDirection(camForward);
+  cursorPlane.setFromNormalAndCoplanarPoint(camForward, sceneOrigin);
+  if (!cursorRaycaster.ray.intersectPlane(cursorPlane, cursorWorld)) return false;
+  cursorLocal.copy(cursorWorld);
+  parallaxGroup.worldToLocal(cursorLocal);
+  return true;
+}
+
+window.addEventListener('pointermove', (e) => {
+  cursorNDC.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  cursorInside = e.pointerType === 'mouse' && !isUiTarget(e.target);
+}, { passive: true });
+
+document.addEventListener('mouseleave', () => {
+  cursorInside = false;
+});
+
+window.addEventListener('pointerdown', (e) => {
+  if (isUiTarget(e.target) || prefersReducedMotion) return;
+  cursorNDC.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  if (!resolveCursorLocal()) return;
+  const now = performance.now() * 0.001;
+  if (e.button === 0) {
+    if (ripples.length >= RIPPLE.max) ripples.shift();
+    ripples.push({ x: cursorLocal.x, y: cursorLocal.y, z: cursorLocal.z, t0: now });
+  } else if (e.button === 2) {
+    gatherState.active = true;
+    gatherState.x = cursorLocal.x;
+    gatherState.y = cursorLocal.y;
+    gatherState.z = cursorLocal.z;
+    gatherState.t0 = now;
+  }
+});
+
+// Right-click belongs to the gather gesture over the scene; menus still work on UI
+window.addEventListener('contextmenu', (e) => {
+  if (!isUiTarget(e.target)) e.preventDefault();
+});
+
+// 0..1 envelope: rise, hold, release
+function gatherEnvelope(now) {
+  if (!gatherState.active) return 0;
+  const age = now - gatherState.t0;
+  if (age < GATHER.rise) return smoothstep(age / GATHER.rise);
+  if (age < GATHER.rise + GATHER.hold) return 1;
+  const rel = (age - GATHER.rise - GATHER.hold) / GATHER.release;
+  if (rel >= 1) {
+    gatherState.active = false;
+    return 0;
+  }
+  return 1 - smoothstep(rel);
+}
+
+/* -------------------------------------------------------------------------- */
 /* PILLAR 5: DYNAMIC 3D-TO-2D VECTOR LEADER LINES & PROJECTED HUD PINS       */
 /* -------------------------------------------------------------------------- */
 const hudPinActive = document.getElementById('hud-pin-active');
@@ -867,7 +987,7 @@ const tempWorldVec = new THREE.Vector3();
 // Cached active card bounding box (Defect 9 Fix: Dynamic elbow target)
 let cachedCardRight = 540;
 function updateCachedCardBounds() {
-  const activeSection = document.querySelector('.section.active') || document.querySelectorAll('.section')[activeStageIndex];
+  const activeSection = document.querySelector('.section.active') || document.querySelectorAll('.section')[activeStageIndex + SECTION_OFFSET];
   if (activeSection) {
     const wrapper = activeSection.querySelector('.section-content-wrapper');
     if (wrapper) {
@@ -894,6 +1014,13 @@ window.addEventListener('resize', resizeLeaderCanvas);
 
 function updateProjectedHudAndLeaderLines() {
   if (!hudPinActive) return;
+
+  // Step 0 keeps the stage clear: no floating tag or leader line over the unformed cloud
+  if (introEaseNow > 0.35) {
+    hudPinActive.classList.remove('visible');
+    if (leaderCtx) leaderCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    return;
+  }
   const currentWp = WAYPOINTS[activeStageIndex];
   const targetObj = currentWp?.anchorObj || rlmCore;
   if (!targetObj) return;
@@ -959,7 +1086,7 @@ function animateSectionEntry(stageIdx) {
   initialEntryAnimated = true;
 
   const sections = document.querySelectorAll('.section');
-  const targetSection = sections[stageIdx];
+  const targetSection = sections[stageIdx + SECTION_OFFSET];
   if (!targetSection) return;
 
   // Animate the glass cards as cohesive units (never animate children separately to avoid double-stagger jitter)
@@ -1005,28 +1132,45 @@ function transitionToSection(targetIndex) {
   if (targetIndex < 0 || targetIndex >= WAYPOINTS.length) return;
   activeStageIndex = targetIndex;
   sTarget = targetIndex;
+  introTarget = 0.0;
   updateCachedCardBounds();
 
   const wp = WAYPOINTS[targetIndex];
+  setHudTag(wp.hudTag, wp.hudTagClass);
+  syncQuickPills(targetIndex);
+}
 
+// Step 0 (compact mode): the cloud before stage 0 assembles; no quick pill is active
+function enterIntro() {
+  activeStageIndex = 0;
+  sTarget = 0;
+  introTarget = 1.0;
+  updateCachedCardBounds();
+  setHudTag(INTRO_HUD_TAG, 'hud-tag');
+  syncQuickPills(-1);
+}
+
+function setHudTag(text, className) {
   // Animated HUD Tag text transition
-  if (hudTextActive && hudTextActive.textContent !== wp.hudTag) {
-    if (typeof animate === 'function') {
-      animate(hudPinActive, {
+  if (hudTextActive && hudTextActive.textContent !== text) {
+    // Flash the inner tag, not the pin: a tween leaves inline opacity behind, and on the pin
+    // that would override the `.visible` class that hides it (step 0, behind-camera)
+    if (typeof animate === 'function' && hudTagActive) {
+      animate(hudTagActive, {
         opacity: [1, 0.3, 1],
         scale: [1, 0.96, 1],
         duration: MOTION.dur.micro,
         ease: 'outQuad',
       });
     }
-    hudTextActive.textContent = wp.hudTag;
+    hudTextActive.textContent = text;
   }
-  if (hudTagActive) hudTagActive.className = wp.hudTagClass;
+  if (hudTagActive) hudTagActive.className = className;
+}
 
-  // Header quick pills sync
-  const pillBtns = document.querySelectorAll('.pill-btn');
-  pillBtns.forEach((btn, idx) => {
-    btn.classList.toggle('active', idx === targetIndex);
+function syncQuickPills(stageIdx) {
+  document.querySelectorAll('.pill-btn').forEach((btn, idx) => {
+    btn.classList.toggle('active', idx === stageIdx);
   });
 }
 
@@ -1046,20 +1190,26 @@ try {
       scrollBar: false,
       navigation: true,
       navigationPosition: 'right',
-      navigationTooltips: [
+      navigationTooltips: (HAS_INTRO ? ['00 Start'] : []).concat([
         '01 Overview & RLM',
         '02 Ingestion & Profiling',
         '03 Statistical Testing',
         '04 ML Pipeline & Folds',
         '05 Overfit Guard',
         '06 Executive Ledger',
-      ],
-      showActiveTooltip: true,
-      anchors: ['overview', 'ingestion', 'stats', 'pipeline', 'diagnostics', 'report'],
+      ]),
+      // A permanently shown tooltip collides with the HUD tag in the small hero box
+      showActiveTooltip: !HAS_INTRO,
+      anchors: (HAS_INTRO ? ['intro'] : []).concat(['overview', 'ingestion', 'stats', 'pipeline', 'diagnostics', 'report']),
       touchSensitivity: 8,
       normalScrollElements: '.mini-table, .glass-card, #correlations-list',
       onLeave: (origin, destination) => {
-        transitionToSection(destination.index);
+        const stageIdx = destination.index - SECTION_OFFSET;
+        if (stageIdx < 0) {
+          enterIntro();
+        } else {
+          transitionToSection(stageIdx);
+        }
       },
       afterLoad: (origin, destination) => {
         // Section landing: update cached card bounds for 3D parallax & HUD projection
@@ -1124,6 +1274,13 @@ renderer.setAnimationLoop((timestamp) => {
   }
   s = Math.max(0, Math.min(5, s));
 
+  // Step 0 cloud weight (compact mode): assembles as the viewer scrolls into stage 0
+  introWeight = prefersReducedMotion
+    ? introTarget
+    : introWeight + (introTarget - introWeight) * (1.0 - Math.exp(-3.2 * delta));
+  const introEase = smoothstep(introWeight);
+  introEaseNow = introEase;
+
   // Scroll Velocity Dynamics (§4.4)
   const instantVel = Math.abs(s - lastS) / Math.max(delta, 0.001);
   lastS = s;
@@ -1132,6 +1289,12 @@ renderer.setAnimationLoop((timestamp) => {
   // Dynamic Camera FOV Widening during fast scroll
   const fovWiden = prefersReducedMotion ? 0 : Math.min(scrollVelocity * 0.65, 3.0);
   camera.fov = BASE_FOV + fovWiden;
+  if (HAS_INTRO && camera.view) {
+    // Step 0 frames the cloud centered and lifted above the stacked title; it glides back
+    // to the right-pane framing as the cloud assembles into stage 0
+    camera.view.offsetX = viewOffsetBaseX * (1.0 - introEase);
+    camera.view.offsetY = window.innerHeight * INTRO_VIEW_LIFT * introEase;
+  }
   camera.updateProjectionMatrix();
 
   // Derive Journey Stage Indices & Fractional Progress
@@ -1149,6 +1312,9 @@ renderer.setAnimationLoop((timestamp) => {
   const mouseRot = mousePhysics.update(delta);
   vCamPos.x += mouseRot.x * 0.35;
   vCamPos.y += mouseRot.y * 0.25;
+  // Step 0 frames the whole cloud from a little further back
+  vCamPos.z += 2.2 * introEase;
+  vCamPos.y += 0.3 * introEase;
 
   camera.position.copy(vCamPos);
   camera.lookAt(vLookAt);
@@ -1156,6 +1322,24 @@ renderer.setAnimationLoop((timestamp) => {
   // Tilt dedicated ParallaxGroup for model perspective
   parallaxGroup.rotation.y = mouseRot.x * 0.65;
   parallaxGroup.rotation.x = -mouseRot.y * 0.65;
+
+  // Inspection lens ray in parallaxGroup space (matrices refreshed so the ray matches this frame)
+  lensStrength += ((cursorInside ? 1 : 0) - lensStrength) * (1.0 - Math.exp(-LENS.damp * delta));
+  let lensActive = false;
+  if (lensStrength > 0.001) {
+    camera.updateMatrixWorld();
+    parallaxGroup.updateMatrixWorld();
+    if (resolveCursorLocal()) {
+      lensOrigin.copy(camera.position);
+      parallaxGroup.worldToLocal(lensOrigin);
+      lensDir.copy(cursorLocal).sub(lensOrigin).normalize();
+      lensActive = true;
+    }
+  }
+  const nowSec = timestamp * 0.001;
+  const gatherEnv = gatherEnvelope(nowSec);
+  while (ripples.length && nowSec - ripples[0].t0 > RIPPLE.life) ripples.shift();
+  const lensRadiusSq = LENS.radius * LENS.radius;
 
   // 4. Update Continuous Matter Field Morph (§4.3)
   const bufA = stageBuffers[stageA];
@@ -1172,7 +1356,7 @@ renderer.setAnimationLoop((timestamp) => {
     const instT = smoothstep(Math.min(Math.max((t - staggerFactor * 0.5) / (1.0 - staggerFactor * 0.5), 0), 1));
 
     // Base linear lerp
-    const x = bufA[i3] + (bufB[i3] - bufA[i3]) * instT;
+    let x = bufA[i3] + (bufB[i3] - bufA[i3]) * instT;
     let y = bufA[i3 + 1] + (bufB[i3 + 1] - bufA[i3 + 1]) * instT;
     let z = bufA[i3 + 2] + (bufB[i3 + 2] - bufA[i3 + 2]) * instT;
 
@@ -1185,19 +1369,87 @@ renderer.setAnimationLoop((timestamp) => {
     }
 
     // Micro-scale breathing: Unpack & repack
-    const scale = 1.0 - 0.32 * arc;
+    let scale = 1.0 - 0.32 * arc;
+
+    // Color Interpolation
+    let cr = colA[i3] + (colB[i3] - colA[i3]) * instT;
+    let cg = colA[i3 + 1] + (colB[i3 + 1] - colA[i3 + 1]) * instT;
+    let cb = colA[i3 + 2] + (colB[i3 + 2] - colA[i3 + 2]) * instT;
+
+    // Step 0: blend toward the slowly drifting raw cloud
+    if (introEase > 0.001) {
+      const drift = prefersReducedMotion ? 0 : 0.14;
+      const cx = cloudBuffer[i3] + Math.sin(elapsed * 0.31 + i * 0.71) * drift;
+      const cy = cloudBuffer[i3 + 1] + Math.sin(elapsed * 0.27 + i * 1.13) * drift;
+      const cz = cloudBuffer[i3 + 2] + Math.cos(elapsed * 0.23 + i * 0.53) * drift;
+      x += (cx - x) * introEase;
+      y += (cy - y) * introEase;
+      z += (cz - z) * introEase;
+      scale += (0.85 - scale) * introEase;
+      cr += (cloudColors[i3] - cr) * introEase;
+      cg += (cloudColors[i3 + 1] - cg) * introEase;
+      cb += (cloudColors[i3 + 2] - cb) * introEase;
+    }
+
+    // Right-click gather: pull particles within reach into a small knot at the cursor
+    if (gatherEnv > 0.001) {
+      const gx = x - gatherState.x;
+      const gy = y - gatherState.y;
+      const gz = z - gatherState.z;
+      const gd = Math.sqrt(gx * gx + gy * gy + gz * gz);
+      if (gd < GATHER.radius) {
+        const f = smoothstep(1.0 - gd / GATHER.radius) * gatherEnv;
+        x += (gatherState.x + Math.sin(i * 12.9898) * GATHER.knot - x) * f;
+        y += (gatherState.y + Math.sin(i * 78.233) * GATHER.knot - y) * f;
+        z += (gatherState.z + Math.sin(i * 37.719) * GATHER.knot - z) * f;
+      }
+    }
+
+    // Left-click ripples: a shockwave band pushes particles outward as it passes, then fades
+    for (let rIdx = 0; rIdx < ripples.length; rIdx++) {
+      const rp = ripples[rIdx];
+      const age = nowSec - rp.t0;
+      const rx = x - rp.x;
+      const ry = y - rp.y;
+      const rz = z - rp.z;
+      const rd = Math.sqrt(rx * rx + ry * ry + rz * rz);
+      const offset = (rd - age * RIPPLE.speed) / RIPPLE.width;
+      if (rd > 1e-4 && offset > -3 && offset < 3) {
+        const band = Math.exp(-offset * offset) * (1.0 - age / RIPPLE.life);
+        const push = RIPPLE.amp * band / rd;
+        x += rx * push;
+        y += ry * push;
+        z += rz * push;
+        scale *= 1.0 + RIPPLE.pop * band;
+      }
+    }
+
+    // Hover lens: swell and brighten by distance from the cursor's line of sight (no displacement)
+    if (lensActive) {
+      const px = x - lensOrigin.x;
+      const py = y - lensOrigin.y;
+      const pz = z - lensOrigin.z;
+      const qx = py * lensDir.z - pz * lensDir.y;
+      const qy = pz * lensDir.x - px * lensDir.z;
+      const qz = px * lensDir.y - py * lensDir.x;
+      const distSq = qx * qx + qy * qy + qz * qz;
+      if (distSq < lensRadiusSq) {
+        const f = 1.0 - Math.sqrt(distSq) / LENS.radius;
+        const w = f * f * lensStrength;
+        scale *= 1.0 + LENS.swell * w;
+        const g = w * LENS.glow;
+        cr += (cLensGlow.r - cr) * g;
+        cg += (cLensGlow.g - cg) * g;
+        cb += (cLensGlow.b - cb) * g;
+      }
+    }
 
     dummyObj.position.set(x, y, z);
     dummyObj.scale.setScalar(scale);
     dummyObj.updateMatrix();
     matterMesh.setMatrixAt(i, dummyObj.matrix);
 
-    // Color Interpolation
-    tempInstColor.setRGB(
-      colA[i3] + (colB[i3] - colA[i3]) * instT,
-      colA[i3 + 1] + (colB[i3 + 1] - colA[i3 + 1]) * instT,
-      colA[i3 + 2] + (colB[i3 + 2] - colA[i3 + 2]) * instT
-    );
+    tempInstColor.setRGB(cr, cg, cb);
     matterMesh.setColorAt(i, tempInstColor);
   }
   matterMesh.instanceMatrix.needsUpdate = true;
@@ -1245,12 +1497,16 @@ renderer.setAnimationLoop((timestamp) => {
   }
   linkPosAttr.needsUpdate = true;
   linkColAttr.needsUpdate = true;
+  // Links describe a formation; the raw step 0 cloud has none
+  linkMat.opacity = 0.72 * (1.0 - introEase);
+  linkSegments.visible = introEase < 0.99;
 
   // 6. Solid Hero Meshes Continuous Cross-Fading (§4.3)
   stageHeroGroups.forEach((grp, idx) => {
     const dist = Math.abs(s - idx);
     // Smooth transition: fully solid within 0.35 of target stage, smoothly fading between 0.35 and 0.90
-    const heroAlpha = dist <= 0.35 ? 1.0 : (dist >= 0.90 ? 0.0 : smoothstep(1.0 - (dist - 0.35) / 0.55));
+    const heroAlpha = (dist <= 0.35 ? 1.0 : (dist >= 0.90 ? 0.0 : smoothstep(1.0 - (dist - 0.35) / 0.55)))
+      * (1.0 - introEase); // solid meshes appear only once the step 0 cloud has assembled
 
     if (heroAlpha <= 0.001) {
       grp.visible = false;
@@ -1317,9 +1573,10 @@ function updateCameraProjection() {
   const w = window.innerWidth;
   const h = window.innerHeight;
   camera.aspect = w / h;
-  // Shift optical center so the 3D focal subject appears centered in the right pane (X ~ 70%)
-  const xOffset = w > 768 ? -w * 0.22 : 0;
-  camera.setViewOffset(w, h, xOffset, 0, w, h);
+  // Shift optical center so the 3D focal subject appears centered in the right pane (X ~ 70%).
+  // The compact hero box is narrower than 768px but still has a text column, so keep the shift there.
+  viewOffsetBaseX = w > 768 || HAS_INTRO ? -w * 0.22 : 0;
+  camera.setViewOffset(w, h, viewOffsetBaseX, 0, w, h);
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.0));
@@ -1448,6 +1705,7 @@ export function applyThemePalette(themeName) {
   cAccent.set(p.accent);
   cPositive.set(p.positive);
   cGraphite.set(p.graphite);
+  cLensGlow.set(isNight ? 0xffe2b8 : p.pen);
 }
 
 const btnTheme = document.getElementById('btn-theme-toggle');
@@ -1482,7 +1740,7 @@ if (btnCameraView) {
         if (!isAppVisible) return;
         const nextIdx = (activeStageIndex + 1) % WAYPOINTS.length;
         if (window.fullpage_api) {
-          fullpage_api.moveTo(nextIdx + 1);
+          fullpage_api.moveTo(nextIdx + 1 + SECTION_OFFSET);
         } else {
           transitionToSection(nextIdx);
         }
@@ -1615,5 +1873,9 @@ function populateDataFromState() {
 
 populateDataFromState();
 
-// Initialize Section 0 State
-transitionToSection(0);
+// Initialize the opening state: step 0 cloud in compact mode, otherwise section 0
+if (HAS_INTRO) {
+  enterIntro();
+} else {
+  transitionToSection(0);
+}

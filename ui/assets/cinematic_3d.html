@@ -765,6 +765,56 @@
       }
     }
 
+    /* COMPACT MODE (workspace hero box): the brand block collides with section text at this size */
+    html.compact .brand-badge {
+      display: none;
+    }
+
+    /* STEP 0 (compact mode only): centered title + scroll hint beneath the unformed particle cloud.
+       The generic `.fp-overflow > div` rule pads the text wrapper a second time inside its 42vw cap,
+       which left a ~100px column in the hero box; step 0 opts out and stacks below the cloud. */
+    html.compact .intro-section .fp-overflow {
+      align-items: center !important;
+      justify-content: flex-end !important;
+      text-align: center !important;
+      padding: 64px 24px 40px !important;
+    }
+
+    html.compact .intro-section .section-content-wrapper {
+      width: 100% !important;
+      max-width: none;
+      padding: 0 !important;
+      height: auto !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      text-align: center !important;
+    }
+
+    html.compact .intro-section .intro-title {
+      text-align: center !important;
+      font-size: clamp(22px, 5.2vw, 32px);
+      margin-bottom: 8px;
+    }
+
+    .intro-hint {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--graphite);
+      animation: bounce 2s infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .intro-hint {
+        animation: none;
+      }
+    }
+
     /* Watermark Occlusion Fix: completely remove fullPage.js license badge */
     .fp-watermark {
       display: none !important;
@@ -864,12 +914,13 @@
         </div>
       </div>
       <div class="quick-pills">
-        <button class="pill-btn active" onclick="fullpage_api.moveTo(1)">01 Overview</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(2)">02 Ingestion</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(3)">03 Statistics</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(4)">04 ML Pipeline</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(5)">05 Overfit Guard</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(6)">06 Executive</button>
+        <!-- Anchor names, not section numbers, so compact mode's step 0 doesn't shift the targets -->
+        <button class="pill-btn active" onclick="fullpage_api.moveTo('overview')">01 Overview</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('ingestion')">02 Ingestion</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('stats')">03 Statistics</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('pipeline')">04 ML Pipeline</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('diagnostics')">05 Overfit Guard</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('report')">06 Executive</button>
       </div>
     </div>
 
@@ -1213,6 +1264,22 @@
     if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.theme === 'day') {
       document.documentElement.classList.add('theme-day');
       document.body.classList.add('theme-day');
+    }
+
+    // Compact mode (workspace hero box): hide the brand block and open on a text-light step 0.
+    // Inserted before fullPage.js initialises so it becomes the first section.
+    if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.compact) {
+      document.documentElement.classList.add('compact');
+      const introSection = document.createElement('section');
+      introSection.className = 'section intro-section';
+      introSection.setAttribute('data-anchor', 'intro');
+      introSection.innerHTML =
+        '<div class="section-content-wrapper">' +
+          '<h2 class="section-title intro-title">Your analysis, step by step</h2>' +
+          '<div class="intro-hint"><span>Scroll to begin</span><span aria-hidden="true">↓</span></div>' +
+        '</div>';
+      const fullpageRoot = document.getElementById('fullpage');
+      if (fullpageRoot) fullpageRoot.insertBefore(introSection, fullpageRoot.firstElementChild);
     }
 
     // Apply dynamic palette tokens if provided
