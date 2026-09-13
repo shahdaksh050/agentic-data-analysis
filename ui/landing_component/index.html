@@ -227,26 +227,40 @@
     #fullpage {
       position: relative;
       z-index: 10;
-    }
-
-    .section {
-      position: relative;
+      pointer-events: none;
       width: 100%;
-      height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 0 5vw;
-      overflow: hidden;
+      height: 100%;
     }
 
-    /* DOCK TEXTBOX TO THE LEFT: Leaves the right 55% unobstructed for 3D animation */
+    /* CRITICAL OVERRIDES FOR FULLPAGE CENTERING: GUARANTEED LEFT DOCKING */
+    .section,
+    .fp-table,
+    .fp-tableCell,
+    .fp-overflow {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      justify-content: center !important;
+      width: 100% !important;
+      height: 100% !important;
+      text-align: left !important;
+      padding: 0 !important;
+      box-sizing: border-box !important;
+      position: relative !important;
+    }
+
+    /* LEFT-DOCKED NARRATIVE TEXTBOX (30-34% Width, Left 6vw, Centered Vertically) */
     .section-content-wrapper {
-      width: 100%;
-      max-width: 480px;
-      margin-left: 3vw;
-      margin-right: auto;
-      z-index: 15;
+      position: absolute !important;
+      left: 6vw !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      width: clamp(380px, 32vw, 460px) !important;
+      max-width: 460px !important;
+      margin: 0 !important;
+      text-align: left !important;
+      z-index: 15 !important;
+      pointer-events: auto !important;
     }
 
     /* Narrative Card with Warm Glass Lift */
@@ -278,9 +292,9 @@
 
     h1.hero-title {
       font-family: var(--heading);
-      font-size: clamp(34px, 3.8vw, 54px);
+      font-size: clamp(32px, 3.4vw, 48px);
       font-weight: 800;
-      line-height: 1.1;
+      line-height: 1.12;
       color: var(--ink);
       margin-bottom: 16px;
       letter-spacing: -0.02em;
@@ -288,7 +302,7 @@
 
     h2.stage-title {
       font-family: var(--heading);
-      font-size: clamp(26px, 2.8vw, 38px);
+      font-size: clamp(26px, 2.6vw, 36px);
       font-weight: 700;
       line-height: 1.18;
       color: var(--ink);
@@ -298,7 +312,7 @@
 
     p.lead-text {
       font-family: var(--sans);
-      font-size: clamp(15.5px, 1.15vw, 17.5px);
+      font-size: clamp(15px, 1.1vw, 17px);
       font-weight: 400;
       line-height: 1.65;
       color: var(--graphite);
@@ -312,86 +326,104 @@
       gap: 8px;
       margin-top: 16px;
     }
+
     .pill-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
       font-family: var(--mono);
       font-size: 11px;
       font-weight: 500;
-      padding: 4px 12px;
-      border-radius: var(--radius-pill);
       background: var(--sheet-alt);
-      color: var(--ink);
       border: 1px solid var(--card-border);
+      color: var(--ink);
+      letter-spacing: 0.02em;
     }
     .pill-chip.pen {
-      color: var(--pen);
       border-color: var(--pen);
+      color: var(--pen);
     }
     .pill-chip.positive {
-      color: var(--positive);
       border-color: var(--positive);
+      color: var(--positive);
+    }
+    .pill-chip.risk {
+      border-color: var(--risk);
+      color: var(--risk);
+    }
+    .pill-chip.accent {
+      border-color: var(--accent);
+      color: var(--accent);
     }
 
-    /* CTA Button (Pill Radius, Terracotta / Amber Action Pen) */
+    /* CTA Button (Warm Ledger Gradient & Pill Form) */
     .cta-container {
-      margin-top: 2rem;
-      display: inline-flex;
-      gap: 12px;
-      align-items: center;
+      margin-top: 24px;
     }
 
     .cta-button {
-      font-family: var(--sans);
-      font-size: 16px;
-      font-weight: 700;
-      color: #fff;
-      background: var(--pen);
-      border: none;
-      padding: 14px 34px;
-      border-radius: var(--radius-pill);
-      cursor: none;
-      letter-spacing: 0.02em;
-      transition: transform 0.22s var(--ease-out), box-shadow 0.22s var(--ease-out), background 0.3s ease;
-      box-shadow: 0 6px 22px var(--pen-glow);
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      text-decoration: none;
+      gap: 12px;
+      padding: 13px 30px;
+      border-radius: var(--radius-pill);
+      font-family: var(--sans);
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      background: linear-gradient(135deg, var(--pen) 0%, #d87d2a 100%);
+      color: #130f0b;
+      border: none;
+      cursor: none;
+      box-shadow: 0 4px 18px var(--pen-glow);
+      transition: transform var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out);
+      position: relative;
+      overflow: hidden;
     }
-    html.theme-day .cta-button {
-      color: #fffbf2;
-    }
-
     .cta-button:hover {
-      transform: translateY(-2px) scale(1.02);
-      box-shadow: 0 10px 30px var(--pen-glow);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px var(--pen-glow);
+    }
+    .cta-button:active {
+      transform: translateY(1px);
     }
 
     .cta-subtext {
-      font-family: var(--sans);
-      font-size: 13px;
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
       color: var(--graphite);
-      margin-top: 10px;
     }
 
-    /* LAYER 3: Fixed UI Nav Header & Bottom Datum Bar */
+    /* LAYER 3: FIXED HUD NAV BAR */
     .fixed-nav-layer {
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
       height: 68px;
-      padding: 0 32px;
+      z-index: 50;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      z-index: 50;
-      pointer-events: none;
+      padding: 0 32px;
+      pointer-events: auto;
+      border-bottom: 1px solid rgba(240, 162, 74, 0.12);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      background: rgba(19, 15, 11, 0.45);
+      transition: background 0.4s ease, border-color 0.4s ease;
     }
-    .nav-left, .nav-right {
+    html.theme-day .fixed-nav-layer {
+      background: rgba(247, 238, 221, 0.65);
+      border-bottom-color: rgba(138, 118, 96, 0.18);
+    }
+
+    .nav-left {
       display: flex;
       align-items: center;
-      gap: 12px;
-      pointer-events: auto;
+      gap: 24px;
     }
 
     .brand-pill {
@@ -400,18 +432,17 @@
       gap: 8px;
       padding: 6px 14px;
       border-radius: var(--radius-pill);
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
+      background: var(--sheet-alt);
       border: 1px solid var(--card-border);
       font-family: var(--heading);
       font-size: 14px;
       font-weight: 700;
+      letter-spacing: 0.05em;
       color: var(--ink);
-      box-shadow: var(--lift-sm);
     }
     .brand-dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--pen);
       box-shadow: 0 0 8px var(--pen);
@@ -421,124 +452,135 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius-pill);
-      padding: 4px 6px;
-      box-shadow: var(--lift-sm);
     }
     .stage-pill-item {
-      padding: 4px 10px;
+      padding: 5px 12px;
       border-radius: var(--radius-pill);
       font-family: var(--mono);
       font-size: 11px;
       font-weight: 500;
-      color: var(--graphite);
       background: transparent;
-      border: none;
-      cursor: pointer;
-      transition: all 0.2s ease;
+      border: 1px solid transparent;
+      color: var(--graphite);
+      cursor: none;
+      transition: all var(--dur-micro) var(--ease-out);
+    }
+    .stage-pill-item:hover {
+      color: var(--ink);
+      border-color: var(--card-border);
     }
     .stage-pill-item.active {
       color: var(--pen);
-      background: var(--sheet-alt);
-      font-weight: 700;
+      border-color: var(--pen);
+      background: rgba(240, 162, 74, 0.08);
+      font-weight: 600;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .nav-btn {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 7px 14px;
+      gap: 8px;
+      padding: 6px 14px;
       border-radius: var(--radius-pill);
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--sheet-alt);
       border: 1px solid var(--card-border);
       color: var(--ink);
-      font-family: var(--sans);
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      box-shadow: var(--lift-sm);
+      cursor: none;
+      transition: all var(--dur-micro) var(--ease-out);
     }
     .nav-btn:hover {
       border-color: var(--pen);
-      transform: translateY(-1px);
+      color: var(--pen);
     }
 
-    /* Bottom Datum & Scroll Hint */
+    /* BOTTOM TELEMETRY / DATUM BAR */
     #bottom-bar {
       position: fixed;
       bottom: 0;
       left: 0;
       right: 0;
-      padding: 16px 32px;
+      height: 48px;
+      z-index: 50;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      z-index: 50;
+      padding: 0 32px;
       pointer-events: none;
+      border-top: 1px solid rgba(240, 162, 74, 0.10);
+      background: rgba(19, 15, 11, 0.40);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      color: var(--graphite);
+    }
+    html.theme-day #bottom-bar {
+      background: rgba(247, 238, 221, 0.55);
+      border-top-color: rgba(138, 118, 96, 0.15);
     }
     .datum-strip {
       display: flex;
-      gap: 18px;
-      font-family: var(--mono);
-      font-size: 11.5px;
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius-pill);
-      padding: 6px 16px;
-      box-shadow: var(--lift-sm);
-      pointer-events: auto;
+      align-items: center;
+      gap: 20px;
     }
     .datum-label {
       color: var(--graphite);
     }
     .datum-val {
       color: var(--pen);
-      font-weight: 700;
+      font-weight: 600;
     }
+
     .scroll-hint {
-      font-family: var(--sans);
-      font-size: 12.5px;
-      color: var(--graphite);
-      display: flex;
+      display: inline-flex;
       align-items: center;
       gap: 6px;
+      color: var(--graphite);
     }
 
     /* -------------------------------------------------------------------------- */
-    /* ULTRA-RESPONSIVE DAMPED CURSOR (ZERO LAYOUT THRASH - GPU COMPOSITED)       */
+    /* DAMPED CUSTOM CURSOR (Fast GPU Compositor translate3d)                     */
     /* -------------------------------------------------------------------------- */
-    #cursor-dot, #cursor-ring {
+    #cursor-dot {
       position: fixed;
       top: 0;
       left: 0;
-      pointer-events: none;
-      will-change: transform;
-      transform: translate3d(-100px, -100px, 0);
-    }
-    #cursor-dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       background: var(--pen);
       border-radius: 50%;
-      z-index: 9999;
-      box-shadow: 0 0 6px var(--pen-glow);
+      pointer-events: none;
+      z-index: 99999;
+      will-change: transform;
+      box-shadow: 0 0 8px var(--pen);
+      opacity: 0;
+      transition: opacity 0.2s ease;
     }
     #cursor-ring {
-      width: 26px;
-      height: 26px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 28px;
+      height: 28px;
       border: 1.5px solid var(--pen);
       border-radius: 50%;
-      z-index: 9998;
-      transition: width 0.18s var(--ease-out), height 0.18s var(--ease-out), border-radius 0.18s var(--ease-out), background-color 0.18s, border-color 0.18s;
+      pointer-events: none;
+      z-index: 99998;
+      will-change: transform;
+      opacity: 0;
+      transition: opacity 0.2s ease, width 0.2s ease, height 0.2s ease, border-color 0.2s ease;
     }
 
-    /* Fallback for touch screens */
     @media (hover: none) and (pointer: coarse) {
       #cursor-dot, #cursor-ring { display: none !important; }
       body { cursor: auto !important; }
@@ -567,8 +609,17 @@
     }
 
     @media (max-width: 900px) {
-      .section { padding: 0 5vw; justify-content: center; }
-      .section-content-wrapper { max-width: 92%; margin-left: 0; text-align: center; }
+      .section-content-wrapper {
+        position: relative !important;
+        left: auto !important;
+        top: auto !important;
+        transform: none !important;
+        width: 92% !important;
+        max-width: 92% !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        text-align: center !important;
+      }
       .narrative-card { padding: 1.8rem 1.4rem; }
       .stage-nav-pills { display: none; }
       .datum-strip { display: none; }
@@ -598,7 +649,7 @@
     <canvas id="leader-lines-canvas"></canvas>
     <div class="hud-pin" id="hud-pin-active">
       <div class="hud-tag" id="hud-tag-active">
-        <span id="hud-text-active">RAW INGESTION // BROWN CLOUD</span>
+        <span id="hud-text-active">RAW DATASET // UNSTRUCTURED TABULAR STREAM</span>
       </div>
     </div>
   </div>
@@ -661,7 +712,7 @@
           </p>
           <div class="chips-row">
             <span class="pill-chip">Automated Type Inference</span>
-            <span class="pill-chip pen">Outlier Bounds (IQR/Z)</span>
+            <span class="pill-chip risk">Outlier Bounds (IQR/Z)</span>
             <span class="pill-chip positive">Missing Imputation</span>
           </div>
         </div>
@@ -679,7 +730,7 @@
           </p>
           <div class="chips-row">
             <span class="pill-chip pen">Sub-Agent Network</span>
-            <span class="pill-chip">Dynamic Python REPL</span>
+            <span class="pill-chip accent">Dynamic Python REPL</span>
             <span class="pill-chip positive">Stratified K-Fold CV</span>
           </div>
         </div>
@@ -733,7 +784,7 @@
   <!-- 3D Scene & Unified Animation Loop Module -->
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-    import { engine, animate, stagger } from 'https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.esm.min.js';
+    import { engine, animate } from 'https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.esm.min.js';
 
     // Disconnect Anime.js standalone ticker so Three.js owns the single clock (Invariant 1)
     if (engine && typeof engine === 'object') {
@@ -744,8 +795,8 @@
      * MOTION CONTRACT
      * ------------------------------------------------------------------ */
     const MOTION = {
-      dur: { micro: 180, ui: 320, stage: 800, cinematic: 1400 },
-      damp: { cursor: 14.0, journey: 6.0, velocity: 4.0 },
+      dur: { micro: 180, ui: 320, stage: 750, cinematic: 1400 },
+      damp: { cursor: 28.0, journey: 6.0, velocity: 4.0 },
     };
 
     /* ------------------------------------------------------------------ *
@@ -765,7 +816,7 @@
         grid: '#4a3c28',
         cardBg: 'rgba(28, 22, 16, 0.88)',
         cardBorder: 'rgba(240, 162, 74, 0.24)',
-        fogDensity: 0.018,
+        fogDensity: 0.016,
         exposure: 1.15,
         gridOpacity: 0.12,
       },
@@ -782,7 +833,7 @@
         grid: '#e4d4bc',
         cardBg: 'rgba(255, 251, 242, 0.95)',
         cardBorder: 'rgba(138, 118, 96, 0.28)',
-        fogDensity: 0.016,
+        fogDensity: 0.014,
         exposure: 1.0,
         gridOpacity: 0.10,
       }
@@ -826,10 +877,7 @@
     setTimeout(updateHeight, 100);
 
     function triggerEnterWorkspace() {
-      // 1. Send official Streamlit component value
       sendToStreamlit('setComponentValue', { value: true });
-
-      // 2. Direct DOM fallback for native hidden button
       try {
         const parentDoc = window.parent.document;
         const buttons = parentDoc.querySelectorAll('button');
@@ -861,7 +909,7 @@
     });
 
     /* ------------------------------------------------------------------ *
-     * THREE.JS SETUP (High-Performance Budget, Invariants 1, 6, 7)
+     * THREE.JS SETUP (High-Performance Hardware Budget)
      * ------------------------------------------------------------------ */
     const canvas = document.getElementById('webgl-canvas');
     const pal = getPalette();
@@ -874,7 +922,6 @@
       powerPreference: 'high-performance',
     });
 
-    // High performance pixel ratio clamp (avoids fill-rate collapse on 4K)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(initialStockColor, 1);
@@ -886,7 +933,7 @@
     scene.background = initialStockColor;
     scene.fog = new THREE.FogExp2(initialStockColor.getHex(), pal.fogDensity);
 
-    const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 0, 42);
 
     const worldGroup = new THREE.Group();
@@ -895,11 +942,11 @@
     const parallaxGroup = new THREE.Group();
     worldGroup.add(parallaxGroup);
 
-    // SIDE DOCKING FOR 3D ANIMATION: Offset 3D subject to the RIGHT side on desktop
+    // DOCKING FOR 3D ANIMATION: Shift 3D subject strictly to the RIGHT pane on desktop
     function updateStagePlacement() {
       const isWide = window.innerWidth >= 900;
-      parallaxGroup.position.x = isWide ? 9.2 : 0;
-      parallaxGroup.position.y = isWide ? 0 : -2;
+      parallaxGroup.position.x = isWide ? 11.2 : 0;
+      parallaxGroup.position.y = isWide ? 0.2 : -2.5;
     }
     updateStagePlacement();
 
@@ -910,80 +957,244 @@
     gridHelper.material.opacity = pal.gridOpacity;
     worldGroup.add(gridHelper);
 
-    // Lighting Rig
-    const ambientLight = new THREE.AmbientLight(pal.stock, 1.2);
+    // Warm Crisp Lighting Rig (Emphasizes 3D Facets & Tangible Ledger Tokens)
+    const ambientLight = new THREE.AmbientLight(pal.stock, 1.4);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfffaed, 1.6);
+    const keyLight = new THREE.DirectionalLight(0xfffaed, 2.0);
     keyLight.position.set(15, 25, 20);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x4fc3f7, 0.8);
+    const fillLight = new THREE.DirectionalLight(0x4fc3f7, 0.9);
     fillLight.position.set(-20, -10, -10);
     scene.add(fillLight);
 
     /* ------------------------------------------------------------------ *
-     * OPTIMIZED 4-STAGE PARTICLE SUBSTRATE (750 Particles, Invariants 3 & 5)
+     * TANGIBLE 3D DATA TOKENS (No Glowing Particle Blobs — Real Geometry)
      * ------------------------------------------------------------------ */
-    const PARTICLE_COUNT = 750;
-    const geometry = new THREE.BufferGeometry();
+    const TOKEN_COUNT = 720;
 
-    const currentPositions = new Float32Array(PARTICLE_COUNT * 3);
-    const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
-    const particleColors = new Float32Array(PARTICLE_COUNT * 3);
+    // Crisp, beveled data token tile geometry (physical ledger observation)
+    const tokenGeometry = new THREE.BoxGeometry(0.42, 0.42, 0.16);
 
-    // Morph Targets for 4 Stages [0..3]
+    const tokenMaterial = new THREE.MeshStandardMaterial({
+      roughness: 0.35,
+      metalness: 0.18,
+      flatShading: true,
+    });
+
+    const instancedMesh = new THREE.InstancedMesh(tokenGeometry, tokenMaterial, TOKEN_COUNT);
+    instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    parallaxGroup.add(instancedMesh);
+
+    // Buffer arrays for dynamic animation and mouse reactivity
+    const currentPositions = new Float32Array(TOKEN_COUNT * 3);
+    const targetPositions = new Float32Array(TOKEN_COUNT * 3);
+    const currentRotations = new Float32Array(TOKEN_COUNT * 3);
+    const targetRotations = new Float32Array(TOKEN_COUNT * 3);
+
+    // Mouse reaction displacement & spin velocities
+    const mouseDisplaceX = new Float32Array(TOKEN_COUNT);
+    const mouseDisplaceY = new Float32Array(TOKEN_COUNT);
+    const mouseDisplaceZ = new Float32Array(TOKEN_COUNT);
+    const mouseSpinVel = new Float32Array(TOKEN_COUNT);
+
+    // Stage targets for each narrative section
     const stageTargets = [
-      new Float32Array(PARTICLE_COUNT * 3), // Stage 0: Golden Spiral / Brownian Cloud
-      new Float32Array(PARTICLE_COUNT * 3), // Stage 1: 5 Statistical Bar Columns
-      new Float32Array(PARTICLE_COUNT * 3), // Stage 2: Spherical Agent Network
-      new Float32Array(PARTICLE_COUNT * 3), // Stage 3: Concentric Executive Seal Core
+      new Float32Array(TOKEN_COUNT * 3), // Stage 0: Raw Tabular Matrix Grid (CSV Stream)
+      new Float32Array(TOKEN_COUNT * 3), // Stage 1: Feature Column Profiles & Outlier Bounds
+      new Float32Array(TOKEN_COUNT * 3), // Stage 2: Recursive Multi-Agent Reasoning Graph
+      new Float32Array(TOKEN_COUNT * 3), // Stage 3: Certified Ledger Core & Generalization Guard
+    ];
+
+    // Stage colors for each token
+    const stageColors = [
+      new Float32Array(TOKEN_COUNT * 3),
+      new Float32Array(TOKEN_COUNT * 3),
+      new Float32Array(TOKEN_COUNT * 3),
+      new Float32Array(TOKEN_COUNT * 3),
     ];
 
     const cPen = new THREE.Color(pal.pen);
     const cAccent = new THREE.Color(pal.accent);
     const cPositive = new THREE.Color(pal.positive);
     const cGraphite = new THREE.Color(pal.graphite);
+    const cRisk = new THREE.Color(pal.risk);
+    const cSheet = new THREE.Color(pal.sheetAlt);
 
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
+    /* ------------------------------------------------------------------ *
+     * MATHEMATICAL FORMATIONS GROUNDED IN THE NARRATIVE
+     * ------------------------------------------------------------------ */
+    for (let i = 0; i < TOKEN_COUNT; i++) {
       const i3 = i * 3;
 
-      // 0: Golden Spiral / Brownian Cloud
-      const phi = Math.acos(1 - (2 * (i + 0.5)) / PARTICLE_COUNT);
-      const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-      const r0 = 11 + Math.sin(i * 0.25) * 4.5 + (Math.random() - 0.5) * 3.5;
-      stageTargets[0][i3] = r0 * Math.sin(phi) * Math.cos(theta);
-      stageTargets[0][i3 + 1] = r0 * Math.sin(phi) * Math.sin(theta) * 0.72;
-      stageTargets[0][i3 + 2] = r0 * Math.cos(phi);
+      // ------------------------------------------------------------------
+      // STAGE 0: "Raw data becomes verified insight"
+      // -> Unparsed Tabular CSV Grid: 24 columns x 30 rows undulating in 3D
+      // ------------------------------------------------------------------
+      const col0 = i % 24;
+      const row0 = Math.floor(i / 24);
+      const gridX = (col0 - 11.5) * 0.62;
+      const gridY = (row0 - 14.5) * 0.56;
+      const waveZ = Math.sin(col0 * 0.32 + row0 * 0.22) * 1.5 + ((i * 17) % 100 / 100 - 0.5) * 0.5;
 
-      // 1: 5 Statistical Bar Chart Columns
+      stageTargets[0][i3] = gridX;
+      stageTargets[0][i3 + 1] = gridY;
+      stageTargets[0][i3 + 2] = waveZ;
+
+      // Color: Alternating ledger tokens (graphite, pen, parchment)
+      const colS0 = (i % 5 === 0) ? cPen : ((i % 2 === 0) ? cGraphite : cSheet);
+      stageColors[0][i3] = colS0.r;
+      stageColors[0][i3 + 1] = colS0.g;
+      stageColors[0][i3 + 2] = colS0.b;
+
+      // ------------------------------------------------------------------
+      // STAGE 1: "Ingest, Profile & Clean"
+      // -> 5 Statistical Feature Histograms with Detected Outlier Bounds
+      // ------------------------------------------------------------------
       const barIdx = i % 5;
-      const barX = (barIdx - 2) * 6.2;
-      const colHeight = 6 + (Math.sin(barIdx * 1.6) + 1) * 7.5;
-      const barY = (Math.random() * colHeight) - 7.5;
-      stageTargets[1][i3] = barX + (Math.random() - 0.5) * 2.0;
+      const tokenInBar = Math.floor(i / 5); // 0..143
+      const barX = (barIdx - 2) * 3.4; // 5 columns spanning [-6.8, +6.8]
+
+      let barY = 0;
+      let isOutlier = false;
+
+      if (barIdx === 0) {
+        // Feature 0: Normal Gaussian Bell distribution
+        const u = (tokenInBar - 71.5) / 38.0;
+        barY = -6.5 + (tokenInBar / 144.0) * 11.5;
+      } else if (barIdx === 1) {
+        // Feature 1: Skewed distribution with flagged outliers at the top
+        if (tokenInBar >= 126) {
+          isOutlier = true;
+          barY = 6.4 + (tokenInBar - 126) * 0.38; // Pushed past threshold!
+        } else {
+          const ratio = tokenInBar / 126.0;
+          barY = -6.8 + Math.pow(ratio, 2.0) * 12.0;
+        }
+      } else if (barIdx === 2) {
+        // Feature 2: Bimodal Distribution
+        const isClusterB = tokenInBar >= 72;
+        const subIdx = isClusterB ? (tokenInBar - 72) : tokenInBar;
+        const center = isClusterB ? 2.5 : -3.5;
+        barY = center + (subIdx - 36) / 36.0 * 2.6;
+      } else if (barIdx === 3) {
+        // Feature 3: Uniform categorical bin distribution
+        barY = -6.5 + (tokenInBar / 144.0) * 12.0;
+      } else {
+        // Feature 4: High variance feature with extreme outlier points
+        if (tokenInBar >= 128) {
+          isOutlier = true;
+          barY = 6.6 + (tokenInBar - 128) * 0.36;
+        } else if (tokenInBar <= 8) {
+          isOutlier = true;
+          barY = -7.6 - (8 - tokenInBar) * 0.32;
+        } else {
+          barY = -6.2 + ((tokenInBar - 8) / 120.0) * 11.8;
+        }
+      }
+
+      const jitX = ((i * 13) % 100 / 100 - 0.5) * 1.4;
+      const jitZ = ((i * 19) % 100 / 100 - 0.5) * 1.2;
+
+      stageTargets[1][i3] = barX + jitX;
       stageTargets[1][i3 + 1] = barY;
-      stageTargets[1][i3 + 2] = (Math.random() - 0.5) * 2.0;
+      stageTargets[1][i3 + 2] = jitZ;
 
-      // 2: Spherical Geodesic Constellation (Agent Nodes)
-      const u = Math.random();
-      const v = Math.random();
-      const sTheta = u * 2.0 * Math.PI;
-      const sPhi = Math.acos(2.0 * v - 1.0);
-      const r2 = 13 + (Math.random() - 0.5) * 1.8;
-      stageTargets[2][i3] = r2 * Math.sin(sPhi) * Math.cos(sTheta);
-      stageTargets[2][i3 + 1] = r2 * Math.sin(sPhi) * Math.sin(sTheta);
-      stageTargets[2][i3 + 2] = r2 * Math.cos(sPhi);
+      // Color: Flagged outliers are highlighted in Warning Risk Red! Normal in Pen / Graphite
+      const colS1 = isOutlier ? cRisk : ((tokenInBar % 3 === 0) ? cPen : cGraphite);
+      stageColors[1][i3] = colS1.r;
+      stageColors[1][i3 + 1] = colS1.g;
+      stageColors[1][i3 + 2] = colS1.b;
 
-      // 3: Concentric Verification Rings (Executive Seal)
-      const ringId = i % 3;
-      const ringRadius = ringId === 0 ? 4.8 : (ringId === 1 ? 9.2 : 13.8);
-      const angle = (i / PARTICLE_COUNT) * Math.PI * 6;
-      stageTargets[3][i3] = ringRadius * Math.cos(angle);
-      stageTargets[3][i3 + 1] = ringRadius * Math.sin(angle);
-      stageTargets[3][i3 + 2] = (Math.random() - 0.5) * 1.2;
+      // ------------------------------------------------------------------
+      // STAGE 2: "Recursive Multi-Agent Reasoning"
+      // -> Central Orchestrator Hub + 4 Sub-Agent Collaborative Clusters
+      // ------------------------------------------------------------------
+      // Cluster 0: Orchestrator Hub (tokens 0..79)
+      // Cluster 1: Ingestion & Data Tool Hub (80..239)
+      // Cluster 2: Statistical Analysis Tool Hub (240..399)
+      // Cluster 3: ML Pipeline Tool Hub (400..559)
+      // Cluster 4: Evaluator & Generalization Hub (560..719)
+      let hubCenter = new THREE.Vector3(0, 0, 0);
+      let clusterColor = cPen;
 
-      // Initial buffer values
+      if (i < 80) {
+        // Central Orchestrator
+        hubCenter.set(0, 0, 0);
+        clusterColor = cPen;
+      } else if (i < 240) {
+        // Agent 1: Data Ingestion Tool
+        hubCenter.set(-5.6, 4.4, 1.2);
+        clusterColor = cAccent;
+      } else if (i < 400) {
+        // Agent 2: Statistical Analysis Tool
+        hubCenter.set(5.6, 4.4, -1.2);
+        clusterColor = cPositive;
+      } else if (i < 560) {
+        // Agent 3: ML Pipeline Tool
+        hubCenter.set(-5.2, -4.6, -1.5);
+        clusterColor = cPen;
+      } else {
+        // Agent 4: Evaluation & Interpretation Tool
+        hubCenter.set(5.2, -4.6, 1.5);
+        clusterColor = cAccent;
+      }
+
+      // Swarm orbit around hub
+      const angle = (i * 0.45);
+      const orbitR = 1.0 + ((i * 23) % 100 / 100) * 2.2;
+      stageTargets[2][i3] = hubCenter.x + Math.cos(angle) * orbitR;
+      stageTargets[2][i3 + 1] = hubCenter.y + Math.sin(angle) * orbitR * 0.8;
+      stageTargets[2][i3 + 2] = hubCenter.z + Math.sin(angle * 1.5) * 1.2;
+
+      stageColors[2][i3] = clusterColor.r;
+      stageColors[2][i3 + 1] = clusterColor.g;
+      stageColors[2][i3 + 2] = clusterColor.b;
+
+      // ------------------------------------------------------------------
+      // STAGE 3: "Production Ready Intelligence"
+      // -> Concentric Generalization Shield (Inner Train + Outer Test CV Bound)
+      // ------------------------------------------------------------------
+      if (i < 100) {
+        // Central Crystalline Model Artifact
+        const phiC = Math.acos(1 - (2 * (i + 0.5)) / 100);
+        const thetaC = Math.PI * (1 + Math.sqrt(5)) * i;
+        const rC = 2.4 + ((i * 11) % 100 / 100) * 0.5;
+        stageTargets[3][i3] = rC * Math.sin(phiC) * Math.cos(thetaC);
+        stageTargets[3][i3 + 1] = rC * Math.sin(phiC) * Math.sin(thetaC);
+        stageTargets[3][i3 + 2] = rC * Math.cos(phiC) * 0.8;
+
+        stageColors[3][i3] = cPen.r;
+        stageColors[3][i3 + 1] = cPen.g;
+        stageColors[3][i3 + 2] = cPen.b;
+      } else if (i < 410) {
+        // Inner Manifold: Train Performance Ring (R = 5.8)
+        const tRingIdx = i - 100;
+        const angTrain = (tRingIdx / 310.0) * Math.PI * 2.0;
+        const rTrain = 5.8 + ((i * 13) % 100 / 100 - 0.5) * 0.6;
+        stageTargets[3][i3] = rTrain * Math.cos(angTrain);
+        stageTargets[3][i3 + 1] = rTrain * Math.sin(angTrain);
+        stageTargets[3][i3 + 2] = ((i * 17) % 100 / 100 - 0.5) * 0.8;
+
+        stageColors[3][i3] = cPositive.r;
+        stageColors[3][i3 + 1] = cPositive.g;
+        stageColors[3][i3 + 2] = cPositive.b;
+      } else {
+        // Outer Manifold: Generalization Test CV Bound (R = 8.2, Gap < 10%)
+        const testIdx = i - 410;
+        const angTest = (testIdx / 310.0) * Math.PI * 2.0;
+        const rTest = 8.2 + ((i * 19) % 100 / 100 - 0.5) * 0.7;
+        stageTargets[3][i3] = rTest * Math.cos(angTest);
+        stageTargets[3][i3 + 1] = rTest * Math.sin(angTest);
+        stageTargets[3][i3 + 2] = ((i * 23) % 100 / 100 - 0.5) * 0.8;
+
+        stageColors[3][i3] = (i % 2 === 0) ? cPen.r : cGraphite.r;
+        stageColors[3][i3 + 1] = (i % 2 === 0) ? cPen.g : cGraphite.g;
+        stageColors[3][i3 + 2] = (i % 2 === 0) ? cPen.b : cGraphite.b;
+      }
+
+      // Initial positions & colors
       currentPositions[i3] = stageTargets[0][i3];
       currentPositions[i3 + 1] = stageTargets[0][i3 + 1];
       currentPositions[i3 + 2] = stageTargets[0][i3 + 2];
@@ -992,48 +1203,82 @@
       targetPositions[i3 + 1] = stageTargets[0][i3 + 1];
       targetPositions[i3 + 2] = stageTargets[0][i3 + 2];
 
-      // Colors
-      const col = (i % 3 === 0) ? cPen : (i % 3 === 1 ? cAccent : cGraphite);
-      particleColors[i3] = col.r;
-      particleColors[i3 + 1] = col.g;
-      particleColors[i3 + 2] = col.b;
+      const initialCol = new THREE.Color(stageColors[0][i3], stageColors[0][i3 + 1], stageColors[0][i3 + 2]);
+      instancedMesh.setColorAt(i, initialCol);
     }
 
-    geometry.setAttribute('position', new THREE.BufferAttribute(currentPositions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
+    instancedMesh.instanceColor.needsUpdate = true;
 
-    const particleMaterial = new THREE.PointsMaterial({
-      size: 1.65,
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.90,
-      blending: THREE.NormalBlending,
-    });
+    // Preallocated dummy object for matrix transforms
+    const dummy = new THREE.Object3D();
+    const scratchVec = new THREE.Vector3();
 
-    const particlesMesh = new THREE.Points(geometry, particleMaterial);
-    parallaxGroup.add(particlesMesh);
-
-    // Dynamic Network Links (Synapses between nodes in Stage 2)
-    const LINK_COUNT = 120;
-    const linkIndices = [];
-    for (let i = 0; i < LINK_COUNT; i++) {
-      linkIndices.push(Math.floor(Math.random() * PARTICLE_COUNT));
-      linkIndices.push(Math.floor(Math.random() * PARTICLE_COUNT));
+    // Initialize instance matrices
+    for (let i = 0; i < TOKEN_COUNT; i++) {
+      const i3 = i * 3;
+      dummy.position.set(currentPositions[i3], currentPositions[i3 + 1], currentPositions[i3 + 2]);
+      dummy.rotation.set(0.1, 0.2, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      instancedMesh.setMatrixAt(i, dummy.matrix);
     }
-    const linkGeo = new THREE.BufferGeometry();
-    linkGeo.setIndex(linkIndices);
-    linkGeo.setAttribute('position', geometry.getAttribute('position'));
+    instancedMesh.instanceMatrix.needsUpdate = true;
 
-    const linkMat = new THREE.LineBasicMaterial({
-      color: new THREE.Color(pal.pen),
+    /* ------------------------------------------------------------------ *
+     * STAGE-SPECIFIC AUGMENTATIONS (Threshold Lines, Synapses, Guard Ring)
+     * ------------------------------------------------------------------ */
+    // 1. Stage 1 Outlier Threshold Marker Wire (Demarcating IQR Bound)
+    const thresholdPoints = [
+      new THREE.Vector3(-8.5, 5.8, 0),
+      new THREE.Vector3(8.5, 5.8, 0)
+    ];
+    const thresholdGeo = new THREE.BufferGeometry().setFromPoints(thresholdPoints);
+    const thresholdMat = new THREE.LineDashedMaterial({
+      color: new THREE.Color(pal.risk),
+      dashSize: 0.6,
+      gapSize: 0.4,
       transparent: true,
       opacity: 0,
     });
-    const linksMesh = new THREE.LineSegments(linkGeo, linkMat);
-    parallaxGroup.add(linksMesh);
+    const thresholdLine = new THREE.Line(thresholdGeo, thresholdMat);
+    thresholdLine.computeLineDistances();
+    parallaxGroup.add(thresholdLine);
+
+    // 2. Stage 2 Multi-Agent Synapses (Connecting Orchestrator to Tool Hubs)
+    const hubPositions = [
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(-5.6, 4.4, 1.2),
+      new THREE.Vector3(5.6, 4.4, -1.2),
+      new THREE.Vector3(-5.2, -4.6, -1.5),
+      new THREE.Vector3(5.2, -4.6, 1.5),
+    ];
+    const synapsePoints = [];
+    for (let h = 1; h <= 4; h++) {
+      synapsePoints.push(hubPositions[0], hubPositions[h]); // Orchestrator to Agent
+      synapsePoints.push(hubPositions[h], hubPositions[(h % 4) + 1]); // Agent to Agent ring
+    }
+    const synapseGeo = new THREE.BufferGeometry().setFromPoints(synapsePoints);
+    const synapseMat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(pal.accent),
+      transparent: true,
+      opacity: 0,
+    });
+    const synapseMesh = new THREE.LineSegments(synapseGeo, synapseMat);
+    parallaxGroup.add(synapseMesh);
+
+    // 3. Stage 3 Generalization Safety Guard Wire Ring
+    const guardGeo = new THREE.RingGeometry(8.3, 8.4, 64);
+    const guardMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(pal.positive),
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0,
+    });
+    const guardMesh = new THREE.Mesh(guardGeo, guardMat);
+    parallaxGroup.add(guardMesh);
 
     /* ------------------------------------------------------------------ *
-     * HUD PINS & LEADER LINES (Pillar 5)
+     * HUD PINS & LEADER LINES (Positioned directly over right-pane 3D)
      * ------------------------------------------------------------------ */
     const hudPin = document.getElementById('hud-pin-active');
     const hudText = document.getElementById('hud-text-active');
@@ -1041,10 +1286,10 @@
     const leaderCtx = leaderCanvas ? leaderCanvas.getContext('2d') : null;
 
     const HUD_TITLES = [
-      'RAW INGESTION // BROWN CLOUD',
-      'DATA PROFILE // STRATIFIED DISTRIBUTIONS',
-      'AGENT NETWORK // RECURSIVE REASONING',
-      'EXECUTIVE LEDGER // SEALED AUDIT',
+      'RAW DATASET // UNSTRUCTURED TABULAR STREAM',
+      'FEATURE DISTRIBUTIONS // PROFILE & OUTLIER BOUNDS',
+      'MULTI-AGENT GRAPH // RECURSIVE REASONING NETWORK',
+      'CERTIFIED LEDGER // SEALED GENERALIZATION BOUND',
     ];
 
     const tempProjVec = new THREE.Vector3();
@@ -1063,7 +1308,7 @@
     function updateHudPinAndLines() {
       if (!hudPin) return;
 
-      tempProjVec.set(0, 3.5, 0);
+      tempProjVec.set(0, 9.0, 0);
       parallaxGroup.localToWorld(tempProjVec);
       tempProjVec.project(camera);
 
@@ -1076,10 +1321,11 @@
       const screenX = (tempProjVec.x * 0.5 + 0.5) * window.innerWidth;
       const screenY = (-(tempProjVec.y * 0.5) + 0.5) * window.innerHeight;
 
-      const pinnedX = Math.min(Math.max(screenX, 180), window.innerWidth - 180);
-      const pinnedY = Math.max(screenY - 55, 90);
+      // Pin strictly in the right half above the 3D construct
+      const minPinX = Math.max(window.innerWidth * 0.54, 520);
+      const pinnedX = Math.min(Math.max(screenX, minPinX), window.innerWidth - 180);
+      const pinnedY = Math.max(screenY - 45, 88);
 
-      // GPU Compositor Transform (Pillar 7 / Invariant 8: Zero reflow)
       hudPin.style.transform = `translate3d(${pinnedX.toFixed(1)}px, ${pinnedY.toFixed(1)}px, 0) translate(-50%, -100%)`;
       hudPin.classList.add('visible');
 
@@ -1103,7 +1349,7 @@
     }
 
     /* ------------------------------------------------------------------ *
-     * FAST ZERO-LAG GPU COMPOSITOR CURSOR
+     * INTERACTIVE 3D MOUSE REACTIVITY & ZERO-LAG CURSOR
      * ------------------------------------------------------------------ */
     const cursorDot = document.getElementById('cursor-dot');
     const cursorRing = document.getElementById('cursor-ring');
@@ -1111,45 +1357,78 @@
     let ringPos = { x: -100, y: -100 };
     let targetParallax = { x: 0, y: 0 };
     let curParallax = { x: 0, y: 0 };
+    let isMouseActive = false;
+
+    const mouseNorm = new THREE.Vector2(-10, -10);
+    const raycaster = new THREE.Raycaster();
+    const interactionPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const mouseWorld = new THREE.Vector3(-999, -999, 0);
+    const localMouse = new THREE.Vector3(-999, -999, 0);
 
     window.addEventListener('mousemove', (e) => {
+      isMouseActive = true;
       mouse.x = e.clientX;
       mouse.y = e.clientY;
 
-      // 1:1 instantaneous hardware dot placement via GPU transform (Zero lag!)
       if (cursorDot) {
-        cursorDot.style.transform = `translate3d(${mouse.x}px, ${mouse.y}px, 0) translate(-50%, -50%)`;
+        cursorDot.style.opacity = '1';
+        cursorDot.style.transform = `translate3d(${e.clientX}px, ${e.clientY}px, 0) translate(-50%, -50%)`;
+      }
+      if (cursorRing) {
+        cursorRing.style.opacity = '1';
       }
 
-      const rawX = (e.clientX / window.innerWidth) * 2 - 1;
-      const rawY = -(e.clientY / window.innerHeight) * 2 + 1;
-      targetParallax.x = rawX * 2.8;
-      targetParallax.y = rawY * 2.0;
+      // Parallax target
+      targetParallax.x = (e.clientX / window.innerWidth - 0.5) * 2;
+      targetParallax.y = (e.clientY / window.innerHeight - 0.5) * 2;
+
+      // Unproject to 3D World coordinates for token reaction
+      mouseNorm.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouseNorm.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouseNorm, camera);
+      raycaster.ray.intersectPlane(interactionPlane, mouseWorld);
     });
 
-    document.querySelectorAll('button, a, .stage-pill-item').forEach((el) => {
+    window.addEventListener('mouseleave', () => {
+      isMouseActive = false;
+      if (cursorDot) cursorDot.style.opacity = '0';
+      if (cursorRing) cursorRing.style.opacity = '0';
+      targetParallax.x = 0;
+      targetParallax.y = 0;
+    });
+
+    window.addEventListener('mouseenter', (e) => {
+      isMouseActive = true;
+      ringPos.x = e.clientX;
+      ringPos.y = e.clientY;
+    });
+
+    // Hover scale effects on interactive elements
+    document.querySelectorAll('button, a, .pill-chip, .narrative-card').forEach((el) => {
       el.addEventListener('mouseenter', () => {
-        if (!cursorRing) return;
-        cursorRing.style.width = '54px';
-        cursorRing.style.height = '34px';
-        cursorRing.style.borderRadius = '999px';
-        cursorRing.style.backgroundColor = isNight ? 'rgba(240, 162, 74, 0.14)' : 'rgba(163, 79, 32, 0.12)';
+        if (cursorRing) {
+          cursorRing.style.width = '48px';
+          cursorRing.style.height = '48px';
+          cursorRing.style.borderColor = 'var(--pen)';
+          cursorRing.style.background = 'rgba(240, 162, 74, 0.08)';
+        }
       });
       el.addEventListener('mouseleave', () => {
-        if (!cursorRing) return;
-        cursorRing.style.width = '26px';
-        cursorRing.style.height = '26px';
-        cursorRing.style.borderRadius = '50%';
-        cursorRing.style.backgroundColor = 'transparent';
+        if (cursorRing) {
+          cursorRing.style.width = '28px';
+          cursorRing.style.height = '28px';
+          cursorRing.style.borderColor = 'var(--pen)';
+          cursorRing.style.background = 'transparent';
+        }
       });
     });
 
     /* ------------------------------------------------------------------ *
-     * CENTRALIZED THEME SWITCHER
+     * THEME TOGGLING (Warm Ledger Day / Night)
      * ------------------------------------------------------------------ */
-    export function setTheme(themeName) {
-      currentTheme = themeName;
-      isNight = themeName === 'night';
+    function setTheme(theme) {
+      currentTheme = theme;
+      isNight = theme === 'night';
       const p = getPalette();
 
       document.documentElement.classList.toggle('theme-day', !isNight);
@@ -1174,24 +1453,60 @@
       cAccent.set(p.accent);
       cPositive.set(p.positive);
       cGraphite.set(p.graphite);
+      cRisk.set(p.risk);
+      cSheet.set(p.sheetAlt);
 
-      // Retint particles
-      const colors = geometry.attributes.color.array;
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const i3 = i * 3;
-        const col = (i % 3 === 0) ? cPen : (i % 3 === 1 ? cAccent : cGraphite);
-        colors[i3] = col.r;
-        colors[i3 + 1] = col.g;
-        colors[i3 + 2] = col.b;
+      // Recalculate stage colors for new theme
+      for (let s = 0; s < 4; s++) {
+        for (let i = 0; i < TOKEN_COUNT; i++) {
+          const i3 = i * 3;
+          let col = cPen;
+          if (s === 0) {
+            col = (i % 5 === 0) ? cPen : ((i % 2 === 0) ? cGraphite : cSheet);
+          } else if (s === 1) {
+            const barIdx = i % 5;
+            const tokenInBar = Math.floor(i / 5);
+            const isOutlier = (barIdx === 1 && tokenInBar >= 126) || (barIdx === 4 && (tokenInBar >= 128 || tokenInBar <= 8));
+            col = isOutlier ? cRisk : ((tokenInBar % 3 === 0) ? cPen : cGraphite);
+          } else if (s === 2) {
+            if (i < 80) col = cPen;
+            else if (i < 240) col = cAccent;
+            else if (i < 400) col = cPositive;
+            else if (i < 560) col = cPen;
+            else col = cAccent;
+          } else {
+            if (i < 100) col = cPen;
+            else if (i < 410) col = cPositive;
+            else col = (i % 2 === 0) ? cPen : cGraphite;
+          }
+          stageColors[s][i3] = col.r;
+          stageColors[s][i3 + 1] = col.g;
+          stageColors[s][i3 + 2] = col.b;
+        }
       }
-      geometry.attributes.color.needsUpdate = true;
-      linkMat.color.set(p.pen);
 
-      // UI Button Icons
+      // Update current instance colors
+      applyStageColors(currentStageIndex);
+
+      thresholdMat.color.set(p.risk);
+      synapseMat.color.set(p.accent);
+      guardMat.color.set(p.positive);
+
       const icon = document.getElementById('theme-icon');
       const label = document.getElementById('theme-label');
       if (icon) icon.textContent = isNight ? '☀️' : '🌙';
       if (label) label.textContent = isNight ? 'Day Mode' : 'Night Mode';
+    }
+
+    function applyStageColors(stageIdx) {
+      const colors = stageColors[stageIdx];
+      const tempCol = new THREE.Color();
+      for (let i = 0; i < TOKEN_COUNT; i++) {
+        const i3 = i * 3;
+        tempCol.setRGB(colors[i3], colors[i3 + 1], colors[i3 + 2]);
+        instancedMesh.setColorAt(i, tempCol);
+      }
+      instancedMesh.instanceColor.needsUpdate = true;
     }
 
     const themeToggleBtn = document.getElementById('btn-theme-toggle');
@@ -1202,7 +1517,7 @@
     }
 
     /* ------------------------------------------------------------------ *
-     * STAGE TRANSITIONS & SECTION CHOREOGRAPHY (Invariants 3 & 5)
+     * STAGE TRANSITIONS & SECTION CHOREOGRAPHY
      * ------------------------------------------------------------------ */
     let currentStageIndex = 0;
     let sProgress = 0;
@@ -1223,25 +1538,25 @@
         btn.classList.toggle('active', idx === stageIdx);
       });
 
-      // Target positions for particles
+      // Target positions for tokens
       const nextTargets = stageTargets[stageIdx];
-      for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
+      for (let i = 0; i < TOKEN_COUNT * 3; i++) {
         targetPositions[i] = nextTargets[i];
       }
 
-      // Synapse line visibility on network stage
-      if (typeof animate === 'function') {
-        animate(linkMat, {
-          opacity: stageIdx === 2 ? 0.28 : 0,
-          duration: MOTION.dur.stage,
-          ease: 'outCubic',
-        });
-      } else {
-        linkMat.opacity = stageIdx === 2 ? 0.28 : 0;
-      }
+      // Apply narrative-specific colors
+      applyStageColors(stageIdx);
+
+      // Animate stage-specific auxiliary geometry
+      // Stage 1: Threshold Line
+      thresholdMat.opacity = stageIdx === 1 ? 0.38 : 0;
+      // Stage 2: Agent Synapses
+      synapseMat.opacity = stageIdx === 2 ? 0.35 : 0;
+      // Stage 3: Generalization Guard Ring
+      guardMat.opacity = stageIdx === 3 ? 0.35 : 0;
     }
 
-    // Quick nav clicks
+    // Quick nav button clicks
     document.querySelectorAll('.stage-pill-item').forEach((btn) => {
       btn.addEventListener('click', () => {
         const target = parseInt(btn.getAttribute('data-idx') || '0', 10);
@@ -1254,11 +1569,12 @@
     });
 
     /* ------------------------------------------------------------------ *
-     * FULLPAGE.JS INITIALIZATION (GPLv3 License Key Fix)
+     * FULLPAGE.JS INITIALIZATION (GPLv3 License Key & Vertical Alignment)
      * ------------------------------------------------------------------ */
     try {
       new fullpage('#fullpage', {
         licenseKey: 'gplv3-license',
+        verticalCentered: false,
         css3: true,
         scrollingSpeed: MOTION.dur.stage,
         easingcss3: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1268,10 +1584,10 @@
         navigation: true,
         navigationPosition: 'right',
         navigationTooltips: [
-          '01 Raw Overview',
-          '02 Ingest & Profile',
-          '03 Recursive Reasoning',
-          '04 Verified Deploy',
+          '01 Raw Ingestion',
+          '02 Feature Profiling',
+          '03 Multi-Agent Reasoning',
+          '04 Certified Deployment',
         ],
         showActiveTooltip: true,
         anchors: ['hero', 'ingest', 'reason', 'deploy'],
@@ -1285,7 +1601,7 @@
     }
 
     /* ------------------------------------------------------------------ *
-     * UNIFIED RENDER LOOP (Invariants 1, 2, 7, 10 - Highly Optimized)
+     * UNIFIED RENDER LOOP (Physics, Mouse Reactivity & 60 FPS Budget)
      * ------------------------------------------------------------------ */
     let isAppVisible = true;
     document.addEventListener('visibilitychange', () => {
@@ -1294,7 +1610,7 @@
 
     const clock = new THREE.Clock();
 
-    // Warm up shaders & release curtain (Mansory Standard)
+    // Warm up shaders & release curtain
     renderer.compile(scene, camera);
     const curtain = document.getElementById('preloader-curtain');
     if (curtain) {
@@ -1309,12 +1625,10 @@
       const dt = Math.min(clock.getDelta(), 0.04);
       const t = clock.getElapsedTime();
 
-      // Invariant 2: Frame-rate independent exponential damping
-      // Snappy cursor damping (lambda = 14) for fast responsive ring follow
+      // Damped smooth cursor follower (translate3d compositor)
       const kCursor = 1.0 - Math.exp(-MOTION.damp.cursor * dt);
       const kJourney = 1.0 - Math.exp(-MOTION.damp.journey * dt);
 
-      // Smooth cursor ring follower via GPU translate3d (Zero layout reflow!)
       if (mouse.x > 0) {
         ringPos.x += (mouse.x - ringPos.x) * kCursor;
         ringPos.y += (mouse.y - ringPos.y) * kCursor;
@@ -1331,48 +1645,78 @@
         parallaxGroup.rotation.x = -curParallax.y * 0.035;
       }
 
-      // Progress scalar damping
       sProgress += (sTarget - sProgress) * kJourney;
 
-      // Particle physics & position morphing (Optimized Buffer Re-upload)
-      if (isMorphing) {
-        const pos = geometry.attributes.position.array;
-        const kMorph = 1.0 - Math.exp(-4.5 * dt);
-        let maxDelta = 0;
+      // ------------------------------------------------------------------
+      // MOUSE REACTIVITY: Map cursor into 3D local coordinates
+      // ------------------------------------------------------------------
+      localMouse.copy(mouseWorld);
+      parallaxGroup.worldToLocal(localMouse);
 
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-          const i3 = i * 3;
-          const dx = targetPositions[i3] - pos[i3];
-          const dy = targetPositions[i3 + 1] - pos[i3 + 1];
-          const dz = targetPositions[i3 + 2] - pos[i3 + 2];
+      const kMorph = 1.0 - Math.exp(-4.8 * dt);
+      const influenceRadius = 7.5;
+      const influenceRadiusSq = influenceRadius * influenceRadius;
 
-          pos[i3] += dx * kMorph;
-          pos[i3 + 1] += dy * kMorph;
-          pos[i3 + 2] += dz * kMorph;
+      // Update token positions, mouse interactions, and instance transforms
+      for (let i = 0; i < TOKEN_COUNT; i++) {
+        const i3 = i * 3;
 
-          const d = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
-          if (d > maxDelta) maxDelta = d;
+        // Vector from mouse to token's base formation position
+        const dx = currentPositions[i3] - localMouse.x;
+        const dy = currentPositions[i3 + 1] - localMouse.y;
+        const dz = currentPositions[i3 + 2] - localMouse.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+
+        // Interactive mouse deflection: Tokens dynamically part & pop in 3D!
+        if (isMouseActive && distSq < influenceRadiusSq && distSq > 0.001) {
+          const dist = Math.sqrt(distSq);
+          const factor = (1.0 - dist / influenceRadius);
+          const force = factor * factor * 4.4; // Smooth cubic repulsive falloff
+
+          mouseDisplaceX[i] = (dx / dist) * force;
+          mouseDisplaceY[i] = (dy / dist) * force;
+          mouseDisplaceZ[i] = (dz / dist) * force + Math.sin(t * 4.0 + i * 0.25) * 0.7;
+          mouseSpinVel[i] = factor * 0.12;
+        } else {
+          // Smooth spring return when cursor moves away
+          mouseDisplaceX[i] *= 0.88;
+          mouseDisplaceY[i] *= 0.88;
+          mouseDisplaceZ[i] *= 0.88;
+          mouseSpinVel[i] *= 0.90;
         }
-        geometry.attributes.position.needsUpdate = true;
 
-        // When particles settle near targets, disable CPU buffer write to conserve GPU bus
-        if (maxDelta < 0.04) {
-          isMorphing = false;
-        }
+        // Formation target + mouse reactive displacement
+        const targetX = targetPositions[i3] + mouseDisplaceX[i];
+        const targetY = targetPositions[i3 + 1] + mouseDisplaceY[i];
+        const targetZ = targetPositions[i3 + 2] + mouseDisplaceZ[i];
+
+        currentPositions[i3] += (targetX - currentPositions[i3]) * kMorph;
+        currentPositions[i3 + 1] += (targetY - currentPositions[i3 + 1]) * kMorph;
+        currentPositions[i3 + 2] += (targetZ - currentPositions[i3 + 2]) * kMorph;
+
+        // Ambient token rotation + reactive cursor spin
+        currentRotations[i3] += mouseSpinVel[i] * 0.6 + 0.002;
+        currentRotations[i3 + 1] += mouseSpinVel[i] * 1.2 + 0.003;
+
+        // Construct 3D matrix
+        dummy.position.set(currentPositions[i3], currentPositions[i3 + 1], currentPositions[i3 + 2]);
+        dummy.rotation.set(currentRotations[i3], currentRotations[i3 + 1], currentRotations[i3 + 2]);
+
+        // Slight dynamic scale pop on hover
+        const scalePop = 1.0 + Math.min(Math.abs(mouseSpinVel[i]) * 3.5, 0.4);
+        dummy.scale.set(scalePop, scalePop, scalePop);
+
+        dummy.updateMatrix();
+        instancedMesh.setMatrixAt(i, dummy.matrix);
       }
 
-      // Ambient GPU rotation (Zero CPU buffer uploads, pure matrix transform)
-      if (!prefersReducedMotion) {
-        if (currentStageIndex === 2) {
-          particlesMesh.rotation.y += 0.0035;
-          linksMesh.rotation.y += 0.0035;
-        } else if (currentStageIndex === 0) {
-          particlesMesh.rotation.y += 0.0018;
-        } else if (currentStageIndex === 3) {
-          particlesMesh.rotation.z += 0.002;
-        } else {
-          particlesMesh.rotation.y += 0.0008;
-        }
+      instancedMesh.instanceMatrix.needsUpdate = true;
+
+      // Auxiliary geometry animations
+      if (currentStageIndex === 2) {
+        synapseMesh.rotation.y += 0.0025;
+      } else if (currentStageIndex === 3) {
+        guardMesh.rotation.z += 0.0035;
       }
 
       // Update projected HUD and leader lines
