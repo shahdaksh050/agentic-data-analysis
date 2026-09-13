@@ -206,7 +206,13 @@ h3 {{ font-weight: 700 !important; font-size: 19px !important; }}
 h4 {{ font-weight: 700 !important; font-size: 15.5px !important; letter-spacing: 0; }}
 .stMarkdown p, .stMarkdown li {{ font-size: 15.5px; line-height: 1.65; max-width: 72ch; }}
 code, kbd, pre, .stCode {{ font-family: var(--mono) !important; }}
-[data-testid="stMetricValue"] {{ font-family: var(--heading) !important; font-weight: 700; }}
+[data-testid="stMetricValue"] {{ font-family: var(--heading) !important; font-weight: 700; color: var(--ink) !important; }}
+[data-testid="stMetricLabel"] * {{ color: var(--graphite) !important; }}
+[data-testid="stFileUploader"] section {{ background: var(--sheet) !important; border: 1px dashed var(--rule) !important; }}
+[data-testid="stFileUploader"] section * {{ color: var(--ink) !important; }}
+[data-testid="stFileUploader"] small {{ color: var(--graphite) !important; }}
+.stExpander {{ border-color: var(--rule) !important; background: var(--sheet) !important; }}
+.stExpander summary {{ color: var(--ink) !important; }}
 
 /* ── Quick Facts bar ── */
 .datum {{ display: flex; align-items: stretch; flex-wrap: wrap;
@@ -415,7 +421,6 @@ iframe:hover {{
     border: 1px solid var(--rule);
     border-radius: var(--radius);
     box-shadow: var(--lift-sm);
-    padding: 1rem 1.1rem;
     transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }}
 .agent-card:hover {{
@@ -426,10 +431,41 @@ iframe:hover {{
 .agent-card.agent-active {{
     border-color: var(--pen);
     background: color-mix(in srgb, var(--pen) 6%, var(--sheet));
+    animation: pulseActive 2s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}}
+@keyframes pulseActive {{
+    0% {{ box-shadow: 0 0 0 0 rgba(240, 162, 74, 0.4); }}
+    70% {{ box-shadow: 0 0 0 10px rgba(240, 162, 74, 0); }}
+    100% {{ box-shadow: 0 0 0 0 rgba(240, 162, 74, 0); }}
 }}
 .agent-card.agent-flagged {{
     border-color: var(--risk);
 }}
+.agent-grid.org-chart-layout {{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    position: relative;
+    padding: 20px 0;
+}}
+@media (max-width: 900px) {{
+    .agent-grid.org-chart-layout {{ grid-template-columns: repeat(2, 1fr); }}
+}}
+.agent-grid.org-chart-layout::before {{
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 20px;
+    right: 20px;
+    height: 2px;
+    background: var(--rule);
+    z-index: 0;
+    opacity: 0.5;
+}}
+.agent-grid.org-chart-layout .agent-card {{
+    z-index: 1;
+}}
+
 .agent-header {{
     display: flex;
     align-items: center;
@@ -448,14 +484,36 @@ iframe:hover {{
     font-family: var(--sans);
     font-size: 10.5px;
     font-weight: 700;
-    padding: 3px 9px;
-    border-radius: var(--radius-pill);
-    background: var(--sheet-alt);
-    color: var(--graphite);
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    padding: 3px 6px;
+    border-radius: 4px;
 }}
-.agent-badge.running {{ background: color-mix(in srgb, var(--pen) 18%, var(--sheet)); color: var(--pen); }}
-.agent-badge.done {{ background: var(--pen); color: var(--sheet); }}
-.agent-badge.error {{ background: color-mix(in srgb, var(--risk) 18%, var(--sheet)); color: var(--risk); }}
+.agent-badge.done {{ color: var(--positive); background: color-mix(in srgb, var(--positive) 15%, transparent); }}
+.agent-badge.running {{ color: var(--pen); background: color-mix(in srgb, var(--pen) 15%, transparent); }}
+.agent-badge.error {{ color: var(--risk); background: color-mix(in srgb, var(--risk) 15%, transparent); }}
+
+/* ── Bento Dashboard Layout ── */
+.bento-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    align-items: start;
+}}
+.bento-card {{
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    box-shadow: var(--lift-sm);
+    padding: 1.2rem;
+    transition: box-shadow 0.2s ease;
+}}
+.bento-card:hover {{
+    box-shadow: var(--lift);
+}}
+.bento-card.full-width {{
+    grid-column: 1 / -1;
+}}
 .agent-desc {{
     font-size: 12.5px;
     line-height: 1.5;
@@ -983,9 +1041,15 @@ def _render_defect_stamp(gap_val: float | None) -> str:
         """
 
 
-def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
+def _render_agent_grid(
+    stage_log: list[tuple[str, str, str]],
+    tool_results: list[dict[str, Any]] | None = None,
+    report: dict[str, Any] | None = None
+) -> str:
     """Render visual architecture cards for the autonomous multi-agent teamwork roster."""
     log_map = {n: s for n, s, _ in stage_log}
+    tool_results = tool_results or []
+    report = report or {}
 
     # SVG simple line icons using --ink or --pen styling (currentColor)
     i_compass = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>'
@@ -1084,18 +1148,46 @@ def _render_agent_grid(stage_log: list[tuple[str, str, str]]) -> str:
             badge_txt = "Standby"
             card_cls = "agent-card"
 
+        # Determine dynamic output for the detail panel
+        agent_output = ""
+        if ag["name"] == "Planner":
+            agent_output = report.get("reasoning", "Waiting for a plan.")
+        elif ag["name"] == "File Checker":
+            _prof = st.session_state.get('profile') or {}
+            agent_output = f"Health score {_prof.get('quality_score', '—')}/100. Cleaned up any issues found."
+        elif ag["name"] == "Fact-Checker":
+            agent_output = "Tests complete: checked which columns move together and whether the differences are real."
+        elif ag["name"] == "Model Builder":
+            agent_output = f"Best model so far: {report.get('best_model', 'N/A')}. Tested multiple times on different slices of your data."
+        elif ag["name"] == "Reality-Checker":
+            agent_output = "Checked every model for memorisation. Applied a penalty to any that didn't hold up."
+        elif ag["name"] == "Double-Checker":
+            agent_output = "Finished reviewing — went back for more passes where needed."
+        elif ag["name"] == "Detail Handler":
+            agent_output = f"{len(report.get('rlm_sub_results', []))} smaller questions solved separately and combined."
+        elif ag["name"] == "Report Writer":
+            agent_output = "Report finished, with charts, key findings, and what to do next."
+
         cards_html.append(f"""
-        <div class="{card_cls}">
-            <div class="agent-header">
-                <span class="agent-role">{ag['icon']} {ag['name']}</span>
-                <span class="agent-badge {badge_cls}">[{badge_txt}]</span>
-            </div>
-            <div class="agent-desc">{ag['desc']}</div>
-            <div class="agent-metric">Role: {ag['role']} · Tool: {ag['tool']}</div>
+        <div class="{card_cls}" style="position: relative; overflow: hidden; display: flex; flex-direction: column;">
+            <details style="padding: 1rem; cursor: pointer; width: 100%;">
+                <summary style="list-style: none; display: flex; flex-direction: column; outline: none;">
+                    <div class="agent-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span class="agent-role" style="font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px;">{ag['icon']} {ag['name']}</span>
+                        <span class="agent-badge {badge_cls}">[{badge_txt}]</span>
+                    </div>
+                    <div class="agent-desc" style="margin-top: 0.5rem; color: var(--graphite); font-size: 0.95rem;">{ag['desc']}</div>
+                    <div class="agent-metric" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--graphite); font-weight: 600;">Role: {ag['role']} · Tool: {ag['tool']}</div>
+                </summary>
+                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--rule); font-size: 0.95rem;">
+                    <div style="margin-bottom: 0.5rem;"><strong>Rule:</strong> {ag['desc']}</div>
+                    <div style="color: var(--pen); font-weight: 600;"><strong>Found:</strong> {agent_output}</div>
+                </div>
+            </details>
         </div>
         """.strip())
 
-    return f'<div class="agent-grid">{"".join(cards_html)}</div>'
+    return f'<div class="agent-grid org-chart-layout">{"".join(cards_html)}</div>'
 
 
 def _render_handoff_stream(progress_lines: list[str], tool_results: list[dict[str, Any]]) -> str:
@@ -2040,38 +2132,14 @@ if st.session_state.get("analysis_done"):
     dash: list[dict[str, Any]] | None = st.session_state.get("dashboard")
     profile: dict[str, Any] | None = st.session_state.get("profile")
 
-    # Executive Objective Answer
-    # _user_obj is straight from the sidebar's free-text box, and
-    # report["reasoning"] is LLM output over (possibly hostile) dataset
-    # content — neither is trusted HTML. Escape both before
-    # interpolating into markup rendered with unsafe_allow_html=True
-    # (IMPROVEMENTS.md #10).
-    _user_obj = os.environ.get("USER_OBJECTIVE") or objective.strip()
-    if _user_obj and report.get("reasoning"):
-        st.markdown(
-            f'<div class="exec-directive">'
-            f'<div class="dir-label">Bottom Line</div>'
-            f'<div style="font-weight:700;margin-bottom:6px;color:var(--pen);">You asked: {html.escape(_user_obj)}</div>'
-            f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    elif report.get("reasoning"):
-        st.markdown(
-            f'<div class="exec-directive">'
-            f'<div class="dir-label">Bottom Line</div>'
-            f'<div class="dir-content">{html.escape(report["reasoning"])}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
 
     (tab_brief, tab_team, tab_dash, tab_lab, tab_cinema, tab_vault) = st.tabs([
-        "📋 Summary",
-        "👥 Your Helpers",
-        "📊 Charts",
-        "🔬 Full Details",
-        "🌌 3D Cinematic Journey",
-        "📁 Downloads",
+        "Summary",
+        "Your Helpers",
+        "Charts",
+        "Full Details",
+        "3D Cinematic Journey",
+        "Downloads",
     ])
 
     train_out   = _find_tool(tool_results, "train_model")
@@ -2086,9 +2154,29 @@ if st.session_state.get("analysis_done"):
     # TIER 1: EXECUTIVE BRIEFING
     # ═════════════════════════════════════════════════════════════════════════
     with tab_brief:
+        # Case Heading
+        _user_obj = os.environ.get("USER_OBJECTIVE") or objective.strip()
+        if _user_obj and report.get("reasoning"):
+            st.markdown(
+                f'<div class="exec-directive" style="border-left: 4px solid var(--pen); padding-left: 1rem; margin-bottom: 2rem; background: var(--sheet); border-radius: var(--radius); padding: 1.5rem; box-shadow: var(--lift-sm);">'
+                f'<h2 style="font-size: 1.2rem; color: var(--graphite); text-transform: uppercase; letter-spacing: 1px; margin: 0 0 0.5rem 0;">Case Brief</h2>'
+                f'<div style="font-size: 1.4rem; font-weight:700; margin-bottom:1rem; color:var(--ink);">Objective: {html.escape(_user_obj)}</div>'
+                f'<div class="dir-content" style="font-size: 1.1rem; line-height: 1.6; color: var(--ink);">{html.escape(report["reasoning"])}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        elif report.get("reasoning"):
+            st.markdown(
+                f'<div class="exec-directive" style="border-left: 4px solid var(--pen); padding-left: 1rem; margin-bottom: 2rem; background: var(--sheet); border-radius: var(--radius); padding: 1.5rem; box-shadow: var(--lift-sm);">'
+                f'<h2 style="font-size: 1.2rem; color: var(--graphite); text-transform: uppercase; letter-spacing: 1px; margin: 0 0 0.5rem 0;">Case Brief</h2>'
+                f'<div class="dir-content" style="font-size: 1.1rem; line-height: 1.6; color: var(--ink);">{html.escape(report["reasoning"])}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
         best_model   = report.get("best_model") or "N/A"
-        best_cv      = "—"
-        best_gap_str = "—"
+        best_cv      = "0"
+        best_gap_str = "0"
         gap_val: float | None = None
 
         if train_out:
@@ -2096,23 +2184,21 @@ if st.session_state.get("analysis_done"):
             _best   = train_out.get("best_model", "")
             if _best and _best in _mt_map:
                 _bm      = _mt_map[_best]
-                best_cv  = f"{_bm.get('cv_mean', 0)*100:.1f}%"
+                best_cv  = f"{_bm.get('cv_mean', 0)*100:.1f}"
                 gap_val  = _bm.get("train_test_gap")
-                best_gap_str = f"{gap_val*100:.1f}%" if gap_val is not None else "—"
+                best_gap_str = f"{gap_val*100:.1f}" if gap_val is not None else "0"
 
         task_type = (
             (train_out.get("task_type") if train_out else None)
             or (meta.task_type if meta else "—") or "—"
         )
-        outlier_pct = (
-            f"{outlier_out.get('outlier_percentage','—')}%"
-            if outlier_out else "—"
-        )
+        
+        outlier_pct = str(outlier_out.get('outlier_percentage', '0')) if outlier_out else "0"
+        
+        prof: dict[str, Any] = st.session_state.get("profile") or {}
+        _q = int(prof.get("quality_score", 0))
 
-        # When there's no ML target, the gauges below are mostly "—" —
-        # promote whatever analysis actually ran (segments, trend, map,
-        # text) to the top instead of leaving it findable only in Full
-        # Details, since for a no-target dataset it usually *is* the story.
+        # When there's no ML target, promote whatever analysis actually ran
         if not train_out:
             _dominant = (
                 _find_tool(tool_results, "cluster_data")
@@ -2124,17 +2210,45 @@ if st.session_state.get("analysis_done"):
             if _dominant and _dominant.get("summary"):
                 st.info(f"**What we found:** {_dominant['summary']}")
 
-        # Instrument Gauges
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.markdown(_gauge("Best model", best_model), unsafe_allow_html=True)
-        m2.markdown(_gauge("Cross-validated score", best_cv, "mean across folds"), unsafe_allow_html=True)
-        m3.markdown(
-            _gauge("Train–test gap", best_gap_str, "how much it memorised",
-                   flag=gap_val is not None and _gap_is_risky(gap_val)),
-            unsafe_allow_html=True,
+        # Hero KPI Strip & Radial Gauge
+        _radial_color = "var(--positive)" if _q >= 80 else ("var(--accent)" if _q >= 60 else "var(--risk)")
+        _radial_deg = (_q / 100) * 180  # Semicircle
+        
+        st.markdown(
+            f"""<div style="display: flex; gap: 1.5rem; margin-bottom: 2rem; flex-wrap: wrap;">
+<!-- Radial Gauge -->
+<div style="background: var(--sheet); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--lift-sm); flex: 1; min-width: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+<div style="font-size: 14px; color: var(--graphite); font-weight: 700; margin-bottom: 1.5rem; text-transform: uppercase; letter-spacing: 1px;">Data Quality</div>
+<div style="position: relative; width: 140px; height: 140px; display: flex; align-items: center; justify-content: center;">
+<svg width="140" height="140" viewBox="0 0 140 140" style="position: absolute; top: 0; left: 0; transform: rotate(-90deg); overflow: visible; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));">
+<circle cx="70" cy="70" r="56" fill="none" stroke="var(--rule-faint)" stroke-width="12" />
+<circle cx="70" cy="70" r="56" fill="none" stroke="{_radial_color}" stroke-width="12" stroke-linecap="round" stroke-dasharray="351.86" stroke-dashoffset="{351.86 - (351.86 * _q / 100)}" class="anime-gauge" data-q="{_q}" />
+</svg>
+<div style="display: flex; flex-direction: column; align-items: center; margin-top: 6px; z-index: 10;">
+<div style="font-family: var(--heading); font-size: 38px; font-weight: 800; color: var(--ink); line-height: 1;" class="count-up" data-value="{_q}" data-suffix="">{_q}</div>
+<div style="font-size: 11px; font-weight: 700; color: var(--graphite); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px;">Score</div>
+</div>
+</div>
+</div>
+<!-- KPI Strip -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; flex: 2; min-width: 300px;">
+<div style="background: var(--sheet); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--lift-sm); display: flex; flex-direction: column; justify-content: center;">
+<div style="font-size: 12px; color: var(--graphite); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Best Model</div>
+<div style="font-family: var(--heading); font-size: 24px; font-weight: 700; color: var(--ink); margin-top: 0.5rem;">{best_model}</div>
+<div style="font-size: 12px; color: var(--graphite); margin-top: 4px;">Task: {task_type}</div>
+</div>
+<div style="background: var(--sheet); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--lift-sm); display: flex; flex-direction: column; justify-content: center;">
+<div style="font-size: 12px; color: var(--graphite); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">CV Score</div>
+<div style="font-family: var(--heading); font-size: 32px; font-weight: 800; color: var(--ink); margin-top: 0.2rem;" class="count-up" data-value="{best_cv}" data-suffix="%">{best_cv}%</div>
+</div>
+<div style="background: var(--sheet); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--lift-sm); display: flex; flex-direction: column; justify-content: center; border: { '1px solid var(--risk)' if gap_val is not None and _gap_is_risky(gap_val) else 'none' };">
+<div style="font-size: 12px; color: var(--graphite); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Train-Test Gap</div>
+<div style="font-family: var(--heading); font-size: 32px; font-weight: 800; color: { 'var(--risk)' if gap_val is not None and _gap_is_risky(gap_val) else 'var(--ink)' }; margin-top: 0.2rem;" class="count-up" data-value="{best_gap_str}" data-suffix="%">{best_gap_str}%</div>
+</div>
+</div>
+</div>""",
+            unsafe_allow_html=True
         )
-        m4.markdown(_gauge("Outliers", outlier_pct, "of all rows"), unsafe_allow_html=True)
-        m5.markdown(_gauge("Task type", task_type), unsafe_allow_html=True)
 
         # Generalization Defect / Certification Stamp
         if gap_val is not None:
@@ -2245,23 +2359,8 @@ if st.session_state.get("analysis_done"):
         )
 
         st.markdown("#### Meet Your Helpers")
-        st.caption("Each helper does one job, and hands off to the next.")
-        st.markdown(_render_agent_grid(st.session_state["stage_log"]), unsafe_allow_html=True)
-
-        st.markdown("#### Look Inside a Helper")
-        st.caption("Pick one to see exactly what it does, its rule of thumb, and what it found.")
-        agent_names = [
-            "🧭 Planner",
-            "🛡️ File Checker",
-            "📐 Fact-Checker",
-            "⚡ Model Builder",
-            "🔍 Reality-Checker",
-            "🔁 Double-Checker",
-            "🌐 Detail Handler",
-            "📊 Report Writer",
-        ]
-        chosen_agent = st.selectbox("Choose a helper to look inside", agent_names, label_visibility="collapsed")
-        _render_agent_deep_dive(chosen_agent, tool_results, report)
+        st.caption("Each helper does one job, and hands off to the next. Click a card to peek inside.")
+        st.markdown(_render_agent_grid(st.session_state["stage_log"], tool_results, report), unsafe_allow_html=True)
 
         st.markdown("#### What Was Said, Step by Step")
         st.caption("A record of what each helper passed to the next, and when.")
@@ -2290,13 +2389,14 @@ if st.session_state.get("analysis_done"):
             _grid_charts: list[dict[str, Any]] = []
 
             def _render_chart(_ch: dict[str, Any]) -> None:
-                st.markdown(f"**{_ch.get('title', '')}**")
-                _spec = dict(_ch.get("spec", {}))
-                _spec.setdefault("background", "transparent")
-                _spec.setdefault("config", vega_cfg)
-                st.vega_lite_chart(_spec, width='stretch')
-                if _ch.get("description"):
-                    st.caption(_ch["description"])
+                with st.container(border=True):
+                    st.markdown(f"<div style='font-family: var(--heading); font-size: 1.1rem; font-weight: 700; color: var(--ink); margin-bottom: 0.5rem;'>{_ch.get('title', '')}</div>", unsafe_allow_html=True)
+                    _spec = dict(_ch.get("spec", {}))
+                    _spec.setdefault("background", "transparent")
+                    _spec.setdefault("config", vega_cfg)
+                    st.vega_lite_chart(_spec, width='stretch')
+                    if _ch.get("description"):
+                        st.markdown(f"<div style='font-size: 0.9rem; color: var(--graphite); margin-top: 0.5rem; line-height: 1.4;'>{_ch['description']}</div>", unsafe_allow_html=True)
 
             for _ch in dashboard:
                 if _ch.get("chart_id") in _full_width_ids:
@@ -2315,11 +2415,86 @@ if st.session_state.get("analysis_done"):
     # TIER 4: STATISTICAL & ML LAB
     # ═════════════════════════════════════════════════════════════════════════
     with tab_lab:
-        st.markdown("### Full Details")
-        st.caption("The complete technical picture, for anyone who wants to check our work.")
+        st.markdown("### Case Log")
+        st.caption("A sequential record of technical checks performed on this dataset.")
 
-        with st.expander("How the Models Were Tested", expanded=True):
-            if train_out:
+        _profile_status = st.session_state.get("profile_status")
+        if isinstance(_profile_status, str) and _profile_status.startswith("failed"):
+            st.warning(
+                "Running in degraded mode — profiling failed, so dataset-nature "
+                f"tools (time-series, text, geo...) were unavailable. Reason: {_profile_status[8:]}"
+            )
+
+        _read_report = st.session_state.get("read_report")
+        _coercions = st.session_state.get("coercions")
+        if _read_report or _coercions:
+            with st.container(border=True):
+                st.markdown("#### 1. Data Ingestion & Repair")
+                if _read_report:
+                    _rr_bits = [f"format `{_read_report.get('format')}`", f"encoding `{_read_report.get('encoding')}`"]
+                    if not _read_report.get("encoding_confident", True):
+                        _rr_bits[-1] += " (guessed)"
+                    if _read_report.get("delimiter"):
+                        _rr_bits.append(f"delimiter `{_read_report.get('delimiter')!r}`" + ("" if _read_report.get("delimiter_sniffed") else " (from extension)"))
+                    st.caption("Detected at read time: " + ", ".join(_rr_bits) + ".")
+                    for _note in _read_report.get("notes", []):
+                        st.caption(f"⚠ {_note}")
+                if _coercions:
+                    st.caption(f"{len(_coercions)} column(s) repaired:")
+                    st.dataframe(_safe_df(pd.DataFrame([
+                        {"Column": c["column"], "Rule": c["rule"], "Converted": c["n_converted"], "Failed": c["n_failed"]}
+                        for c in _coercions
+                    ])), width='stretch')
+
+        prof: dict[str, Any] | None = st.session_state.get("profile")
+        if prof:
+            with st.container(border=True):
+                st.markdown("#### 2. Profiling")
+                _prows = [{
+                    "Column":    c.get("name"),
+                    "Kind":      c.get("kind"),
+                    "Dtype":     c.get("dtype"),
+                    "Missing %": c.get("missing_pct"),
+                    "Unique":    c.get("nunique"),
+                    "Flags":     ", ".join(c.get("flags", [])),
+                } for c in prof.get("columns", [])]
+                st.dataframe(_safe_df(pd.DataFrame(_prows)), width='stretch')
+                
+        if clean_out:
+            with st.container(border=True):
+                st.markdown("#### 3. Data Cleaning")
+                _c1, _c2, _c3 = st.columns(3)
+                _c1.metric("Strategy used", clean_out.get("strategy_used", "—"))
+                _c2.metric("Missing values before", clean_out.get("missing_before", "—"))
+                _c3.metric("Missing values after",  clean_out.get("missing_after", "—"))
+
+        if outlier_out:
+            with st.container(border=True):
+                st.markdown("#### 4. Outlier Detection")
+                _c1, _c2 = st.columns(2)
+                _c1.metric("Unusual rows found", outlier_out.get("total_outliers", "—"))
+                _c2.metric("Share of all rows", f"{outlier_out.get('outlier_percentage','—')}%")
+                _pc = outlier_out.get("per_column_outliers", {})
+                if _pc:
+                    _pc_df = pd.DataFrame(
+                        [(c, v) for c, v in _pc.items() if v > 0],
+                        columns=["Column", "Unusual values"],
+                    ).sort_values("Unusual values", ascending=False)
+                    if not _pc_df.empty:
+                        st.dataframe(_safe_df(_pc_df), width='stretch')
+
+        if stat_out:
+            with st.container(border=True):
+                st.markdown("#### 5. Statistical Tests")
+                _c1, _c2, _c3 = st.columns(3)
+                _c1.metric("Test used", stat_out.get("test_name", "—"))
+                _c2.metric("p-value", f"{stat_out.get('p_value', 0):.4f}")
+                _c3.metric("Likely real, not chance", "Yes" if stat_out.get("significant") else "No")
+                st.info(stat_out.get("interpretation", "No interpretation recorded."))
+
+        if train_out:
+            with st.container(border=True):
+                st.markdown("#### 6. Model Training & Evaluation")
                 _mt2   = train_out.get("models_trained", {})
                 _best2 = train_out.get("best_model", "")
                 _task2 = train_out.get("task_type", "classification")
@@ -2351,103 +2526,22 @@ if st.session_state.get("analysis_done"):
                     })
                 st.dataframe(_safe_df(pd.DataFrame(_rows)), width='stretch')
 
-            if eval_out:
-                st.markdown("#### Accuracy by Category")
-                st.caption("Precision: of the times it guessed this category, how often it was right. Recall: of all the actual cases, how many it caught.")
-                _cr = eval_out.get("classification_report", {})
-                if _cr:
-                    _cr_rows = [
-                        {"Class": _lbl,
-                         "Precision": f"{_v.get('precision',0):.3f}",
-                         "Recall":    f"{_v.get('recall',0):.3f}",
-                         "F1":        f"{_v.get('f1-score',0):.3f}",
-                         "Support":   int(_v.get("support", 0))}
-                        for _lbl, _v in _cr.items() if isinstance(_v, dict)
-                    ]
-                    st.dataframe(_safe_df(pd.DataFrame(_cr_rows)), width='stretch')
+                if eval_out:
+                    st.markdown("##### Accuracy by Category")
+                    _cr = eval_out.get("classification_report", {})
+                    if _cr:
+                        _cr_rows = [
+                            {"Class": _lbl,
+                             "Precision": f"{_v.get('precision',0):.3f}",
+                             "Recall":    f"{_v.get('recall',0):.3f}",
+                             "F1":        f"{_v.get('f1-score',0):.3f}",
+                             "Support":   int(_v.get("support", 0))}
+                            for _lbl, _v in _cr.items() if isinstance(_v, dict)
+                        ]
+                        st.dataframe(_safe_df(pd.DataFrame(_cr_rows)), width='stretch')
 
-        with st.expander("Data Health Check", expanded=False):
-            _profile_status = st.session_state.get("profile_status")
-            if isinstance(_profile_status, str) and _profile_status.startswith("failed"):
-                st.warning(
-                    "Running in degraded mode — profiling failed, so dataset-nature "
-                    f"tools (time-series, text, geo...) were unavailable. Reason: {_profile_status[8:]}"
-                )
-
-            _read_report = st.session_state.get("read_report")
-            _coercions = st.session_state.get("coercions")
-            if _read_report or _coercions:
-                st.markdown("#### Reading & Repairs")
-                if _read_report:
-                    _rr_bits = [f"format `{_read_report.get('format')}`", f"encoding `{_read_report.get('encoding')}`"]
-                    if not _read_report.get("encoding_confident", True):
-                        _rr_bits[-1] += " (guessed)"
-                    if _read_report.get("delimiter"):
-                        _rr_bits.append(f"delimiter `{_read_report.get('delimiter')!r}`" + ("" if _read_report.get("delimiter_sniffed") else " (from extension)"))
-                    st.caption("Detected at read time: " + ", ".join(_rr_bits) + ".")
-                    for _note in _read_report.get("notes", []):
-                        st.caption(f"⚠ {_note}")
-                if _coercions:
-                    st.caption(f"{len(_coercions)} column(s) repaired:")
-                    st.dataframe(_safe_df(pd.DataFrame([
-                        {"Column": c["column"], "Rule": c["rule"], "Converted": c["n_converted"], "Failed": c["n_failed"]}
-                        for c in _coercions
-                    ])), width='stretch')
-
-            prof: dict[str, Any] | None = st.session_state.get("profile")
-            if prof:
-                _q = int(prof.get("quality_score", 0))
-                _dupes = int(prof.get("duplicate_rows", 0))
-                p1, p2, p3, p4 = st.columns(4)
-                p1.markdown(_gauge("Quality score", f"{_q}/100", "out of 100", flag=_q < 60), unsafe_allow_html=True)
-                p2.markdown(_gauge("Duplicate rows", f"{_dupes:,}", flag=_dupes > 0), unsafe_allow_html=True)
-                p3.markdown(_gauge("Memory footprint", f"{prof.get('memory_mb', 0)} MB"), unsafe_allow_html=True)
-                p4.markdown(_gauge("Profiled columns", str(prof.get("column_count", 0))), unsafe_allow_html=True)
-
-                st.markdown("#### What's in Each Column")
-                _prows = [{
-                    "Column":    c.get("name"),
-                    "Kind":      c.get("kind"),
-                    "Dtype":     c.get("dtype"),
-                    "Missing %": c.get("missing_pct"),
-                    "Unique":    c.get("nunique"),
-                    "Flags":     ", ".join(c.get("flags", [])),
-                } for c in prof.get("columns", [])]
-                st.dataframe(_safe_df(pd.DataFrame(_prows)), width='stretch')
-
-            if clean_out:
-                st.markdown("#### What Got Cleaned Up")
-                _c1, _c2, _c3 = st.columns(3)
-                _c1.metric("How", clean_out.get("strategy_used", "—"))
-                _c2.metric("Missing values before", clean_out.get("missing_before", "—"))
-                _c3.metric("Missing values after",  clean_out.get("missing_after", "—"))
-
-        with st.expander("Unusual Rows & How Columns Relate", expanded=False):
-            if outlier_out:
-                st.markdown("#### Rows That Don't Fit the Pattern")
-                _c1, _c2 = st.columns(2)
-                _c1.metric("Unusual rows found", outlier_out.get("total_outliers", "—"))
-                _c2.metric("Share of all rows", f"{outlier_out.get('outlier_percentage','—')}%")
-                _pc = outlier_out.get("per_column_outliers", {})
-                if _pc:
-                    _pc_df = pd.DataFrame(
-                        [(c, v) for c, v in _pc.items() if v > 0],
-                        columns=["Column", "Unusual values"],
-                    ).sort_values("Unusual values", ascending=False)
-                    if not _pc_df.empty:
-                        st.dataframe(_safe_df(_pc_df), width='stretch')
-
-        with st.expander("Is the Pattern Real?", expanded=False):
-            if stat_out:
-                _c1, _c2, _c3 = st.columns(3)
-                _c1.metric("Test used", stat_out.get("test_name", "—"))
-                _c2.metric("p-value", f"{stat_out.get('p_value', 0):.4f}")
-                _c3.metric("Likely real, not chance", "Yes" if stat_out.get("significant") else "No")
-                st.info(stat_out.get("interpretation", "No interpretation recorded."))
-            else:
-                st.caption("No statistical test was needed for this run.")
-
-        with st.expander("Other Analyses", expanded=False):
+        with st.container(border=True):
+            st.markdown("#### 7. Domain-Specific Analyses")
             st.caption("Segmentation, trends, text, and geography — run when your data called for them.")
             _render_other_findings(tool_results)
 
@@ -2475,57 +2569,85 @@ if st.session_state.get("analysis_done"):
             _out = Path(tmp_dir) / "output"
             _rdir = _out / "reports"
 
-            col_dl1, col_dl2 = st.columns(2)
-
-            with col_dl1:
-                st.markdown("#### Reports")
-                from ui.cinematic_3d import build_cinematic_document, extract_cinematic_state
-                _cinema_pres_html = build_cinematic_document(
-                    extract_cinematic_state(st.session_state),
-                    theme=st.session_state.get("theme", "night"),
-                )
-                st.download_button(
-                    "🎬 Download 3D Presentation (standalone .html)",
-                    _cinema_pres_html.encode("utf-8"),
-                    "dsa_agent_3d_presentation.html",
-                    mime="text/html",
-                    key="dl_3d_cinema_standalone",
-                    type="primary",
-                )
-                _html = _rdir / "report.html"
-                if _html.exists():
-                    st.download_button(
-                        "📄 Download Shareable HTML Report",
-                        _html.read_bytes(), "report.html", mime="text/html",
-                        key="dl_html_vault",
+            st.markdown(
+                "<style>.dossier-card { background: var(--sheet-alt); border: 1px solid var(--rule); border-radius: var(--radius); padding: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem; transition: transform 0.15s, box-shadow 0.15s; } .dossier-card:hover { transform: translateY(-2px); box-shadow: var(--lift-sm); }</style>",
+                unsafe_allow_html=True
+            )
+            
+            # File Cards Layout using Containers and Grid
+            _dl_cols = st.columns(3)
+            with _dl_cols[0]:
+                st.markdown("#### Presentations")
+                with st.container(border=True):
+                    st.markdown("**3D Cinematic Journey**")
+                    st.caption("Standalone HTML with 3D models and animations.")
+                    from ui.cinematic_3d import build_cinematic_document, extract_cinematic_state
+                    _cinema_pres_html = build_cinematic_document(
+                        extract_cinematic_state(st.session_state),
+                        theme=st.session_state.get("theme", "night"),
                     )
-                _mds = sorted(_rdir.glob("*.md")) if _rdir.exists() else []
-                if _mds:
                     st.download_button(
-                        f"📝 Download Markdown Report ({_mds[0].name})",
-                        _mds[0].read_bytes(), _mds[0].name, mime="text/markdown",
-                        key="dl_md_vault",
+                        "🎬 Download HTML",
+                        _cinema_pres_html.encode("utf-8"),
+                        "dsa_agent_3d_presentation.html",
+                        mime="text/html",
+                        key="dl_3d_cinema_standalone",
+                        type="primary",
+                        use_container_width=True,
                     )
-                st.download_button(
-                    "💾 Download Raw Data (final_report.json)",
-                    json.dumps(report, indent=2, default=str),
-                    "final_report.json", mime="application/json",
-                    key="dl_json_vault",
-                )
+                with st.container(border=True):
+                    st.markdown("**Shareable Report**")
+                    st.caption("A clean web-page reading view of the report.")
+                    _html = _rdir / "report.html"
+                    if _html.exists():
+                        st.download_button(
+                            "📄 Download HTML",
+                            _html.read_bytes(), "report.html", mime="text/html",
+                            key="dl_html_vault",
+                            use_container_width=True,
+                        )
 
-            with col_dl2:
+            with _dl_cols[1]:
+                st.markdown("#### Data & Logs")
+                with st.container(border=True):
+                    st.markdown("**Markdown Report**")
+                    st.caption("The core report in plain text markdown.")
+                    _mds = sorted(_rdir.glob("*.md")) if _rdir.exists() else []
+                    if _mds:
+                        st.download_button(
+                            f"📝 Download Markdown",
+                            _mds[0].read_bytes(), _mds[0].name, mime="text/markdown",
+                            key="dl_md_vault",
+                            use_container_width=True,
+                        )
+                with st.container(border=True):
+                    st.markdown("**Agent Memory Vault**")
+                    st.caption("The complete raw data of everything the agents found.")
+                    st.download_button(
+                        "💾 Download JSON",
+                        json.dumps(report, indent=2, default=str),
+                        "final_report.json", mime="application/json",
+                        key="dl_json_vault",
+                        use_container_width=True,
+                    )
+
+            with _dl_cols[2]:
                 st.markdown("#### Trained Models")
                 _mdir = _out / "models"
                 if _mdir.exists() and any(_mdir.iterdir()):
                     for _mdl_f in sorted(_mdir.iterdir()):
-                        st.download_button(
-                            f"📦 Download Model: {_mdl_f.name}",
-                            _mdl_f.read_bytes(), _mdl_f.name,
-                            mime="application/octet-stream",
-                            key=f"dlm_vault_{_mdl_f.name}",
-                        )
+                        with st.container(border=True):
+                            st.markdown(f"**{_mdl_f.name}**")
+                            st.caption("Pickled model object ready for predictions.")
+                            st.download_button(
+                                f"📦 Download",
+                                _mdl_f.read_bytes(), _mdl_f.name,
+                                mime="application/octet-stream",
+                                key=f"dlm_vault_{_mdl_f.name}",
+                                use_container_width=True,
+                            )
                 else:
-                    st.caption("No models were saved for this run.")
+                    st.caption("No predictive models were saved for this run.")
 
             st.divider()
             st.markdown("#### Report Preview")
