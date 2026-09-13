@@ -765,6 +765,33 @@
       }
     }
 
+    /* COMPACT MODE (workspace hero box): the brand block collides with section text at this size */
+    html.compact .brand-badge {
+      display: none;
+    }
+
+    /* STEP 0 (compact mode only): title and scroll hint over the unformed particle cloud */
+    .intro-title {
+      margin-bottom: 14px;
+    }
+
+    .intro-hint {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--graphite);
+      animation: bounce 2s infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .intro-hint {
+        animation: none;
+      }
+    }
+
     /* Watermark Occlusion Fix: completely remove fullPage.js license badge */
     .fp-watermark {
       display: none !important;
@@ -864,12 +891,13 @@
         </div>
       </div>
       <div class="quick-pills">
-        <button class="pill-btn active" onclick="fullpage_api.moveTo(1)">01 Overview</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(2)">02 Ingestion</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(3)">03 Statistics</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(4)">04 ML Pipeline</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(5)">05 Overfit Guard</button>
-        <button class="pill-btn" onclick="fullpage_api.moveTo(6)">06 Executive</button>
+        <!-- Anchor names, not section numbers, so compact mode's step 0 doesn't shift the targets -->
+        <button class="pill-btn active" onclick="fullpage_api.moveTo('overview')">01 Overview</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('ingestion')">02 Ingestion</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('stats')">03 Statistics</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('pipeline')">04 ML Pipeline</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('diagnostics')">05 Overfit Guard</button>
+        <button class="pill-btn" onclick="fullpage_api.moveTo('report')">06 Executive</button>
       </div>
     </div>
 
@@ -1213,6 +1241,22 @@
     if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.theme === 'day') {
       document.documentElement.classList.add('theme-day');
       document.body.classList.add('theme-day');
+    }
+
+    // Compact mode (workspace hero box): hide the brand block and open on a text-light step 0.
+    // Inserted before fullPage.js initialises so it becomes the first section.
+    if (window.__CINEMATIC_STATE__ && window.__CINEMATIC_STATE__.compact) {
+      document.documentElement.classList.add('compact');
+      const introSection = document.createElement('section');
+      introSection.className = 'section intro-section';
+      introSection.setAttribute('data-anchor', 'intro');
+      introSection.innerHTML =
+        '<div class="section-content-wrapper">' +
+          '<h2 class="section-title intro-title">Your analysis, step by step</h2>' +
+          '<div class="intro-hint"><span>Scroll to begin</span><span aria-hidden="true">↓</span></div>' +
+        '</div>';
+      const fullpageRoot = document.getElementById('fullpage');
+      if (fullpageRoot) fullpageRoot.insertBefore(introSection, fullpageRoot.firstElementChild);
     }
 
     // Apply dynamic palette tokens if provided

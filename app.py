@@ -807,7 +807,7 @@ def _draw_pipeline_rig(slot: Any) -> list[Any]:
     with slot.container():
         if st.session_state.get("show_cinematic_hero", False):
             from ui.cinematic_3d import render_cinematic
-            render_cinematic(st.session_state, height=480, theme=cur_theme)
+            render_cinematic(st.session_state, height=480, theme=cur_theme, compact=True)
         else:
             render_pipeline(stages, height=420, theme=cur_theme)
     return stages

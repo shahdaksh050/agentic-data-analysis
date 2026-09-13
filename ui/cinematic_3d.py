@@ -312,10 +312,16 @@ def render_cinematic(
     *,
     height: int = 860,
     theme: str = "night",
+    compact: bool = False,
 ) -> None:
     """Mount the 6-Section Cinematic Experience in Streamlit.
 
     Uses st.iframe when available, falling back to components.html.
+
+    Args:
+        compact: Small-viewport mode for the workspace hero box. Opens on a text-light
+            step 0 (a loose particle cloud that assembles into step 1) and hides the
+            header brand block, which otherwise collides with the section text.
     """
     if isinstance(state_or_session, dict) and "dataset" in state_or_session:
         state_dict = state_or_session
@@ -325,6 +331,7 @@ def render_cinematic(
         state_dict = extract_cinematic_state(st.session_state)
 
     state_dict["theme"] = theme
+    state_dict["compact"] = compact
     doc = build_cinematic_document(state_dict, theme=theme)
 
     if hasattr(st, "iframe"):

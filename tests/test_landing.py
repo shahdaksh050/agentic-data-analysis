@@ -71,6 +71,33 @@ def test_landing_fullpage_licensing_and_cta() -> None:
     assert "enter-btn" in content
 
 
+def test_landing_cro_best_practices() -> None:
+    """Validates CRO and SEO best practices required by /landing-page-generator."""
+    content = INDEX_HTML.read_text(encoding="utf-8")
+
+    # 1. SEO & OpenGraph meta tags
+    assert 'name="description"' in content
+    assert 'property="og:title"' in content
+    assert 'name="twitter:card"' in content
+
+    # 2. JSON-LD structured schema
+    assert "application/ld+json" in content
+    assert "SoftwareApplication" in content
+
+    # 3. Above-the-fold dual CTA in Hero section
+    assert "hero-enter-btn" in content
+    assert "hero-explore-btn" in content
+
+    # 4. Trust signals and microcopy
+    assert "trust-list" in content
+    assert "Local REPL Sandbox" in content
+    assert "Generalization Guard" in content
+
+    # 5. Keyboard navigation affordances
+    assert "keydown" in content
+    assert "Space" in content
+
+
 def test_show_landing_page_signature_and_execution(monkeypatch: pytest.MonkeyPatch) -> None:
     import streamlit as st
     import ui.landing as landing_mod
